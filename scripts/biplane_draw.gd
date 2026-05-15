@@ -3,6 +3,9 @@ extends Node2D
 @export var plane_color: Color = Color(0.9, 0.3, 0.3)
 @export var wing_color: Color = Color(0.1, 0.1, 0.2)
 
+func _ready() -> void:
+	queue_redraw()
+
 func _draw() -> void:
 	var body_points: PackedVector2Array = [
 		Vector2(20, 0),

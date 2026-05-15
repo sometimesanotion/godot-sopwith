@@ -58,7 +58,8 @@ func _process(_delta: float) -> void:
 		var speed := int(biplane.get_speed())
 		speed_label.text = "SPEED: %d" % speed
 
-		var alt := int(720 - biplane.position.y)
+		var ground_y := 650.0
+		var alt := int(ground_y - biplane.position.y)
 		alt = maxi(0, alt)
 		altitude_label.text = "ALT: %d" % alt
 
@@ -66,8 +67,12 @@ func _process(_delta: float) -> void:
 			stall_warning.visible = true
 			var flash := sin(Time.get_ticks_msec() * 0.02) * 0.5 + 0.5
 			stall_warning.modulate = Color(1, flash, flash)
+			if SoundManager:
+				SoundManager.play_stall_warning()
 		else:
 			stall_warning.visible = false
+			if SoundManager:
+				SoundManager.stop_stall_warning()
 	else:
 		stall_warning.visible = false
 

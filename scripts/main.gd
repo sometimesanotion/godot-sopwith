@@ -29,10 +29,16 @@ var is_respawning: bool = false
 var screen_shake_intensity: float = 0.0
 
 func _ready() -> void:
+	add_to_group("main")
 	_load_keybindings()
 	if GameManager:
 		GameManager.screen_shake_requested.connect(_on_screen_shake)
 	_show_title_screen()
+
+func get_biplane_position() -> float:
+	if biplane:
+		return biplane.position.x
+	return 400.0
 
 func _load_keybindings() -> void:
 	var config = ConfigFile.new()
@@ -102,17 +108,21 @@ func _on_start_game() -> void:
 	if GameManager:
 		GameManager.reset_game()
 	if biplane:
-		biplane.position = Vector2(400, 500)
+		biplane.position = Vector2(400, 450)
 		biplane.rotation = 0
-		biplane.velocity = Vector2.ZERO
+		biplane.velocity = Vector2(50, 0)
 		if biplane.has_method("reset_flight_state"):
 			biplane.reset_flight_state()
 		biplane.set_player(true)
 		biplane.add_to_group("player")
 		if biplane.has_signal("crashed"):
 			biplane.crashed.connect(_on_biplane_crashed)
+		print("Biplane spawned at: ", biplane.position)
 	if camera:
-		camera.position = biplane.position
+		camera.position = Vector2(400, 450)
+		print("Camera position set to: ", camera.position)
+	if SoundManager:
+		SoundManager.play_music()
 	_create_ghost_biplane()
 	_spawn_enemies_and_targets()
 
@@ -159,6 +169,8 @@ func _physics_process(delta: float) -> void:
 func _on_biplane_crashed() -> void:
 	is_respawning = true
 	respawn_timer = RESPAWN_DELAY
+	if SoundManager:
+		SoundManager.play_explosion()
 
 func _respawn_biplane() -> void:
 	is_respawning = false

@@ -8,8 +8,16 @@ var clouds: Array[Vector2] = []
 var mountain_colors: Array[Color] = []
 var cloud_colors: Array[Color] = []
 
+var camera: Camera2D
+
 func _ready() -> void:
 	_initialize_background_elements()
+	_find_camera()
+
+func _find_camera() -> void:
+	var main = get_parent()
+	if main and main.has_node("Camera2D"):
+		camera = main.get_node("Camera2D")
 
 func _initialize_background_elements() -> void:
 	var screen_width := 1280.0
@@ -28,6 +36,11 @@ func _initialize_background_elements() -> void:
 		clouds.append(Vector2(x, y))
 		var shade := 0.6 + randf() * 0.2
 		cloud_colors.append(Color(shade, shade, shade))
+
+func _process(_delta: float) -> void:
+	if camera:
+		position.x = -camera.position.x + 640
+		position.y = -camera.position.y + 360
 
 func _draw() -> void:
 	_draw_gradient_sky()

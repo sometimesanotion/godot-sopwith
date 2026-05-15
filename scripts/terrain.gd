@@ -13,11 +13,23 @@ var collision_polygon: CollisionPolygon2D
 @export var ground_color: Color = Color(0.2, 0.5, 0.2)
 @export var runway_color: Color = Color(0.4, 0.4, 0.45)
 
+var camera: Camera2D
+
 func _ready() -> void:
 	_initialize_noise()
 	_generate_terrain()
 	_create_visual_line()
 	_create_collision()
+
+func _process(_delta: float) -> void:
+	_update_position()
+
+func _update_position() -> void:
+	var main := get_parent()
+	if main and main.has_method("get_biplane_position"):
+		var player_x: float = main.get_biplane_position()
+		var viewport_width: float = 1280.0
+		position.x = wrapf(player_x - viewport_width / 2, 0, TERRAIN_LENGTH)
 
 func _initialize_noise() -> void:
 	noise = FastNoiseLite.new()
@@ -73,6 +85,10 @@ func _update_visual_line() -> void:
 		gradient_texture.width = 64
 
 		visual_line.texture = gradient_texture
+
+func _process(_delta: float) -> void:
+	if camera:
+		position.x = -camera.position.x + 640
 
 func _create_collision() -> void:
 	collision_polygon = CollisionPolygon2D.new()

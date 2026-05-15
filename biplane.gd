@@ -81,6 +81,12 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_check_ground_collision()
 	_check_fuel_consumption(delta)
+	
+	if is_player:
+		if Input.is_action_pressed("fire"):
+			print("FIRE pressed, ammo: ", current_ammo)
+		if Input.is_action_just_pressed("bomb"):
+			print("BOMB pressed, bombs: ", current_bombs)
 
 func _handle_input(delta: float) -> void:
 	if flight_state == FlightState.STALLED or flight_state == FlightState.FALLING:
@@ -306,6 +312,9 @@ func _fire_gun() -> void:
 
 	get_parent().add_child(bullet)
 	fired_bullet.emit(spawn_pos, direction, bullet_speed, self, range_percent)
+	
+	if SoundManager:
+		SoundManager.play_machine_gun()
 
 func _find_nearest_enemy() -> Node:
 	var nearest: Node = null
@@ -350,6 +359,9 @@ func _drop_bomb() -> void:
 func _check_fuel_consumption(delta: float) -> void:
 	if is_player and GameManager and throttle > 0:
 		GameManager.use_fuel(throttle * delta * 2.0)
+	
+	if is_player and SoundManager:
+		SoundManager.play_engine(throttle)
 
 func set_player(p: bool) -> void:
 	is_player = p
