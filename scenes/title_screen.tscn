@@ -44,7 +44,7 @@ text = "Key Settings (K)"
 
 [node name="ControlsLabel" type="Label" parent="VBoxContainer"]
 layout_mode = 2
-text = "X/Z: Throttle | ,//: Pitch | .: Flip | Space: Fire | B: Bomb | L-Shift: Home"
+text = "X/Z: Throttle | ,//: Pitch | .: Flip | Space: Fire | B: Bomb | L-Shift: Home | Q: Exit"
 horizontal_alignment = 1
 
 [connection signal="pressed" from="VBoxContainer/KeySettingsButton" to="." method="_on_key_settings_pressed"]

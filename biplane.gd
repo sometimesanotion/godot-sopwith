@@ -368,7 +368,7 @@ func get_bombs() -> int:
 
 func reset_flight_state() -> void:
 	flight_state = FlightState.FLYING
-	throttle = 0.5
+	throttle = 0.0
 	angular_velocity = 0.0
 	is_stalled = false
 	velocity = Vector2.ZERO

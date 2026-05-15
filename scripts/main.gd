@@ -81,6 +81,30 @@ func _input(event: InputEvent) -> void:
 				biplane.disable_autopilot()
 			else:
 				biplane.enable_autopilot()
+	
+	if event.is_action_pressed("abort"):
+		if game_state == "PLAYING":
+			_abort_game()
+
+func _abort_game() -> void:
+	game_state = "TITLE"
+	is_paused = false
+	if biplane:
+		biplane.velocity = Vector2.ZERO
+		biplane.autopilot_enabled = false
+	if pause_menu:
+		pause_menu.queue_free()
+		pause_menu = null
+	get_tree().paused = false
+	_clear_game_objects()
+	_show_title_screen()
+
+func _clear_game_objects() -> void:
+	var children = get_children()
+	for child in children:
+		if child != biplane and child != camera and child != terrain and child != ui and child != Background:
+			if child.has_method("queue_free"):
+				child.queue_free()
 
 func _toggle_pause() -> void:
 	if game_state != "PLAYING":
