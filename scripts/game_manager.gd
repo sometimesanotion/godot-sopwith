@@ -52,8 +52,8 @@ func use_fuel(amount: float) -> void:
 	fuel = max(0, fuel - amount)
 	fuel_changed.emit(fuel)
 
-func refuel() -> void:
-	fuel = MAX_FUEL
+func refuel(amount: float = MAX_FUEL) -> void:
+	fuel = min(MAX_FUEL, fuel + amount)
 	fuel_changed.emit(fuel)
 
 func use_ammo() -> bool:
@@ -68,9 +68,17 @@ func use_bomb() -> bool:
 		return true
 	return false
 
-func reload_weapons() -> void:
-	ammo = MAX_AMMO
-	bombs = MAX_BOMBS
+func reload_weapons(amount: float = 0.0) -> void:
+	if amount > 0:
+		ammo = min(MAX_AMMO, ammo + amount * 50)
+	else:
+		ammo = MAX_AMMO
+
+func reload_bombs(amount: float = 0.0) -> void:
+	if amount > 0:
+		bombs = min(MAX_BOMBS, bombs + amount)
+	else:
+		bombs = MAX_BOMBS
 
 func game_over() -> void:
 	game_state = "GAME_OVER"

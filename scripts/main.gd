@@ -4,6 +4,7 @@ extends Node2D
 @onready var biplane: CharacterBody2D = $Biplane
 @onready var terrain: Node2D = $Terrain
 @onready var ui: CanvasLayer = $UI
+@onready var minimap: Control = $UI/Minimap
 
 const TERRAIN_LENGTH := 4096.0
 const VIEWPORT_MIN_X := 0.0
@@ -17,6 +18,7 @@ const GAME_OVER_SCENE := preload("res://scenes/game_over.tscn")
 const PAUSE_MENU_SCENE := preload("res://scenes/pause_menu.tscn")
 const ENEMY_SCENE := preload("res://scenes/enemy_biplane.tscn")
 const GROUND_TARGET_SCENE := preload("res://scenes/ground_target.tscn")
+const MINIMAP_SCENE := preload("res://scenes/minimap.tscn")
 
 var ghost_biplane: Node2D
 var ghost_terrain: Node2D
@@ -27,6 +29,8 @@ var is_paused: bool = false
 var respawn_timer: float = 0.0
 var is_respawning: bool = false
 var screen_shake_intensity: float = 0.0
+var enemies: Array = []
+var minimap_instance: Control = null
 
 func _ready() -> void:
 	add_to_group("main")
@@ -108,25 +112,25 @@ func _on_start_game() -> void:
 	if GameManager:
 		GameManager.reset_game()
 	if biplane:
-		biplane.position = Vector2(400, 450)
+		biplane.position = Vector2(400, 630)
 		biplane.rotation = 0
-		biplane.velocity = Vector2(50, 0)
+		biplane.velocity = Vector2.ZERO
 		if biplane.has_method("reset_flight_state"):
 			biplane.reset_flight_state()
 		biplane.set_player(true)
 		biplane.add_to_group("player")
 		if biplane.has_signal("crashed"):
 			biplane.crashed.connect(_on_biplane_crashed)
-		print("Biplane spawned at: ", biplane.position)
 	if camera:
-		camera.position = Vector2(400, 450)
-		print("Camera position set to: ", camera.position)
+		camera.position = Vector2(400, 500)
 	if SoundManager:
 		SoundManager.play_music()
+	_create_minimap()
 	_create_ghost_biplane()
 	_spawn_enemies_and_targets()
 
 func _spawn_enemies_and_targets() -> void:
+	enemies.clear()
 	for i in range(3):
 		var enemy := ENEMY_SCENE.instantiate()
 		enemy.position = Vector2(800 + i * 500, 300 + randf() * 200)
@@ -136,11 +140,27 @@ func _spawn_enemies_and_targets() -> void:
 			ai.target = biplane
 			ai.biplane = enemy
 		add_child(enemy)
+		enemies.append(enemy)
 
-	for i in range(5):
+	_create_home_base()
+
+func _create_home_base() -> void:
+	var building := GROUND_TARGET_SCENE.instantiate()
+	building.target_type = "building"
+	building.position = Vector2(350, 650)
+	building.has_aa = false
+	add_child(building)
+	
+	var fuel_tank := GROUND_TARGET_SCENE.instantiate()
+	fuel_tank.target_type = "fuel_tank"
+	fuel_tank.position = Vector2(480, 640)
+	fuel_tank.has_aa = false
+	add_child(fuel_tank)
+
+	for i in range(3):
 		var target := GROUND_TARGET_SCENE.instantiate()
 		target.target_type = ["building", "hangar", "tank"].pick_random()
-		target.position = Vector2(600 + i * 600, 650)
+		target.position = Vector2(800 + i * 600, 650)
 		if target.target_type == "building":
 			target.has_aa = false
 		else:
@@ -160,6 +180,7 @@ func _physics_process(delta: float) -> void:
 		_update_camera(delta)
 		_check_runway_landing()
 		_update_ghost_terrain()
+		_update_minimap()
 
 	if is_respawning:
 		respawn_timer -= delta
@@ -226,14 +247,20 @@ func _check_runway_landing() -> void:
 	if terrain.has_method("is_on_runway") and terrain.has_method("get_ground_height_at"):
 		var ground_y: float = terrain.get_ground_height_at(biplane.position.x)
 		if terrain.is_on_runway(biplane.position.x):
-			if biplane.position.y >= ground_y - 5:
-				if biplane.get_speed() < 20:
-					_on_landed()
+			if biplane.position.y >= ground_y - 10:
+				if biplane.get_speed() < 30:
+					_on_landed(delta)
 
-func _on_landed() -> void:
+var refuel_rate: float = 10.0
+
+func _on_landed(delta: float) -> void:
 	if GameManager:
-		GameManager.refuel()
-		GameManager.reload_weapons()
+		if GameManager.fuel < 100:
+			GameManager.refuel(refuel_rate * delta)
+		if GameManager.ammo < 100:
+			GameManager.reload_weapons(delta)
+		if GameManager.bombs < 5:
+			GameManager.reload_bombs(delta)
 
 func _create_ghost_biplane() -> void:
 	ghost_biplane = Node2D.new()
@@ -293,3 +320,16 @@ func _update_ghost_terrain() -> void:
 		ghost_terrain.position.y = 0
 	else:
 		ghost_terrain.visible = false
+
+func _create_minimap() -> void:
+	minimap_instance = MINIMAP_SCENE.instantiate()
+	ui.add_child(minimap_instance)
+	minimap_instance.update_home(HOME_BASE.x)
+	if terrain and terrain.has_method("get_ground_points"):
+		minimap_instance.update_terrain(terrain.get_ground_points())
+
+func _update_minimap() -> void:
+	if not minimap_instance or not biplane:
+		return
+	minimap_instance.update_player(biplane.position)
+	minimap_instance.update_enemies(enemies)

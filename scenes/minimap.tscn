@@ -1,0 +1,14 @@
+[gd_scene load_steps=2 format=3 uid="uid://minimap"]
+
+[ext_resource type="Script" path="res://scripts/minimap.gd" id="1_minimap"]
+
+[node name="Minimap" type="Control"]
+layout_mode = 3
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 440.0
+offset_top = -90.0
+offset_right = 840.0
+offset_bottom = -10.0
+script = ExtResource("1_minimap")

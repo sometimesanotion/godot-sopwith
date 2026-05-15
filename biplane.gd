@@ -81,12 +81,6 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_check_ground_collision()
 	_check_fuel_consumption(delta)
-	
-	if is_player:
-		if Input.is_action_pressed("fire"):
-			print("FIRE pressed, ammo: ", current_ammo)
-		if Input.is_action_just_pressed("bomb"):
-			print("BOMB pressed, bombs: ", current_bombs)
 
 func _handle_input(delta: float) -> void:
 	if flight_state == FlightState.STALLED or flight_state == FlightState.FALLING:
@@ -424,11 +418,19 @@ func disable_autopilot() -> void:
 	autopilot_enabled = false
 	is_ai_controlled = false
 
+var is_autopilot_landing: bool = false
+
 func update_autopilot(target_pos: Vector2) -> void:
 	if not autopilot_enabled:
 		return
 
 	var to_target := target_pos - global_position
+	var distance := to_target.length()
+	
+	if distance < 150:
+		_handle_autopilot_landing(to_target)
+		return
+
 	var target_angle := to_target.angle()
 
 	var angle_diff := target_angle - rotation
@@ -443,15 +445,51 @@ func update_autopilot(target_pos: Vector2) -> void:
 	elif angle_diff < -0.1:
 		pitch_input = 1.0
 
-	var distance := to_target.length()
 	var throttle_val := 0.8
 	if distance < 300:
 		throttle_val = 0.5
 
 	set_ai_input(pitch_input, throttle_val)
 
+func _handle_autopilot_landing(to_home: Vector2) -> void:
+	if is_grounded():
+		is_autopilot_landing = false
+		autopilot_enabled = false
+		throttle = 0.0
+		return
+	
+	is_autopilot_landing = true
+	
+	var home_angle := to_home.angle()
+	var angle_diff := home_angle - rotation
+	while angle_diff > PI:
+		angle_diff -= TAU
+	while angle_diff < -PI:
+		angle_diff += TAU
+	
+	var pitch_input: float = 0.0
+	if angle_diff > 0.2:
+		pitch_input = -1.0
+	elif angle_diff < -0.2:
+		pitch_input = 1.0
+	
+	if to_home.x > 0 and rotation > -0.3 and rotation < 0.3:
+		pitch_input = 0.3
+	
+	var speed_val := get_speed()
+	if speed_val > 60:
+		pitch_input = max(pitch_input, 0.3)
+	
+	set_ai_input(pitch_input, 0.3)
+
 func is_player_plane() -> bool:
 	return is_player
 
 func is_enemy_plane() -> bool:
 	return not is_player
+
+func is_grounded() -> bool:
+	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
+	if ground_ray:
+		return ground_ray.is_colliding()
+	return false

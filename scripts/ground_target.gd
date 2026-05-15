@@ -51,6 +51,8 @@ func _create_visuals() -> void:
 		_create_hangar(_collision_polygon)
 	elif target_type == "tank":
 		_create_tank(_collision_polygon)
+	elif target_type == "fuel_tank":
+		_create_fuel_tank(_collision_polygon)
 	else:
 		_create_building(_collision_polygon)
 	add_child(_collision_polygon)
@@ -80,6 +82,17 @@ func _create_tank(polygon: CollisionPolygon2D) -> void:
 	])
 	polygon.polygon = points
 
+func _create_fuel_tank(polygon: CollisionPolygon2D) -> void:
+	var points := PackedVector2Array([
+		Vector2(-15, 0),
+		Vector2(-15, -20),
+		Vector2(-10, -25),
+		Vector2(10, -25),
+		Vector2(15, -20),
+		Vector2(15, 0)
+	])
+	polygon.polygon = points
+
 func _create_building(polygon: CollisionPolygon2D) -> void:
 	var points := PackedVector2Array([
 		Vector2(-20, 0),
@@ -100,8 +113,13 @@ func _draw() -> void:
 		color = Color(0.4, 0.2, 0.2)
 	elif target_type == "tank":
 		color = Color(0.2, 0.3, 0.2)
+	elif target_type == "fuel_tank":
+		color = Color(0.2, 0.5, 0.2)
 
 	draw_colored_polygon(polygon_points, color)
+	
+	if target_type == "fuel_tank":
+		draw_line(Vector2(-10, -15), Vector2(10, -15), Color(0.1, 0.3, 0.1), 2.0)
 
 func take_damage(amount: float, attacker: Node) -> void:
 	if is_destroyed:

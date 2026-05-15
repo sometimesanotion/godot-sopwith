@@ -114,3 +114,6 @@ func wrap_position(pos: Vector2) -> Vector2:
 
 func get_visual_line() -> Line2D:
 	return visual_line
+
+func get_ground_points() -> PackedVector2Array:
+	return ground_points
