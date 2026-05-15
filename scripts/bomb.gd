@@ -4,7 +4,7 @@ var gravity: float = 400.0
 var explosion_radius: float = 80.0
 var explosion_damage: float = 50.0
 
-var _bomb_owner: Node2D = null
+var _bomb_owner: Node = null
 var has_exploded: bool = false
 
 signal exploded(position: Vector2, radius: float, damage: float)
@@ -14,7 +14,7 @@ const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
 func _ready() -> void:
 	motion_mode = MotionMode.MOTION_MODE_FLOATING
 
-func initialize(owner: Node2D, inherit_velocity: Vector2) -> void:
+func initialize(owner: Node, inherit_velocity: Vector2) -> void:
 	_bomb_owner = owner
 	velocity = inherit_velocity
 
@@ -28,6 +28,16 @@ func _physics_process(delta: float) -> void:
 	var collision := move_and_collide(velocity * delta)
 	if collision:
 		explode()
+		return
+	
+	_check_ground_hit()
+
+func _check_ground_hit() -> void:
+	var terrain = get_parent().get_node_or_null("Terrain")
+	if terrain and terrain.has_method("get_ground_height_at"):
+		var ground_y = terrain.get_ground_height_at(global_position.x)
+		if global_position.y >= ground_y - 5:
+			explode()
 
 func explode() -> void:
 	if has_exploded:
@@ -54,5 +64,5 @@ func _spawn_explosion_effect() -> void:
 	if GameManager:
 		GameManager.request_screen_shake(20.0)
 
-func get_bomb_owner() -> Node2D:
+func get_bomb_owner() -> Node:
 	return _bomb_owner

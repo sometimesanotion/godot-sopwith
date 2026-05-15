@@ -18,9 +18,9 @@ anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
 offset_left = -200.0
-offset_top = -120.0
+offset_top = -200.0
 offset_right = 200.0
-offset_bottom = 100.0
+offset_bottom = 200.0
 
 [node name="TitleLabel" type="Label" parent="VBoxContainer"]
 layout_mode = 2
@@ -33,18 +33,35 @@ layout_mode = 2
 text = "A Modern Tribute"
 horizontal_alignment = 1
 
-[node name="StartLabel" type="Label" parent="VBoxContainer"]
+[node name="MenuContainer" type="VBoxContainer" parent="."]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -150.0
+offset_top = -30.0
+offset_right = 150.0
+offset_bottom = 150.0
+
+[node name="ControlsContainer" type="VBoxContainer" parent="."]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -250.0
+offset_top = -80.0
+offset_right = 250.0
+offset_bottom = -20.0
+
+[node name="ControlsLabel" type="Label" parent="ControlsContainer"]
 layout_mode = 2
-text = "Press ENTER to Start"
+text = "S - Single Player | C - vs Computer | O - Options | Q - Quit | K - Keys"
 horizontal_alignment = 1
 
-[node name="KeySettingsButton" type="Button" parent="VBoxContainer"]
-layout_mode = 2
-text = "Key Settings (K)"
+[node name="KeySettingsButton" type="Button" parent="."]
+visible = false
+text = "Key Settings"
 
-[node name="ControlsLabel" type="Label" parent="VBoxContainer"]
-layout_mode = 2
-text = "X/Z: Throttle | ,//: Pitch | .: Flip | Space: Fire | B: Bomb | L-Shift: Home | Q: Exit"
-horizontal_alignment = 1
-
-[connection signal="pressed" from="VBoxContainer/KeySettingsButton" to="." method="_on_key_settings_pressed"]
+[connection signal="pressed" from="KeySettingsButton" to="." method="_on_key_settings_pressed"]

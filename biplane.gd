@@ -9,7 +9,7 @@ class_name Biplane
 @export var thrust_power: float = 200.0
 @export var drag_coefficient: float = 0.02
 @export var gravity: float = 400.0
-@export var rotation_speed: float = 3.0
+@export var rotation_speed: float = 4.0
 @export var rotation_inertia: float = 2.0
 
 @export_group("Aerodynamics")
@@ -46,6 +46,9 @@ var roll_direction: int = 1
 var roll_start_angle: float = 0.0
 var target_roll_angle: float = 0.0
 
+var visual_roll: float = 0.0
+var heading_angle: float = 0.0
+
 var max_bullet_range: float = 600.0
 var last_shot_range: float = 0.0
 
@@ -78,7 +81,8 @@ func _physics_process(delta: float) -> void:
 	_apply_aerodynamics(delta)
 	_apply_forces(delta)
 	_handle_roll(delta)
-	move_and_slide()
+	
+	global_position += velocity * delta
 	_check_ground_collision()
 	_check_fuel_consumption(delta)
 
@@ -132,55 +136,27 @@ func _handle_roll(delta: float) -> void:
 	if not is_rolling:
 		return
 
-	var current_rot := fmod(rotation, TAU)
-	if current_rot < 0:
-		current_rot += TAU
-
-	var target_rot: float
-	if roll_direction > 0:
-		target_rot = roll_start_angle + PI
-		if target_rot >= TAU:
-			target_rot -= TAU
-	else:
-		target_rot = roll_start_angle - PI
-		if target_rot < 0:
-			target_rot += TAU
-
-	var roll_amount := roll_speed * delta * roll_direction
-	rotation += roll_amount
-
-	current_rot = fmod(rotation, TAU)
-	if current_rot < 0:
-		current_rot += TAU
-
-	var dist_to_target: float
-	if roll_direction > 0:
-		if current_rot >= roll_start_angle:
-			dist_to_target = current_rot - roll_start_angle
-		else:
-			dist_to_target = (TAU - roll_start_angle) + current_rot
-	else:
-		if current_rot <= roll_start_angle:
-			dist_to_target = roll_start_angle - current_rot
-		else:
-			dist_to_target = roll_start_angle + (TAU - current_rot)
-
-	if dist_to_target >= PI - 0.1:
+	visual_roll += roll_speed * delta * roll_direction
+	
+	if visual_roll >= PI:
+		visual_roll -= TAU
 		is_rolling = false
+	elif visual_roll <= -PI:
+		visual_roll += TAU
+		is_rolling = false
+	
+	if not is_rolling:
+		if visual_roll > 0:
+			visual_roll = PI
+		else:
+			visual_roll = -PI
 
 func _end_roll() -> void:
 	is_rolling = false
-	var normalized_rot := fmod(rotation, TAU)
-	if normalized_rot < 0:
-		normalized_rot += TAU
-
-	var dist_to_upright: float = min(normalized_rot, TAU - normalized_rot)
-	var dist_to_inverted: float = abs(normalized_rot - PI)
-	
-	if dist_to_upright <= dist_to_inverted:
-		rotation = round(normalized_rot / PI) * PI
+	if abs(visual_roll) > PI / 2:
+		visual_roll = PI if visual_roll > 0 else -PI
 	else:
-		rotation = round((normalized_rot - PI) / PI) * PI + PI
+		visual_roll = 0.0
 
 func is_dodging() -> bool:
 	return is_rolling
@@ -191,7 +167,8 @@ func get_dodge_chance() -> float:
 	return last_shot_range / max_bullet_range
 
 func _apply_aerodynamics(delta: float) -> void:
-	var forward := transform.x
+	heading_angle = rotation
+	var forward := Vector2(cos(heading_angle), sin(heading_angle))
 	var speed := velocity.length()
 
 	if speed < stall_threshold:
@@ -236,8 +213,8 @@ func _check_ground_collision() -> void:
 	if terrain and terrain.has_method("get_ground_height_at"):
 		ground_y = terrain.get_ground_height_at(global_position.x)
 	
-	if global_position.y >= ground_y - 5:
-		var speed := get_speed()
+	if global_position.y >= ground_y - 8:
+		var speed = get_speed()
 		if speed < 40:
 			global_position.y = ground_y - 10
 			velocity = Vector2.ZERO
@@ -304,7 +281,6 @@ func _fire_gun() -> void:
 
 	var bullet := BULLET_SCENE.instantiate()
 	bullet.speed = bullet_speed
-	bullet.bullet_owner = self
 
 	bullet.global_position = spawn_pos
 	bullet.rotation = rotation
@@ -348,10 +324,16 @@ func _drop_bomb() -> void:
 			return
 
 	var bomb := BOMB_SCENE.instantiate()
-	bomb.initialize(self, velocity)
-
-	var spawn_pos := global_position + Vector2(0, 10)
+	
+	var forward := Vector2(cos(rotation), sin(rotation))
+	var perpendicular := Vector2(-forward.y, forward.x).normalized()
+	
+	var spawn_offset := perpendicular * 15.0
+	
+	var spawn_pos := global_position + spawn_offset
 	bomb.global_position = spawn_pos
+	bomb.rotation = rotation
+	bomb.initialize(self, velocity)
 
 	get_parent().add_child(bomb)
 	dropped_bomb.emit(spawn_pos, velocity, self)
@@ -406,7 +388,6 @@ func fire_gun() -> void:
 
 	var bullet := BULLET_SCENE.instantiate()
 	bullet.speed = bullet_speed
-	bullet.bullet_owner = self
 
 	bullet.global_position = spawn_pos
 	bullet.rotation = rotation
@@ -499,3 +480,6 @@ func is_grounded() -> bool:
 	if ground_ray:
 		return ground_ray.is_colliding()
 	return false
+
+func get_visual_roll() -> float:
+	return visual_roll

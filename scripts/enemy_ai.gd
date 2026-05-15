@@ -14,6 +14,7 @@ var is_rolling: bool = false
 
 func _ready() -> void:
 	add_to_group("enemy")
+	add_to_group("destructible")
 
 func _physics_process(delta: float) -> void:
 	if not target or not biplane:

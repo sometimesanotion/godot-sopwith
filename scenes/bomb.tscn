@@ -1,9 +1,20 @@
-[gd_scene load_steps=3 format=3 uid="uid://bomb_scene"]
+[gd_scene load_steps=4 format=3 uid="uid://bomb_scene"]
 
 [ext_resource type="Script" path="res://scripts/bomb.gd" id="1_bomb"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_bomb"]
-radius = 6.0
+radius = 5.0
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_smoke"]
+emission_shape = 1
+emission_sphere_radius = 3.0
+gravity = Vector3(0, 50, 0)
+spread = 30.0
+initial_velocity_min = 20.0
+initial_velocity_max = 40.0
+scale_min = 1.0
+scale_max = 3.0
+color = Color(0.3, 0.3, 0.3, 0.5)
 
 [node name="Bomb" type="CharacterBody2D"]
 collision_layer = 8
@@ -12,6 +23,42 @@ script = ExtResource("1_bomb")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 shape = SubResource("CircleShape2D_bomb")
+
+[node name="BombVisual" type="Node2D" parent="."]
+
+[node name="Body" type="ColorRect" parent="BombVisual"]
+offset_left = -4.0
+offset_top = -6.0
+offset_right = 4.0
+offset_bottom = 6.0
+color = Color(0.2, 0.2, 0.2, 1)
+
+[node name="FinLeft" type="ColorRect" parent="BombVisual"]
+offset_left = -8.0
+offset_top = -2.0
+offset_right = -4.0
+offset_bottom = 2.0
+color = Color(0.2, 0.2, 0.2, 1)
+
+[node name="FinRight" type="ColorRect" parent="BombVisual"]
+offset_left = 4.0
+offset_top = -2.0
+offset_right = 8.0
+offset_bottom = 2.0
+color = Color(0.2, 0.2, 0.2, 1)
+
+[node name="Fuse" type="ColorRect" parent="BombVisual"]
+offset_left = -1.0
+offset_top = -10.0
+offset_right = 1.0
+offset_bottom = -6.0
+color = Color(0.5, 0.3, 0.1, 1)
+
+[node name="Smoke" type="GPUParticles2D" parent="."]
+emitting = true
+amount = 3
+lifetime = 0.3
+process_material = SubResource("ParticleProcessMaterial_smoke")
 
 [node name="Area2D" type="Area2D" parent="."]
 collision_layer = 8

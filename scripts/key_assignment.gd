@@ -138,11 +138,17 @@ func _input(event: InputEvent) -> void:
 	if not is_waiting_for_key:
 		return
 	
-	if event is InputEventKey and event.pressed:
+	if event is InputEventKey and event.pressed and event.keycode != KEY_ESCAPE:
 		_assign_key(event)
 		is_waiting_for_key = false
 		instructions.text = "Press any key to rebind, ESC to return to menu"
 		
+		for btn in mapping_buttons.values():
+			btn["button"].disabled = false
+	
+	if event is InputEventKey and event.keycode == KEY_ESCAPE and event.pressed:
+		is_waiting_for_key = false
+		instructions.text = "Press any key to rebind, ESC to return to menu"
 		for btn in mapping_buttons.values():
 			btn["button"].disabled = false
 

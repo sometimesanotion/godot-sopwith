@@ -4,7 +4,7 @@ var speed: float = 800.0
 var lifetime: float = 1.5
 var damage: float = 10.0
 
-var _bullet_owner: Node2D = null
+var _bullet_owner: Node = null
 var _range_percent: float = 0.5
 var _max_range: float = 600.0
 
@@ -53,5 +53,5 @@ func assign_owner(owner: Node2D, range_percent: float = 0.5) -> void:
 	_bullet_owner = owner
 	_range_percent = range_percent
 
-func get_bullet_owner() -> Node2D:
+func get_bullet_owner() -> Node:
 	return _bullet_owner

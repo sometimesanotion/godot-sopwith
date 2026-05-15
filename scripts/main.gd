@@ -19,6 +19,7 @@ const PAUSE_MENU_SCENE := preload("res://scenes/pause_menu.tscn")
 const ENEMY_SCENE := preload("res://scenes/enemy_biplane.tscn")
 const GROUND_TARGET_SCENE := preload("res://scenes/ground_target.tscn")
 const MINIMAP_SCENE := preload("res://scenes/minimap.tscn")
+const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
 
 var ghost_biplane: Node2D
 var ghost_terrain: Node2D
@@ -85,6 +86,12 @@ func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("abort"):
 		if game_state == "PLAYING":
 			_abort_game()
+	
+	if event.is_key_pressed(KEY_Q):
+		if game_state == "PLAYING":
+			_abort_game()
+		elif game_state == "GAME_OVER":
+			_abort_game()
 
 func _abort_game() -> void:
 	game_state = "TITLE"
@@ -129,14 +136,26 @@ func _show_title_screen() -> void:
 	game_state = "TITLE"
 	title_screen = TITLE_SCENE.instantiate()
 	title_screen.start_game.connect(_on_start_game)
+	title_screen.start_vs_computer.connect(_on_start_vs_computer)
 	add_child(title_screen)
 
 func _on_start_game() -> void:
+	_start_playing(false)
+
+func _on_start_vs_computer() -> void:
+	_start_playing(true)
+
+func _start_playing(is_vs_computer: bool) -> void:
 	game_state = "PLAYING"
 	if GameManager:
 		GameManager.reset_game()
+	
+	var ground_y := 650.0
+	if terrain and terrain.has_method("get_ground_height_at"):
+		ground_y = terrain.get_ground_height_at(400.0)
+	
 	if biplane:
-		biplane.position = Vector2(400, 640)
+		biplane.position = Vector2(400, ground_y - 12)
 		biplane.rotation = 0
 		biplane.velocity = Vector2.ZERO
 		if biplane.has_method("reset_flight_state"):
@@ -146,7 +165,7 @@ func _on_start_game() -> void:
 		if biplane.has_signal("crashed"):
 			biplane.crashed.connect(_on_biplane_crashed)
 	if camera:
-		camera.position = Vector2(400, 520)
+		camera.position = Vector2(400, 400)
 	if SoundManager:
 		SoundManager.play_music()
 	_create_minimap()
@@ -168,16 +187,23 @@ func _spawn_enemies_and_targets() -> void:
 
 	_create_home_base()
 
+const RUNWAY_START := 200.0
+const RUNWAY_END := 600.0
+
 func _create_home_base() -> void:
+	var ground_y := 650.0
+	if terrain and terrain.has_method("get_ground_height_at"):
+		ground_y = terrain.get_ground_height_at(350.0)
+	
 	var building := GROUND_TARGET_SCENE.instantiate()
 	building.target_type = "building"
-	building.position = Vector2(350, 650)
+	building.position = Vector2(340, ground_y)
 	building.has_aa = false
 	add_child(building)
 	
 	var fuel_tank := GROUND_TARGET_SCENE.instantiate()
 	fuel_tank.target_type = "fuel_tank"
-	fuel_tank.position = Vector2(480, 640)
+	fuel_tank.position = Vector2(380, ground_y)
 	fuel_tank.has_aa = false
 	add_child(fuel_tank)
 
@@ -214,6 +240,13 @@ func _physics_process(delta: float) -> void:
 func _on_biplane_crashed() -> void:
 	is_respawning = true
 	respawn_timer = RESPAWN_DELAY
+	
+	if biplane and EXPLOSION_SCENE:
+		var explosion = EXPLOSION_SCENE.instantiate()
+		explosion.global_position = biplane.global_position
+		add_child(explosion)
+		GameManager.request_screen_shake(25.0)
+	
 	if SoundManager:
 		SoundManager.play_explosion()
 
