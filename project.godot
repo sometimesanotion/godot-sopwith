@@ -82,3 +82,8 @@ renderer/rendering_method.mobile="gl_compatibility"
 textures/canvas_textures/default_texture_filter=0
 anti_aliasing/2d/use_aa_2d=true
 environment/defaults/default_clear_color=Color(0, 0, 0, 1)
+
+[physics]
+
+2d/default_gravity = 400.0
+2d/default_gravity_vector = Vector2(0, 1)

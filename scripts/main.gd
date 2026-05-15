@@ -136,7 +136,7 @@ func _on_start_game() -> void:
 	if GameManager:
 		GameManager.reset_game()
 	if biplane:
-		biplane.position = Vector2(400, 630)
+		biplane.position = Vector2(400, 640)
 		biplane.rotation = 0
 		biplane.velocity = Vector2.ZERO
 		if biplane.has_method("reset_flight_state"):
@@ -146,7 +146,7 @@ func _on_start_game() -> void:
 		if biplane.has_signal("crashed"):
 			biplane.crashed.connect(_on_biplane_crashed)
 	if camera:
-		camera.position = Vector2(400, 500)
+		camera.position = Vector2(400, 520)
 	if SoundManager:
 		SoundManager.play_music()
 	_create_minimap()

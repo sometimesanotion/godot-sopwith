@@ -231,9 +231,15 @@ func _apply_forces(delta: float) -> void:
 		velocity.y += gravity * delta
 
 func _check_ground_collision() -> void:
-	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
-	if ground_ray and ground_ray.is_colliding():
-		if abs(velocity.x) < 10 and abs(velocity.y) < 30:
+	var ground_y: float = 650.0
+	var terrain = get_parent().get_node_or_null("Terrain")
+	if terrain and terrain.has_method("get_ground_height_at"):
+		ground_y = terrain.get_ground_height_at(global_position.x)
+	
+	if global_position.y >= ground_y - 5:
+		var speed := get_speed()
+		if speed < 40:
+			global_position.y = ground_y - 10
 			velocity = Vector2.ZERO
 			flight_state = FlightState.FLYING
 		else:

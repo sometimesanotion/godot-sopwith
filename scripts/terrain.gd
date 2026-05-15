@@ -4,28 +4,27 @@ const TERRAIN_LENGTH := 4096.0
 const SEGMENT_WIDTH := 32.0
 const RUNWAY_START := 200.0
 const RUNWAY_END := 600.0
+const BASE_Y := 650.0
 
 var noise: FastNoiseLite
 var ground_points: PackedVector2Array = []
-var visual_line: Line2D
+var visual_polygon: Polygon2D
 var collision_polygon: CollisionPolygon2D
 
-@export var ground_color: Color = Color(0.2, 0.5, 0.2)
-@export var runway_color: Color = Color(0.4, 0.4, 0.45)
-
-var camera: Camera2D
+@export var ground_color: Color = Color(0.15, 0.35, 0.15)
+@export var runway_color: Color = Color(0.35, 0.35, 0.4)
 
 func _ready() -> void:
 	_initialize_noise()
 	_generate_terrain()
-	_create_visual_line()
+	_create_visuals()
 	_create_collision()
 
 func _process(_delta: float) -> void:
 	_update_position()
 
 func _update_position() -> void:
-	var main := get_parent()
+	var main = get_parent()
 	if main and main.has_method("get_biplane_position"):
 		var player_x: float = main.get_biplane_position()
 		var viewport_width: float = 1280.0
@@ -43,57 +42,68 @@ func _generate_terrain() -> void:
 	ground_points.clear()
 
 	var num_segments := int(TERRAIN_LENGTH / SEGMENT_WIDTH)
-	var base_y := 650.0
 
 	for i in range(num_segments + 1):
 		var x := i * SEGMENT_WIDTH
 		var y: float
 
 		if x >= RUNWAY_START and x <= RUNWAY_END:
-			y = base_y
+			y = BASE_Y
 		else:
-			var noise_val := noise.get_noise_2d(x, 0)
-			y = base_y + noise_val * 100
+			var noise_val := noise.get_noise_2d(float(x), 0.0)
+			y = BASE_Y + noise_val * 80.0
 
 		ground_points.append(Vector2(x, y))
 
-	ground_points.append(Vector2(TERRAIN_LENGTH, 750.0))
-	ground_points.append(Vector2(0, 750.0))
+func _create_visuals() -> void:
+	visual_polygon = Polygon2D.new()
+	
+	var poly_points := ground_points.duplicate()
+	poly_points.append(Vector2(TERRAIN_LENGTH, 800.0))
+	poly_points.append(Vector2(0, 800.0))
+	
+	visual_polygon.polygon = poly_points
+	
+	var gradient := Gradient.new()
+	gradient.set_color(0, ground_color)
+	gradient.set_color(1, ground_color.darkened(0.2))
+	
+	var gradient_texture := GradientTexture2D.new()
+	gradient_texture.gradient = gradient
+	gradient_texture.width = 64
+	gradient_texture.height = 128
+	
+	visual_polygon.texture = gradient_texture
+	add_child(visual_polygon)
 
-func _create_visual_line() -> void:
-	visual_line = Line2D.new()
-	visual_line.antialiased = true
-	visual_line.width = 3.0
-	visual_line.closed = false
-
-	_update_visual_line()
-	add_child(visual_line)
-
-func _update_visual_line() -> void:
-	if visual_line:
-		visual_line.clear_points()
-		for point in ground_points:
-			if point.x < TERRAIN_LENGTH - SEGMENT_WIDTH:
-				visual_line.add_point(point)
-
-		var gradient := Gradient.new()
-		gradient.set_color(0, ground_color)
-		gradient.set_color(1, ground_color.darkened(0.3))
-
-		var gradient_texture := GradientTexture1D.new()
-		gradient_texture.gradient = gradient
-		gradient_texture.width = 64
-
-		visual_line.texture = gradient_texture
-
-func _process(_delta: float) -> void:
-	if camera:
-		position.x = -camera.position.x + 640
+	var runway_polygon := Polygon2D.new()
+	var runway_points := PackedVector2Array([
+		Vector2(RUNWAY_START, BASE_Y),
+		Vector2(RUNWAY_END, BASE_Y),
+		Vector2(RUNWAY_END, BASE_Y + 25),
+		Vector2(RUNWAY_START, BASE_Y + 25)
+	])
+	runway_polygon.polygon = runway_points
+	runway_polygon.color = runway_color
+	add_child(runway_polygon)
 
 func _create_collision() -> void:
+	var static_body := StaticBody2D.new()
+	static_body.name = "TerrainBody"
+	
 	collision_polygon = CollisionPolygon2D.new()
-	collision_polygon.polygon = ground_points
-	add_child(collision_polygon)
+	
+	var poly_points := ground_points.duplicate()
+	poly_points.append(Vector2(TERRAIN_LENGTH, 800.0))
+	poly_points.append(Vector2(0, 800.0))
+	
+	collision_polygon.polygon = poly_points
+	static_body.add_child(collision_polygon)
+	
+	static_body.collision_layer = 1
+	static_body.collision_mask = 0
+	
+	add_child(static_body)
 
 func get_ground_height_at(x: float) -> float:
 	var index := int(x / SEGMENT_WIDTH)
@@ -113,7 +123,7 @@ func wrap_position(pos: Vector2) -> Vector2:
 	return Vector2(wrapped_x, pos.y)
 
 func get_visual_line() -> Line2D:
-	return visual_line
+	return null
 
 func get_ground_points() -> PackedVector2Array:
 	return ground_points
