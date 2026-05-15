@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bird_flock_scene"]
+
+[ext_resource type="Script" path="res://scripts/bird_flock.gd" id="1_flock]
+
+[node name="BirdFlock" type="Node2D"]
+script = ExtResource("1_flock")

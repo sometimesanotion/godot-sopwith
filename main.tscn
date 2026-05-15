@@ -18,6 +18,7 @@ z_index = 10
 script = ExtResource("4_terrain")
 
 [node name="Camera2D" type="Camera2D" parent="."]
+enabled = false
 position = Vector2(640, 360)
 position_smoothing_enabled = true
 position_smoothing_speed = 8.0

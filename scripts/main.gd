@@ -38,7 +38,14 @@ func _ready() -> void:
 	_load_keybindings()
 	if GameManager:
 		GameManager.screen_shake_requested.connect(_on_screen_shake)
+	_hide_game_elements()
 	_show_title_screen()
+
+func _hide_game_elements() -> void:
+	if biplane:
+		biplane.visible = false
+	if camera:
+		camera.enabled = false
 
 func get_biplane_position() -> float:
 	if biplane:
@@ -147,6 +154,12 @@ func _on_start_vs_computer() -> void:
 
 func _start_playing(is_vs_computer: bool) -> void:
 	game_state = "PLAYING"
+	
+	if biplane:
+		biplane.visible = true
+	if camera:
+		camera.enabled = true
+	
 	if GameManager:
 		GameManager.reset_game()
 	
@@ -162,6 +175,7 @@ func _start_playing(is_vs_computer: bool) -> void:
 			biplane.reset_flight_state()
 		biplane.set_player(true)
 		biplane.add_to_group("player")
+		biplane.add_to_group("destructible")
 		if biplane.has_signal("crashed"):
 			biplane.crashed.connect(_on_biplane_crashed)
 	if camera:
@@ -172,18 +186,32 @@ func _start_playing(is_vs_computer: bool) -> void:
 	_create_ghost_biplane()
 	_spawn_enemies_and_targets()
 
+const COW_SCENE := preload("res://scenes/cow.tscn")
+const BIRD_FLOCK_SCENE := preload("res://scenes/bird_flock.tscn")
+
 func _spawn_enemies_and_targets() -> void:
 	enemies.clear()
 	for i in range(3):
 		var enemy := ENEMY_SCENE.instantiate()
 		enemy.position = Vector2(800 + i * 500, 300 + randf() * 200)
 		enemy.rotation = randf() * TAU
+		enemy.add_to_group("destructible")
 		if enemy.has_node("EnemyAI"):
 			var ai := enemy.get_node("EnemyAI")
 			ai.target = biplane
 			ai.biplane = enemy
 		add_child(enemy)
 		enemies.append(enemy)
+
+	for i in range(6):
+		var cow = COW_SCENE.instantiate()
+		cow.position = Vector2(200 + randf() * 3500, 650)
+		add_child(cow)
+	
+	for i in range(3):
+		var flock = BIRD_FLOCK_SCENE.instantiate()
+		flock.position = Vector2(200 + randf() * 3500, 150 + randf() * 200)
+		add_child(flock)
 
 	_create_home_base()
 

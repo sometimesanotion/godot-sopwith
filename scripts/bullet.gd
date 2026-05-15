@@ -45,6 +45,14 @@ func _handle_collision(collision: KinematicCollision2D) -> void:
 			queue_free()
 			return
 		
+		var reliability: float = 1.0
+		if collider.has_method("get_reliability"):
+			reliability = collider.get_reliability()
+		
+		if randf() > reliability:
+			queue_free()
+			return
+		
 		collider.take_damage(damage, _bullet_owner)
 
 	queue_free()

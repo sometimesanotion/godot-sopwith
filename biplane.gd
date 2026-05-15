@@ -52,6 +52,11 @@ var heading_angle: float = 0.0
 var max_bullet_range: float = 600.0
 var last_shot_range: float = 0.0
 
+var hit_count: int = 0
+var reliability: float = 1.0
+var smoke_particles: GPUParticles2D = null
+var is_losing_control: bool = false
+
 const BULLET_SCENE := preload("res://scenes/bullet.tscn")
 const BOMB_SCENE := preload("res://scenes/bomb.tscn")
 
@@ -76,6 +81,10 @@ func _physics_process(delta: float) -> void:
 		_apply_crash_physics(delta)
 		return
 
+	if is_losing_control:
+		rotation += delta * 4.0
+		_check_crash_on_spin()
+
 	_handle_input(delta)
 	_handle_weapons(delta)
 	_apply_aerodynamics(delta)
@@ -85,6 +94,18 @@ func _physics_process(delta: float) -> void:
 	global_position += velocity * delta
 	_check_ground_collision()
 	_check_fuel_consumption(delta)
+
+func _check_crash_on_spin() -> void:
+	var ground_y: float = 650.0
+	var terrain = get_parent().get_node_or_null("Terrain")
+	if terrain and terrain.has_method("get_ground_height_at"):
+		ground_y = terrain.get_ground_height_at(global_position.x)
+	
+	if global_position.y >= ground_y - 5:
+		flight_state = FlightState.CRASHED
+		crashed.emit()
+		if is_player and GameManager:
+			GameManager.take_damage()
 
 func _handle_input(delta: float) -> void:
 	if flight_state == FlightState.STALLED or flight_state == FlightState.FALLING:
@@ -340,7 +361,10 @@ func _drop_bomb() -> void:
 
 func _check_fuel_consumption(delta: float) -> void:
 	if is_player and GameManager and throttle > 0:
-		GameManager.use_fuel(throttle * delta * 2.0)
+		var fuel_loss = throttle * delta * 2.0
+		if hit_count >= 2:
+			fuel_loss *= 2.0
+		GameManager.use_fuel(fuel_loss)
 	
 	if is_player and SoundManager:
 		SoundManager.play_engine(throttle)
@@ -483,3 +507,52 @@ func is_grounded() -> bool:
 
 func get_visual_roll() -> float:
 	return visual_roll
+
+func take_damage(amount: float, attacker: Node) -> void:
+	if flight_state == FlightState.CRASHED:
+		return
+	
+	hit_count += 1
+	
+	if hit_count == 1:
+		reliability = 0.75
+		_add_smoke_stream(Color(0.9, 0.9, 0.9, 0.6), 15)
+	elif hit_count == 2:
+		reliability = 0.5
+		_add_smoke_stream(Color(0.3, 0.3, 0.3, 0.8), 25)
+	elif hit_count >= 3:
+		reliability = 0.0
+		_start_spinning_out()
+
+func _add_smoke_stream(color: Color, amount: int) -> void:
+	if has_node("SmokeParticles"):
+		smoke_particles = get_node("SmokeParticles")
+	else:
+		smoke_particles = GPUParticles2D.new()
+		smoke_particles.name = "SmokeParticles"
+		smoke_particles.emitting = true
+		smoke_particles.amount = amount
+		smoke_particles.lifetime = 0.5
+		smoke_particles.speed_scale = 1.0
+		
+		var material = ParticleProcessMaterial.new()
+		material.emission_shape = 1
+		material.emission_sphere_radius = 5.0
+		material.gravity = Vector3(0, 50, 0)
+		material.spread = 20.0
+		material.initial_velocity_min = 20.0
+		material.initial_velocity_max = 50.0
+		material.scale_min = 3.0
+		material.scale_max = 8.0
+		material.color = color
+		smoke_particles.process_material = material
+		
+		add_child(smoke_particles)
+
+func _start_spinning_out() -> void:
+	is_losing_control = true
+	throttle = 0.0
+	_start_roll()
+
+func get_reliability() -> float:
+	return reliability

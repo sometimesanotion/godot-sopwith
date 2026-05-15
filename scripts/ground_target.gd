@@ -111,15 +111,40 @@ func _draw() -> void:
 	var color := Color(0.3, 0.3, 0.35)
 	if target_type == "hangar":
 		color = Color(0.4, 0.2, 0.2)
+		draw_hangar_details()
 	elif target_type == "tank":
 		color = Color(0.2, 0.3, 0.2)
+		draw_tank_details()
 	elif target_type == "fuel_tank":
 		color = Color(0.2, 0.5, 0.2)
+		draw_fuel_tank_details()
+	elif target_type == "building":
+		color = Color(0.35, 0.35, 0.4)
+		draw_building_details()
 
 	draw_colored_polygon(polygon_points, color)
-	
-	if target_type == "fuel_tank":
-		draw_line(Vector2(-10, -15), Vector2(10, -15), Color(0.1, 0.3, 0.1), 2.0)
+
+func draw_hangar_details() -> void:
+	draw_line(Vector2(-35, -20), Vector2(-35, -25), Color(0.2, 0.1, 0.1), 2)
+	draw_line(Vector2(0, -30), Vector2(0, -38), Color(0.2, 0.1, 0.1), 2)
+	draw_line(Vector2(35, -20), Vector2(35, -25), Color(0.2, 0.1, 0.1), 2)
+	draw_rect(Rect2(-5, -5, 10, 5), Color(0.1, 0.1, 0.15))
+
+func draw_tank_details() -> void:
+	draw_circle(Vector2(-5, -12), 3, Color(0.1, 0.2, 0.1))
+	draw_line(Vector2(-20, -15), Vector2(-25, -18), Color(0.15, 0.25, 0.15), 2)
+	draw_line(Vector2(20, -15), Vector2(25, -18), Color(0.15, 0.25, 0.15), 2)
+
+func draw_fuel_tank_details() -> void:
+	draw_line(Vector2(-12, -18), Vector2(-14, -22), Color(0.1, 0.2, 0.1), 2)
+	draw_line(Vector2(12, -18), Vector2(14, -22), Color(0.1, 0.2, 0.1), 2)
+	draw_rect(Rect2(-3, -22, 6, 3), Color(0.3, 0.2, 0.1))
+	draw_line(Vector2(0, -25), Vector2(0, -28), Color(0.8, 0.4, 0.1), 2)
+
+func draw_building_details() -> void:
+	draw_rect(Rect2(-15, -35, 30, 5), Color(0.2, 0.2, 0.25))
+	draw_rect(Rect2(-10, -40, 8, 10), Color(0.15, 0.15, 0.2))
+	draw_rect(Rect2(2, -40, 8, 10), Color(0.15, 0.15, 0.2))
 
 func take_damage(amount: float, attacker: Node) -> void:
 	if is_destroyed:

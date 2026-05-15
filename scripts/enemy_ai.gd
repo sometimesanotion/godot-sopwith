@@ -168,10 +168,18 @@ func take_damage(amount: float, attacker: Node) -> void:
 	die()
 
 func die() -> void:
-	if biplane and biplane.has_node("Visual"):
-		var shatter: Node = load("res://scenes/shatter_effect.tscn").instantiate()
-		shatter.setup(_get_plane_polygon(), Color(0.2, 0.3, 0.2), biplane.global_position)
-		get_parent().add_child(shatter)
+	if biplane:
+		var explosion: Node = load("res://scenes/explosion.tscn").instantiate()
+		explosion.global_position = biplane.global_position
+		get_parent().add_child(explosion)
+		
+		if GameManager:
+			GameManager.request_screen_shake(20.0)
+		
+		if biplane.has_node("Visual"):
+			var shatter: Node = load("res://scenes/shatter_effect.tscn").instantiate()
+			shatter.setup(_get_plane_polygon(), Color(0.2, 0.3, 0.2), biplane.global_position)
+			get_parent().add_child(shatter)
 		biplane.queue_free()
 	queue_free()
 
