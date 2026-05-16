@@ -14,6 +14,7 @@ var _collision_polygon: CollisionPolygon2D = null
 
 const AA_PROJECTILE := preload("res://scenes/bullet.tscn")
 const SHATTER_SCENE := preload("res://scenes/shatter_effect.tscn")
+const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
 
 func _ready() -> void:
 	add_to_group("destructible")
@@ -166,22 +167,87 @@ func take_damage(amount: float, attacker: Node) -> void:
 func _destroy() -> void:
 	is_destroyed = true
 
-	var color := Color(0.3, 0.3, 0.35)
-	if target_type == "hangar":
-		color = Color(0.4, 0.2, 0.2)
-	elif target_type == "tank":
-		color = Color(0.2, 0.3, 0.2)
+	if target_type == "fuel_tank":
+		_spawn_violent_explosion()
+		_spawn_violent_explosion()
+		_spawn_violent_explosion()
+		if GameManager:
+			GameManager.request_screen_shake(40.0)
+	else:
+		var explosion: Node = EXPLOSION_SCENE.instantiate()
+		explosion.global_position = global_position
+		get_parent().add_child(explosion)
 
-	if polygon_points.size() >= 3:
-		var shatter: Node = SHATTER_SCENE.instantiate()
-		shatter.setup(polygon_points, color, global_position)
-		get_parent().add_child(shatter)
+		var color := Color(0.3, 0.3, 0.35)
+		if target_type == "hangar":
+			color = Color(0.4, 0.2, 0.2)
+		elif target_type == "tank":
+			color = Color(0.2, 0.3, 0.2)
+
+		if polygon_points.size() >= 3:
+			var shatter: Node = SHATTER_SCENE.instantiate()
+			shatter.setup(polygon_points, color, global_position)
+			get_parent().add_child(shatter)
+
+		if GameManager:
+			GameManager.request_screen_shake(15.0)
 
 	if GameManager:
 		GameManager.add_score(100)
-		GameManager.request_screen_shake(15.0)
 
 	queue_free()
+
+func _spawn_violent_explosion() -> void:
+	var explosion: Node = EXPLOSION_SCENE.instantiate()
+	explosion.global_position = global_position + Vector2(randf_range(-20, 20), randf_range(-30, 10))
+	get_parent().add_child(explosion)
+
+	var fire := GPUParticles2D.new()
+	fire.emitting = true
+	fire.one_shot = true
+	fire.explosiveness = 1.0
+	fire.amount = 40
+	fire.lifetime = 0.8
+	fire.position = Vector2.ZERO
+
+	var fire_mat := ParticleProcessMaterial.new()
+	fire_mat.emission_shape = 1
+	fire_mat.emission_sphere_radius = 20.0
+	fire_mat.gravity = Vector3(0, -80, 0)
+	fire_mat.spread = 180.0
+	fire_mat.initial_velocity_min = 100.0
+	fire_mat.initial_velocity_max = 250.0
+	fire_mat.scale_min = 4.0
+	fire_mat.scale_max = 10.0
+	fire_mat.color = Color(1, 0.3, 0, 1)
+	fire.process_material = fire_mat
+	add_child(fire)
+
+	var smoke := GPUParticles2D.new()
+	smoke.emitting = true
+	smoke.one_shot = true
+	smoke.explosiveness = 0.8
+	smoke.amount = 30
+	smoke.lifetime = 1.5
+	smoke.position = Vector2.ZERO
+
+	var smoke_mat := ParticleProcessMaterial.new()
+	smoke_mat.emission_shape = 1
+	smoke_mat.emission_sphere_radius = 25.0
+	smoke_mat.gravity = Vector3(0, -20, 0)
+	smoke_mat.spread = 180.0
+	smoke_mat.initial_velocity_min = 50.0
+	smoke_mat.initial_velocity_max = 120.0
+	smoke_mat.scale_min = 5.0
+	smoke_mat.scale_max = 12.0
+	smoke_mat.color = Color(0.1, 0.1, 0.1, 1)
+	smoke.process_material = smoke_mat
+	add_child(smoke)
+
+	if polygon_points.size() >= 3:
+		var shatter: Node = SHATTER_SCENE.instantiate()
+		shatter.setup(polygon_points, Color(0.2, 0.5, 0.2), global_position)
+		get_parent().add_child(shatter)
 
 func get_health() -> float:
 	return health

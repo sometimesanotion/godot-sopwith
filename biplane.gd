@@ -116,6 +116,7 @@ func _physics_process(delta: float) -> void:
 
 	global_position += velocity * delta
 	_check_ground_collision()
+	_check_obstacle_collision()
 	_check_fuel_consumption(delta)
 
 func _check_crash_on_spin() -> void:
@@ -361,6 +362,33 @@ func _check_ground_collision() -> void:
 			crashed.emit()
 			if is_player and GameManager:
 				GameManager.take_damage()
+
+func _check_obstacle_collision() -> void:
+	if flight_state == FlightState.CRASHED:
+		return
+
+	var speed := get_speed()
+	if speed < 5:
+		return
+
+	var parent := get_parent()
+	if not parent:
+		return
+
+	for child in parent.get_children():
+		if child == self:
+			continue
+		if child is StaticBody2D and (child.is_in_group("ground_target") or child.is_in_group("obstacle")):
+			var dist := global_position.distance_to(child.global_position)
+			var hit_radius: float = 25.0
+			if child.is_in_group("ground_target"):
+				hit_radius = 35.0
+			if dist < hit_radius:
+				flight_state = FlightState.CRASHED
+				crashed.emit()
+				if is_player and GameManager:
+					GameManager.take_damage()
+				return
 
 func _apply_crash_physics(delta: float) -> void:
 	velocity.y += gravity * pixels_per_meter * arcade_gravity_multiplier * delta

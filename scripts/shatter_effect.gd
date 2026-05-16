@@ -2,6 +2,7 @@ extends Node2D
 
 var fragments: Array[RigidBody2D] = []
 var lifetime: float = 2.0
+var _damage_amount: float = 10.0
 
 func _ready() -> void:
 	set_process(true)
@@ -14,8 +15,9 @@ func _process(delta: float) -> void:
 				f.queue_free()
 		queue_free()
 
-func setup(poly: PackedVector2Array, color: Color, position: Vector2) -> void:
+func setup(poly: PackedVector2Array, color: Color, position: Vector2, damage: float = 10.0) -> void:
 	global_position = position
+	_damage_amount = damage
 
 	if poly.size() < 3:
 		queue_free()
@@ -26,11 +28,56 @@ func setup(poly: PackedVector2Array, color: Color, position: Vector2) -> void:
 	for p in poly:
 		normalized.append(p - center)
 
+	_spawn_fire_and_smoke()
+
 	var num_fragments: int = mini(poly.size() * 2, 12)
 
 	for i in range(num_fragments):
 		var fragment: RigidBody2D = _create_fragment(normalized, color, center)
 		fragments.append(fragment)
+
+func _spawn_fire_and_smoke() -> void:
+	var fire := GPUParticles2D.new()
+	fire.emitting = true
+	fire.one_shot = true
+	fire.explosiveness = 0.9
+	fire.amount = 20
+	fire.lifetime = 0.6
+	fire.position = Vector2.ZERO
+
+	var fire_mat := ParticleProcessMaterial.new()
+	fire_mat.emission_shape = 1
+	fire_mat.emission_sphere_radius = 8.0
+	fire_mat.gravity = Vector3(0, -40, 0)
+	fire_mat.spread = 180.0
+	fire_mat.initial_velocity_min = 60.0
+	fire_mat.initial_velocity_max = 140.0
+	fire_mat.scale_min = 2.0
+	fire_mat.scale_max = 5.0
+	fire_mat.color = Color(1, 0.4, 0, 1)
+	fire.process_material = fire_mat
+	add_child(fire)
+
+	var smoke := GPUParticles2D.new()
+	smoke.emitting = true
+	smoke.one_shot = true
+	smoke.explosiveness = 0.6
+	smoke.amount = 15
+	smoke.lifetime = 1.2
+	smoke.position = Vector2.ZERO
+
+	var smoke_mat := ParticleProcessMaterial.new()
+	smoke_mat.emission_shape = 1
+	smoke_mat.emission_sphere_radius = 12.0
+	smoke_mat.gravity = Vector3(0, -15, 0)
+	smoke_mat.spread = 180.0
+	smoke_mat.initial_velocity_min = 30.0
+	smoke_mat.initial_velocity_max = 70.0
+	smoke_mat.scale_min = 3.0
+	smoke_mat.scale_max = 7.0
+	smoke_mat.color = Color(0.15, 0.15, 0.15, 1)
+	smoke.process_material = smoke_mat
+	add_child(smoke)
 
 func _get_polygon_center(poly: PackedVector2Array) -> Vector2:
 	var sum := Vector2.ZERO
@@ -69,5 +116,12 @@ func _create_fragment(poly: PackedVector2Array, color: Color, center: Vector2) -
 	rb.linear_velocity = force
 	rb.angular_velocity = randf_range(-5, 5)
 
+	rb.body_entered.connect(_on_fragment_hit)
+
 	add_child(rb)
 	return rb
+
+func _on_fragment_hit(body: Node) -> void:
+	if body is Biplane and body.is_player:
+		if body.has_method("take_damage"):
+			body.take_damage(_damage_amount, self)
