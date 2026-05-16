@@ -65,7 +65,7 @@ var roll_direction: int = 1
 var roll_start_angle: float = 0.0
 var target_roll_angle: float = 0.0
 
-var roll_3d: float = 0.0
+var bank_angle: float = 0.0
 var pitch_yaw_angle: float = 0.0
 var visual_roll: float = 0.0
 var heading_angle: float = 0.0
@@ -173,17 +173,16 @@ func _handle_input(delta: float) -> void:
 	throttle = move_toward(throttle, throttle_target, THROTTLE_RAMP_SPEED * delta)
 
 	if is_rolling:
-		rotation = pitch_yaw_angle
+		rotation = pitch_yaw_angle + bank_angle
 	else:
 		var target_angular_velocity := pitch_input * rotation_speed
 		angular_velocity = move_toward(angular_velocity, target_angular_velocity, rotation_inertia * delta)
 		pitch_yaw_angle += angular_velocity * delta
-		rotation = pitch_yaw_angle
+		rotation = pitch_yaw_angle + bank_angle
 
 func _start_roll() -> void:
 	is_rolling = true
-	roll_3d = pitch_yaw_angle
-	var normalized_rot := fmod(pitch_yaw_angle, TAU)
+	var normalized_rot := fmod(visual_roll, TAU)
 	if normalized_rot < 0:
 		normalized_rot += TAU
 
@@ -194,40 +193,32 @@ func _start_roll() -> void:
 
 func _handle_roll(delta: float) -> void:
 	if is_rolling:
-		roll_3d += roll_speed * delta * roll_direction
-
-		var normalized_visual := fmod(roll_3d, TAU)
-		if normalized_visual < 0:
-			normalized_visual += TAU
-		if normalized_visual > PI:
-			visual_roll = normalized_visual - TAU
+		bank_angle += roll_speed * delta * roll_direction
+		var normalized_bank := fmod(bank_angle, TAU)
+		if normalized_bank < 0:
+			normalized_bank += TAU
+		if normalized_bank > PI:
+			visual_roll = normalized_bank - TAU
 		else:
-			visual_roll = normalized_visual
+			visual_roll = normalized_bank
 	else:
-		var target_roll: float = 0.0
-		var normalized_3d: float = fmod(roll_3d, TAU)
-		if normalized_3d < 0:
-			normalized_3d += TAU
-		var dist_to_upright: float = abs(normalized_3d)
-		var dist_to_inverted: float = abs(normalized_3d - PI)
+		var target_bank: float = 0.0
+		var normalized_bank: float = fmod(bank_angle, TAU)
+		if normalized_bank < 0:
+			normalized_bank += TAU
+		var dist_to_upright: float = abs(normalized_bank)
+		var dist_to_inverted: float = abs(normalized_bank - PI)
 		if dist_to_inverted < dist_to_upright:
-			target_roll = PI
+			target_bank = PI
 		else:
-			target_roll = 0.0
-		var remaining := target_roll - roll_3d
+			target_bank = 0.0
+		var remaining: float = target_bank - bank_angle
 		while remaining > PI:
 			remaining -= TAU
 		while remaining < -PI:
 			remaining += TAU
-		roll_3d += remaining * 5.0 * delta
-
-		var normalized_visual := fmod(roll_3d, TAU)
-		if normalized_visual < 0:
-			normalized_visual += TAU
-		if normalized_visual > PI:
-			visual_roll = normalized_visual - TAU
-		else:
-			visual_roll = normalized_visual
+		bank_angle += remaining * 5.0 * delta
+		visual_roll = bank_angle
 
 func _end_roll() -> void:
 	is_rolling = false
@@ -458,8 +449,9 @@ func _fire_gun() -> void:
 		if not GameManager.use_ammo():
 			return
 
-	var spawn_pos := global_position + transform.x * 20
-	var direction := transform.x
+	var heading_dir := Vector2(cos(pitch_yaw_angle), sin(pitch_yaw_angle))
+	var spawn_pos := global_position + heading_dir * 20
+	var direction := heading_dir
 
 	var target_enemy: Node = _find_nearest_enemy()
 	var range_percent: float = 0.0
@@ -560,7 +552,7 @@ func reset_flight_state() -> void:
 	angular_velocity = 0.0
 	rotation = 0.0
 	pitch_yaw_angle = 0.0
-	roll_3d = 0.0
+	bank_angle = 0.0
 	visual_roll = 0.0
 	is_stalled = false
 	velocity = Vector2.ZERO
