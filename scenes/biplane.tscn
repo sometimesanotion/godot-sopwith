@@ -1,0 +1,46 @@
+[gd_scene load_steps=4 format=3 uid="uid://biplane_scene"]
+
+[ext_resource type="Script" path="res://biplane.gd" id="1_biplane"]
+[ext_resource type="Script" path="res://scripts/biplane_draw.gd" id="2_draw"]
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_1"]
+radius = 8.0
+height = 32.0
+
+[node name="Biplane" type="CharacterBody2D"]
+motion_mode = 1
+script = ExtResource("1_biplane")
+thrust_power = 200.0
+drag_coefficient = 0.02
+gravity = 400.0
+rotation_speed = 3.0
+rotation_inertia = 2.0
+lift_coefficient = 0.8
+stall_threshold = 80.0
+min_throttle = 0.0
+max_throttle = 1.0
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+rotation = 1.5708
+shape = SubResource("CapsuleShape2D_1")
+
+[node name="Visual" type="Node2D" parent="."]
+script = ExtResource("2_draw")
+
+[node name="GPUParticles2D" type="GPUParticles2D" parent="."]
+emitting = true
+amount = 20
+lifetime = 0.5
+speed_scale = 0.8
+explosiveness = 0.0
+spread = 15.0
+gravity = Vector2(0, 50)
+initial_velocity_min = 20.0
+initial_velocity_max = 40.0
+scale_amount_min = 2.0
+scale_amount_max = 4.0
+color = Color(0.8, 0.8, 0.8, 0.5)
+
+[node name="GroundRay" type="RayCast2D" parent="."]
+target_position = Vector2(0, 20)
+collision_mask = 1

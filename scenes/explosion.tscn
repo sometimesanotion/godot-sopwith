@@ -1,0 +1,20 @@
+[gd_scene load_steps=2 format=3 uid="uid://explosion_scene"]
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_explosion"]
+emission_shape = 1
+emission_sphere_radius = 10.0
+gravity = Vector3(0, -50, 0)
+spread = 180.0
+initial_velocity_min = 100.0
+initial_velocity_max = 200.0
+scale_min = 2.0
+scale_max = 6.0
+color = Color(1, 0.5, 0, 1)
+
+[node name="Explosion" type="GPUParticles2D"]
+emitting = true
+one_shot = true
+explosiveness = 1.0
+amount = 30
+lifetime = 0.5
+process_material = SubResource("ParticleProcessMaterial_explosion")
