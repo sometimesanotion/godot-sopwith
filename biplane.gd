@@ -7,7 +7,7 @@ class_name Biplane
 ## Arcade feel achieved via gravity multiplier and tuned propeller curve
 
 @export_group("Flight Parameters (SI Units)")
-@export var mass: float = 659.0
+@export var mass: float = 447.0
 @export var engine_power_watts: float = 96941.0
 @export var wing_area: float = 21.46
 @export var gravity: float = 9.81
@@ -20,7 +20,7 @@ class_name Biplane
 @export var zero_lift_drag_area: float = 0.811
 @export var ar_efficiency: float = 11.0
 @export var max_lift_coeff: float = 1.4
-@export var air_density: float = 1.225
+@export var air_density: float = 4.225
 @export var stall_aoa: float = 0.244
 @export var stall_speed_ms: float = 21.4
 
@@ -36,7 +36,7 @@ const THROTTLE_RAMP_SPEED := 4.0
 @export_group("Weapons")
 @export var gun_cooldown: float = 0.1
 @export var bomb_cooldown: float = 0.5
-@export var bullet_speed: float = 800.0
+@export var bullet_speed: float = 1600.0
 @export var max_ammo: int = 100
 @export var max_bombs: int = 5
 
@@ -46,7 +46,7 @@ const THROTTLE_RAMP_SPEED := 4.0
 
 @export_group("Handling")
 @export var rotation_speed: float = 6.0
-@export var rotation_inertia: float = 2.0
+@export var rotation_inertia: float = 3.0
 
 var throttle: float = 0.0
 var throttle_target: float = 0.0
@@ -121,6 +121,7 @@ func _physics_process(delta: float) -> void:
 	_check_ground_collision()
 	_check_obstacle_collision()
 	_check_fuel_consumption(delta)
+	_check_home_refuel(delta)
 
 func _check_crash_on_spin() -> void:
 	var ground_y: float = 650.0
@@ -146,7 +147,22 @@ func _handle_input(delta: float) -> void:
 		pitch_input = ai_pitch_input
 		throttle_target = ai_throttle
 	else:
-		pitch_input = Input.get_axis("pull_up", "pull_down") * pitch_authority
+		var autopilot_pressed := Input.is_action_pressed("autopilot")
+		if autopilot_pressed:
+			if not autopilot_enabled:
+				enable_autopilot()
+			var dist_to_home: float = abs(global_position.x - home_base_x)
+			if dist_to_home < landing_threshold:
+				_perform_teleport_landing()
+		else:
+			if autopilot_enabled and not is_autopilot_landing:
+				disable_autopilot()
+
+		if autopilot_enabled:
+			pass
+		else:
+			pitch_input = Input.get_axis("pull_up", "pull_down") * pitch_authority
+
 		var throttle_changed := false
 		if Input.is_action_pressed("throttle_up"):
 			throttle_repeat_timer -= delta
@@ -532,6 +548,47 @@ func _check_fuel_consumption(delta: float) -> void:
 	if is_player and SoundManager:
 		SoundManager.play_engine(throttle)
 
+func _check_home_refuel(delta: float) -> void:
+	if not is_player or not GameManager:
+		return
+
+	if not is_grounded():
+		return
+
+	var dist_to_home: float = abs(global_position.x - home_base_x)
+	if dist_to_home > home_base_width:
+		return
+
+	if hit_count > 0:
+		hit_count = 0
+		reliability = 1.0
+		if has_node("SmokeParticles"):
+			var sp: GPUParticles2D = get_node("SmokeParticles")
+			sp.emitting = false
+			sp.queue_free()
+			smoke_particles = null
+
+	var old_ammo: int = GameManager.ammo
+	var old_bombs: int = GameManager.bombs
+	var old_fuel: float = GameManager.fuel
+
+	GameManager.ammo = min(GameManager.MAX_AMMO, GameManager.ammo + int(5.0 * delta))
+	GameManager.refuel(delta * 10.0)
+
+	refuel_timer += delta
+	if refuel_timer >= 1.5:
+		refuel_timer = 0.0
+		GameManager.bombs = min(GameManager.MAX_BOMBS, GameManager.bombs + 1)
+
+	if GameManager.ammo != old_ammo:
+		GameManager.ammo_changed.emit(GameManager.ammo)
+	if GameManager.bombs != old_bombs:
+		GameManager.bombs_changed.emit(GameManager.bombs)
+	if GameManager.fuel != old_fuel:
+		GameManager.fuel_changed.emit(GameManager.fuel)
+
+var refuel_timer: float = 0.0
+
 func set_player(p: bool) -> void:
 	is_player = p
 
@@ -614,6 +671,46 @@ func disable_autopilot() -> void:
 	is_ai_controlled = false
 
 var is_autopilot_landing: bool = false
+var home_base_x: float = 6554.0
+var home_base_width: float = 200.0
+var landing_threshold: float = 1000.0
+var spawn_position: Vector2 = Vector2(6620, 500)
+var spawn_rotation: float = 0.0
+
+func set_home_base(x: float) -> void:
+	home_base_x = x
+
+func set_spawn_info(pos: Vector2, rot: float) -> void:
+	spawn_position = pos
+	spawn_rotation = rot
+
+func _perform_teleport_landing() -> void:
+	global_position = spawn_position
+	rotation = spawn_rotation
+	pitch_yaw_angle = spawn_rotation
+	bank_angle = 0.0
+	visual_roll = 0.0
+	velocity = Vector2.ZERO
+	throttle = 0.0
+	throttle_target = 0.0
+
+	if is_player and GameManager:
+		GameManager.fuel = GameManager.MAX_FUEL
+		GameManager.ammo = GameManager.MAX_AMMO
+		GameManager.bombs = GameManager.MAX_BOMBS
+		GameManager.fuel_changed.emit(GameManager.fuel)
+		GameManager.ammo_changed.emit(GameManager.ammo)
+		GameManager.bombs_changed.emit(GameManager.bombs)
+
+	hit_count = 0
+	reliability = 1.0
+	if has_node("SmokeParticles"):
+		var sp: GPUParticles2D = get_node("SmokeParticles")
+		sp.emitting = false
+		sp.queue_free()
+		smoke_particles = null
+
+	disable_autopilot()
 
 func update_autopilot(target_pos: Vector2) -> void:
 	if not autopilot_enabled:

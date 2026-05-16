@@ -191,6 +191,10 @@ func _start_playing(is_vs_computer: bool) -> void:
 		if biplane.has_method("reset_flight_state"):
 			biplane.reset_flight_state()
 		biplane.set_player(true)
+		if biplane.has_method("set_home_base"):
+			biplane.set_home_base(HOME_BASE.x)
+		if biplane.has_method("set_spawn_info"):
+			biplane.set_spawn_info(Vector2(6620, ground_y - 12), 0.0)
 		biplane.add_to_group("player")
 		biplane.add_to_group("destructible")
 		if biplane.has_signal("crashed"):

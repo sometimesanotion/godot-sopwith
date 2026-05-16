@@ -2,6 +2,8 @@ extends Node
 
 signal lives_changed(new_lives: int)
 signal fuel_changed(new_fuel: float)
+signal ammo_changed(new_ammo: int)
+signal bombs_changed(new_bombs: int)
 signal score_changed(new_score: int)
 signal screen_shake_requested(intensity: float)
 
@@ -75,12 +77,14 @@ func refuel(amount: float = MAX_FUEL) -> void:
 func use_ammo() -> bool:
 	if ammo > 0:
 		ammo -= 1
+		ammo_changed.emit(ammo)
 		return true
 	return false
 
 func use_bomb() -> bool:
 	if bombs > 0:
 		bombs -= 1
+		bombs_changed.emit(bombs)
 		return true
 	return false
 
@@ -89,12 +93,14 @@ func reload_weapons(amount: float = 0.0) -> void:
 		ammo = min(MAX_AMMO, ammo + amount * 50)
 	else:
 		ammo = MAX_AMMO
+	ammo_changed.emit(ammo)
 
 func reload_bombs(amount: float = 0.0) -> void:
 	if amount > 0:
 		bombs = min(MAX_BOMBS, bombs + amount)
 	else:
 		bombs = MAX_BOMBS
+	bombs_changed.emit(bombs)
 
 func game_over() -> void:
 	game_state = "GAME_OVER"

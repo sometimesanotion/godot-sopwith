@@ -16,6 +16,8 @@ func _ready() -> void:
 		GameManager.fuel_changed.connect(_on_fuel_changed)
 		GameManager.lives_changed.connect(_on_lives_changed)
 		GameManager.score_changed.connect(_on_score_changed)
+		GameManager.ammo_changed.connect(_on_ammo_changed)
+		GameManager.bombs_changed.connect(_on_bombs_changed)
 		_update_display()
 
 func _create_ui_elements() -> void:
@@ -72,6 +74,20 @@ func _on_lives_changed(new_lives: int) -> void:
 
 func _on_score_changed(new_score: int) -> void:
 	score_label.text = "SCORE: %d" % new_score
+
+func _on_ammo_changed(new_ammo: int) -> void:
+	ammo_label.text = "AMMO: %d" % new_ammo
+	if new_ammo < 20:
+		ammo_label.modulate = Color(1, 0.3, 0.3)
+	else:
+		ammo_label.modulate = Color(1, 1, 1)
+
+func _on_bombs_changed(new_bombs: int) -> void:
+	bombs_label.text = "BOMBS: %d" % new_bombs
+	if new_bombs == 0:
+		bombs_label.modulate = Color(1, 0.3, 0.3)
+	else:
+		bombs_label.modulate = Color(1, 1, 1)
 
 func _update_display() -> void:
 	if GameManager:
