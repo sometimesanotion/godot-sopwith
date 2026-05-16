@@ -13,10 +13,10 @@ var roll_timer: float = 0.0
 var is_rolling: bool = false
 
 var home_base_x: float = 1400.0
-var patrol_range: float = 1228.0
+var patrol_range: float = 2000.0
 var enemy_state: String = "GROUNDED"
 
-const TERRAIN_LENGTH := 4096.0
+const TERRAIN_LENGTH := 16384.0
 
 func _ready() -> void:
 	add_to_group("enemy")

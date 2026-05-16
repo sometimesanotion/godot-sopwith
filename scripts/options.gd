@@ -28,9 +28,9 @@ func _create_ui() -> void:
 
 	thrust_slider = HSlider.new()
 	thrust_slider.min_value = 1.0
-	thrust_slider.max_value = 5.0
+	thrust_slider.max_value = 10.0
 	thrust_slider.step = 0.5
-	thrust_slider.value = GameManager.thrust_multiplier if GameManager else 3.0
+	thrust_slider.value = GameManager.thrust_multiplier if GameManager else 5.0
 	thrust_slider.position = Vector2(400, 180)
 	thrust_slider.custom_minimum_size = Vector2(200, 30)
 	thrust_slider.value_changed.connect(_on_thrust_changed)
@@ -42,7 +42,7 @@ func _create_ui() -> void:
 	add_child(thrust_value_label)
 
 	var hint := Label.new()
-	hint.text = "1.0 = Realistic | 3.0 = Default | 5.0 = Arcade"
+	hint.text = "1.0 (Realistic) - 10.0 (Arcade), Default: 5.0"
 	hint.position = Vector2(400, 220)
 	hint.add_theme_font_size_override("font_size", 14)
 	hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))

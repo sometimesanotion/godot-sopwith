@@ -13,6 +13,10 @@ const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
 
 func _ready() -> void:
 	motion_mode = MotionMode.MOTION_MODE_FLOATING
+	add_to_group("destructible")
+
+func take_damage(amount: float, attacker: Node) -> void:
+	explode()
 
 func initialize(owner: Node, inherit_velocity: Vector2) -> void:
 	_bomb_owner = owner
@@ -50,7 +54,9 @@ func explode() -> void:
 
 	var bodies := get_tree().get_nodes_in_group("destructible")
 	for body in bodies:
-		if body.global_position.distance_to(global_position) < explosion_radius:
+		if body == self:
+			continue
+		if body is Node2D and body.global_position.distance_to(global_position) < explosion_radius:
 			if body.has_method("take_damage"):
 				body.take_damage(explosion_damage, _bomb_owner)
 

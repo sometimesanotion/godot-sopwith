@@ -1,6 +1,7 @@
 extends CanvasLayer
 
 signal controls_set
+signal back_to_menu
 
 var key_mappings := {
 	"throttle_up": {"action": "throttle_up", "label": "Accelerate", "default_key": "X", "current_key": null},
@@ -201,7 +202,7 @@ func _load_bindings() -> void:
 				InputMap.action_add_event(action_name, new_event)
 
 func _on_back_pressed() -> void:
-	controls_set.emit()
+	back_to_menu.emit()
 	queue_free()
 
 func _on_reset_pressed() -> void:

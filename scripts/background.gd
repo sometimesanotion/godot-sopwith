@@ -1,6 +1,6 @@
 extends Node2D
 
-const TERRAIN_LENGTH := 4096.0
+const TERRAIN_LENGTH := 16384.0
 
 var camera: Camera2D
 var mountain_positions: Array[Vector2] = []

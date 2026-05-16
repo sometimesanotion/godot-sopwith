@@ -11,7 +11,7 @@ length = 20.0
 
 [node name="Bullet" type="CharacterBody2D"]
 collision_layer = 4
-collision_mask = 7
+collision_mask = 15
 script = ExtResource("1_bullet")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
@@ -25,4 +25,4 @@ default_color = Color(1, 0.8, 0.2, 1)
 
 [node name="RayCast2D" type="RayCast2D" parent="."]
 target_position = Vector2(50, 0)
-collision_mask = 7
+collision_mask = 15

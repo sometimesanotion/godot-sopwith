@@ -32,10 +32,18 @@ func _input(event: InputEvent) -> void:
 
 func _show_options() -> void:
 	var options = load("res://scenes/options.tscn").instantiate()
+	options.back_to_menu.connect(_on_options_back)
 	get_parent().add_child(options)
-	queue_free()
+	visible = false
+
+func _on_options_back() -> void:
+	visible = true
 
 func _show_key_assignment() -> void:
 	var key_screen = load("res://scenes/key_assignment.tscn").instantiate()
+	key_screen.back_to_menu.connect(_on_key_assignment_back)
 	get_parent().add_child(key_screen)
-	queue_free()
+	visible = false
+
+func _on_key_assignment_back() -> void:
+	visible = true

@@ -5,11 +5,11 @@ extends Node2D
 @onready var terrain: Node2D = $Terrain
 @onready var ui: CanvasLayer = $UI
 
-const TERRAIN_LENGTH := 4096.0
+const TERRAIN_LENGTH := 16384.0
 const VIEWPORT_MIN_X := 0.0
 const VIEWPORT_MAX_X := 1280.0
 const GHOST_THRESHOLD := 300.0
-const HOME_BASE := Vector2(400, 650)
+const HOME_BASE := Vector2(6554, 650)
 const RESPAWN_DELAY := 2.0
 
 const TITLE_SCENE := preload("res://scenes/title_screen.tscn")
@@ -55,7 +55,7 @@ func _hide_game_elements() -> void:
 func get_biplane_position() -> float:
 	if biplane:
 		return biplane.position.x
-	return 400.0
+	return 6554.0
 
 func _load_keybindings() -> void:
 	var config = ConfigFile.new()
@@ -175,7 +175,7 @@ func _start_playing(is_vs_computer: bool) -> void:
 		biplane.set_game_active(true)
 	if camera:
 		camera.enabled = true
-		camera.position = Vector2(400, 400)
+		camera.position = Vector2(6554, 400)
 	if terrain:
 		terrain.visible = true
 	if ui:
@@ -186,10 +186,10 @@ func _start_playing(is_vs_computer: bool) -> void:
 	
 	var ground_y := 650.0
 	if terrain and terrain.has_method("get_ground_height_at"):
-		ground_y = terrain.get_ground_height_at(400.0)
+		ground_y = terrain.get_ground_height_at(6554.0)
 	
 	if biplane:
-		biplane.position = Vector2(400, ground_y - 12)
+		biplane.position = Vector2(6554, ground_y - 12)
 		biplane.rotation = 0
 		biplane.velocity = Vector2.ZERO
 		if biplane.has_method("reset_flight_state"):
@@ -202,7 +202,7 @@ func _start_playing(is_vs_computer: bool) -> void:
 				biplane.crashed.disconnect(_on_biplane_crashed)
 			biplane.crashed.connect(_on_biplane_crashed)
 	if camera:
-		camera.position = Vector2(400, 400)
+		camera.position = Vector2(6554, 400)
 	if SoundManager:
 		SoundManager.play_music()
 	_create_minimap()
@@ -219,10 +219,10 @@ func _spawn_enemies_and_targets() -> void:
 	enemy_home_positions.clear()
 
 	var enemy_base_x := [
-		1400.0,
-		2400.0,
-		3400.0,
-		800.0
+		4200.0,
+		5800.0,
+		8200.0,
+		12000.0
 	]
 
 	for i in range(4):
@@ -244,41 +244,41 @@ func _spawn_enemies_and_targets() -> void:
 
 	for i in range(6):
 		var cow = COW_SCENE.instantiate()
-		cow.position = Vector2(200 + randf() * 3500, 650)
+		cow.position = Vector2(200 + randf() * 16000, 650)
 		add_child(cow)
 
 	for i in range(3):
 		var flock = BIRD_FLOCK_SCENE.instantiate()
-		flock.position = Vector2(200 + randf() * 3500, 150 + randf() * 200)
+		flock.position = Vector2(200 + randf() * 16000, 150 + randf() * 200)
 		add_child(flock)
 
 	_create_home_base()
 	_create_enemy_bases()
 
-const RUNWAY_START := 200.0
-const RUNWAY_END := 600.0
+const RUNWAY_START := 6300.0
+const RUNWAY_END := 6800.0
 
 func _create_home_base() -> void:
 	var ground_y := 650.0
 	if terrain and terrain.has_method("get_ground_height_at"):
-		ground_y = terrain.get_ground_height_at(350.0)
+		ground_y = terrain.get_ground_height_at(6554.0)
 
 	var building := GROUND_TARGET_SCENE.instantiate()
 	building.target_type = "building"
-	building.position = Vector2(340, ground_y)
+	building.position = Vector2(6494, ground_y)
 	building.has_aa = false
 	add_child(building)
 
 	var fuel_tank := GROUND_TARGET_SCENE.instantiate()
 	fuel_tank.target_type = "fuel_tank"
-	fuel_tank.position = Vector2(380, ground_y)
+	fuel_tank.position = Vector2(6534, ground_y)
 	fuel_tank.has_aa = false
 	add_child(fuel_tank)
 
 	for i in range(3):
 		var target := GROUND_TARGET_SCENE.instantiate()
 		target.target_type = ["building", "hangar", "tank"].pick_random()
-		target.position = Vector2(800 + i * 600, 650)
+		target.position = Vector2(8100 + i * 800, 650)
 		if target.target_type == "building":
 			target.has_aa = false
 		else:
@@ -340,7 +340,7 @@ func _respawn_biplane() -> void:
 	is_respawning = false
 	if GameManager and GameManager.lives > 0:
 		biplane.visible = true
-		biplane.position = Vector2(400, 500)
+		biplane.position = Vector2(6554, 500)
 		biplane.rotation = 0
 		biplane.velocity = Vector2.ZERO
 		if biplane.has_method("reset_flight_state"):
@@ -348,7 +348,7 @@ func _respawn_biplane() -> void:
 		if biplane.has_method("set_game_active"):
 			biplane.set_game_active(true)
 		if camera:
-			camera.position = Vector2(400, 400)
+			camera.position = Vector2(6554, 400)
 	else:
 		_show_game_over()
 

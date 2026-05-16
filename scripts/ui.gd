@@ -40,7 +40,7 @@ func _process(_delta: float) -> void:
 	if not biplane:
 		biplane = get_parent().get_node_or_null("Biplane")
 
-	if biplane:
+	if biplane and biplane.has_method("get_speed"):
 		var speed := int(biplane.get_speed())
 		speed_label.text = "SPEED: %d" % speed
 

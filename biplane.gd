@@ -4,23 +4,26 @@ class_name Biplane
 
 ## Biplane flight controller using vector-force aerodynamics
 ## Sopwith Camel: 1.49 kN thrust, 422 kg, Cd=0.0378, Area=0.811 m²
-## Thrust multiplier applied from GameManager (default 3x)
+## Thrust multiplier applied from GameManager (default 1.5x)
 
 @export_group("Flight Parameters")
-@export var thrust_force: float = 600.0
-@export var drag_coefficient: float = 0.0004
+@export var thrust_force: float = 250.0
+@export var drag_coefficient: float = 0.04
 @export var gravity: float = 400.0
 @export var rotation_speed: float = 3.0
 @export var rotation_inertia: float = 2.5
-@export var mass_scale: float = 10.0
+@export var mass_scale: float = 15.0
 
 @export_group("Aerodynamics")
-@export var lift_coefficient: float = 0.00002
-@export var stall_threshold: float = 25.0
+@export var lift_coefficient: float = 4.0
+@export var stall_threshold: float = 30.0
 
 @export_group("Throttle")
-@export var min_throttle: float = 0.15
+@export var min_throttle: float = 0.0
 @export var max_throttle: float = 1.0
+
+const THROTTLE_STEP := 0.2
+const THROTTLE_REPEAT_DELAY := 0.3
 
 @export_group("Weapons")
 @export var gun_cooldown: float = 0.1
@@ -35,7 +38,8 @@ class_name Biplane
 
 var throttle: float = 0.0
 var throttle_target: float = 0.0
-const THROTTLE_RAMP_SPEED: float = 0.5
+var throttle_repeat_timer: float = 0.0
+const THROTTLE_RAMP_SPEED: float = 2.5
 var angular_velocity: float = 0.0
 var is_stalled: bool = false
 
@@ -127,12 +131,23 @@ func _handle_input(delta: float) -> void:
 		pitch_input = ai_pitch_input
 		throttle_target = ai_throttle
 	else:
-		pitch_input = Input.get_axis("pull_down", "pull_up")
+		pitch_input = Input.get_axis("pull_up", "pull_down")
+		var throttle_changed := false
 		if Input.is_action_pressed("throttle_up"):
-			throttle_target = max_throttle
+			throttle_repeat_timer -= delta
+			if throttle_repeat_timer <= 0:
+				throttle_target = min(max_throttle, throttle_target + THROTTLE_STEP)
+				throttle_repeat_timer = THROTTLE_REPEAT_DELAY
+				throttle_changed = true
 		elif Input.is_action_pressed("throttle_down"):
-			throttle_target = min_throttle
+			throttle_repeat_timer -= delta
+			if throttle_repeat_timer <= 0:
+				throttle_target = max(min_throttle, throttle_target - THROTTLE_STEP)
+				throttle_repeat_timer = THROTTLE_REPEAT_DELAY
+				throttle_changed = true
 		else:
+			throttle_repeat_timer = 0.0
+		if not throttle_changed and throttle_target < min_throttle:
 			throttle_target = min_throttle
 
 		if Input.is_action_just_pressed("roll") and not is_rolling:
@@ -201,7 +216,8 @@ func _is_on_ground() -> bool:
 	var terrain = get_parent().get_node_or_null("Terrain")
 	if terrain and terrain.has_method("get_ground_height_at"):
 		ground_y = terrain.get_ground_height_at(global_position.x)
-	return global_position.y >= ground_y - 12
+	var speed = get_speed()
+	return global_position.y >= ground_y - 15 and speed < 80
 
 func _apply_aerodynamics(delta: float) -> void:
 	heading_angle = rotation
@@ -226,12 +242,19 @@ func _apply_aerodynamics(delta: float) -> void:
 	var lift_factor := clampf(dot_product, -1.0, 1.0)
 	lift_factor = lift_factor * lift_factor * sign(dot_product)
 
-	var lift_magnitude := lift_coefficient * speed * speed
+	var normalized_speed: float = speed / 200.0
+	normalized_speed = clampf(normalized_speed, 0.0, 1.5)
+	var lift_magnitude: float = lift_coefficient * normalized_speed * 150.0
 	if is_stalled:
 		lift_magnitude *= 0.2
 
-	var lift_direction := Vector2(-forward.y, forward.x)
-	velocity += lift_direction * lift_magnitude * delta
+	var lift_direction := Vector2(forward.y, -forward.x)
+	if not on_ground:
+		velocity += lift_direction * lift_magnitude * delta
+	else:
+		var ground_lift := lift_magnitude * 0.1
+		if lift_direction.y < 0:
+			velocity += lift_direction * ground_lift * delta
 
 	var thrust_mult: float = 3.0
 	if GameManager:
@@ -239,6 +262,10 @@ func _apply_aerodynamics(delta: float) -> void:
 	var effective_mass: float = PhysicsServer2D.body_get_param(get_rid(), PhysicsServer2D.BODY_PARAM_MASS)
 	if effective_mass <= 0:
 		effective_mass = mass_scale
+
+	if on_ground:
+		thrust_mult *= 0.7
+
 	var thrust_accel: float = throttle * thrust_force * thrust_mult / effective_mass
 	var thrust_direction: Vector2 = forward * thrust_accel
 	if is_stalled and flight_state == FlightState.STALLED:
@@ -246,16 +273,25 @@ func _apply_aerodynamics(delta: float) -> void:
 
 	velocity += thrust_direction * delta
 
-	var drag_magnitude := drag_coefficient * speed * speed * 0.01
+	var drag_magnitude: float
+	if on_ground:
+		drag_magnitude = speed * 0.3
+	else:
+		drag_magnitude = drag_coefficient * speed * speed * 0.01
+
 	var drag_direction := -velocity.normalized() if speed > 0 else Vector2.ZERO
 	velocity += drag_direction * drag_magnitude * delta
 
 func _apply_forces(delta: float) -> void:
+	var ground_y: float = 650.0
+	var terrain = get_parent().get_node_or_null("Terrain")
+	if terrain and terrain.has_method("get_ground_height_at"):
+		ground_y = terrain.get_ground_height_at(global_position.x)
+
 	if _is_on_ground():
-		var ground_y: float = 650.0
-		var terrain = get_parent().get_node_or_null("Terrain")
-		if terrain and terrain.has_method("get_ground_height_at"):
-			ground_y = terrain.get_ground_height_at(global_position.x)
+		global_position.y = ground_y - 12
+		velocity.y = 0
+	elif global_position.y > ground_y - 12:
 		global_position.y = ground_y - 12
 		velocity.y = 0
 	elif is_stalled and flight_state == FlightState.STALLED:
@@ -268,14 +304,34 @@ func _check_ground_collision() -> void:
 	var terrain = get_parent().get_node_or_null("Terrain")
 	if terrain and terrain.has_method("get_ground_height_at"):
 		ground_y = terrain.get_ground_height_at(global_position.x)
-	
+
 	if global_position.y >= ground_y - 8:
 		var speed = get_speed()
-		if speed < 40:
+		var normalized_rot: float = fmod(rotation, TAU)
+		if normalized_rot < 0:
+			normalized_rot += TAU
+
+		var slope_angle: float = 0.0
+		if terrain and terrain.has_method("get_ground_height_at"):
+			var ground_ahead: float = terrain.get_ground_height_at(global_position.x + 10)
+			var ground_behind: float = terrain.get_ground_height_at(global_position.x - 10)
+			slope_angle = atan2(ground_ahead - ground_behind, 20.0)
+
+		var relative_angle: float = normalized_rot - slope_angle
+		while relative_angle > PI:
+			relative_angle -= TAU
+		while relative_angle < -PI:
+			relative_angle += TAU
+
+		var tilt_angle: float = abs(relative_angle)
+		var is_excessive_tilt: bool = tilt_angle > deg_to_rad(20)
+
+		if speed < 30 and not is_excessive_tilt:
 			global_position.y = ground_y - 10
-			velocity = Vector2.ZERO
+			velocity.x = 0
+			velocity.y = 0
 			flight_state = FlightState.FLYING
-		else:
+		elif is_excessive_tilt:
 			flight_state = FlightState.CRASHED
 			crashed.emit()
 			if is_player and GameManager:

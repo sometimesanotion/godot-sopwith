@@ -1,6 +1,6 @@
 extends Control
 
-const TERRAIN_LENGTH := 4096.0
+const TERRAIN_LENGTH := 16384.0
 const MINIMAP_WIDTH := 400.0
 const MINIMAP_HEIGHT := 80.0
 

@@ -1,9 +1,9 @@
 extends Node2D
 
-const TERRAIN_LENGTH := 4096.0
+const TERRAIN_LENGTH := 16384.0
 const SEGMENT_WIDTH := 32.0
-const RUNWAY_START := 200.0
-const RUNWAY_END := 600.0
+const RUNWAY_START := 6300.0
+const RUNWAY_END := 6800.0
 const BASE_Y := 650.0
 
 var noise: FastNoiseLite
@@ -25,8 +25,8 @@ func _create_terrain() -> void:
 	
 	var collision_poly := CollisionPolygon2D.new()
 	var poly_points := ground_points.duplicate()
-	poly_points.append(Vector2(TERRAIN_LENGTH, 750.0))
-	poly_points.append(Vector2(0, 750.0))
+	poly_points.append(Vector2(TERRAIN_LENGTH, 850.0))
+	poly_points.append(Vector2(0, 850.0))
 	collision_poly.polygon = poly_points
 	terrain_body.add_child(collision_poly)
 	terrain_body.collision_layer = 1
@@ -41,8 +41,8 @@ func _create_terrain() -> void:
 	runway.polygon = PackedVector2Array([
 		Vector2(RUNWAY_START, BASE_Y),
 		Vector2(RUNWAY_END, BASE_Y),
-		Vector2(RUNWAY_END, BASE_Y + 20),
-		Vector2(RUNWAY_START, BASE_Y + 20)
+		Vector2(RUNWAY_END, BASE_Y + 30),
+		Vector2(RUNWAY_START, BASE_Y + 30)
 	])
 	runway.color = runway_color
 	add_child(runway)
