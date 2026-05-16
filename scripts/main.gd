@@ -183,9 +183,9 @@ func _start_playing(is_vs_computer: bool) -> void:
 	var ground_y := 650.0
 	if terrain and terrain.has_method("get_ground_height_at"):
 		ground_y = terrain.get_ground_height_at(6554.0)
-	
+
 	if biplane:
-		biplane.position = Vector2(6554, ground_y - 12)
+		biplane.position = Vector2(6620, ground_y - 12)
 		biplane.rotation = 0
 		biplane.velocity = Vector2.ZERO
 		if biplane.has_method("reset_flight_state"):
@@ -198,7 +198,7 @@ func _start_playing(is_vs_computer: bool) -> void:
 				biplane.crashed.disconnect(_on_biplane_crashed)
 			biplane.crashed.connect(_on_biplane_crashed)
 	if camera:
-		camera.position = Vector2(6554, 400)
+		camera.position = Vector2(6620, 400)
 	if SoundManager:
 		SoundManager.play_music()
 	_create_minimap()
@@ -227,7 +227,7 @@ func _spawn_enemies_and_targets() -> void:
 		var ground_y := 650.0
 		if terrain and terrain.has_method("get_ground_height_at"):
 			ground_y = terrain.get_ground_height_at(enemy_base_x[i])
-		enemy.position = Vector2(enemy_base_x[i], ground_y - 12)
+		enemy.position = Vector2(enemy_base_x[i] + 60, ground_y - 12)
 		enemy.rotation = 0
 		enemy.add_to_group("destructible")
 		if enemy.has_node("EnemyAI"):
@@ -349,7 +349,7 @@ func _respawn_biplane() -> void:
 	is_respawning = false
 	if GameManager and GameManager.lives > 0:
 		biplane.visible = true
-		biplane.position = Vector2(6554, 500)
+		biplane.position = Vector2(6620, 500)
 		biplane.rotation = 0
 		biplane.velocity = Vector2.ZERO
 		if biplane.has_method("reset_flight_state"):
@@ -357,7 +357,7 @@ func _respawn_biplane() -> void:
 		if biplane.has_method("set_game_active"):
 			biplane.set_game_active(true)
 		if camera:
-			camera.position = Vector2(6554, 400)
+			camera.position = Vector2(6620, 400)
 		if GameManager:
 			GameManager.refuel(400.0)
 			GameManager.reload_weapons(100)
