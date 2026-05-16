@@ -5,6 +5,8 @@
 # macOS
 ._*
 
+.godot/*
+
 # Kate editor
 *.kate-swp
 .kate-swp

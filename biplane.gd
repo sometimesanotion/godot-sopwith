@@ -23,8 +23,8 @@ class PlayerStats:
 
 @export_group("Flight Parameters (SI Units)")
 @export var mass: float = 447.0
-@export var engine_power_watts: float = 30000.0 # 96941.0
-@export var wing_area: float = 32.0 # 21.46
+@export var engine_power_watts: float = 35000.0 # 96941.0
+@export var wing_area: float = 30.0 # 21.46
 @export var gravity: float = 9.81
 
 @export_group("Scale & Arcade Tuning")
@@ -310,7 +310,7 @@ func _is_on_ground() -> bool:
 	if terrain and terrain.has_method("get_ground_height_at"):
 		ground_y = terrain.get_ground_height_at(global_position.x)
 	var speed = get_speed()
-	return global_position.y >= ground_y - 15 and speed < 80
+	return global_position.y >= ground_y - 15 and speed < 214
 
 func _apply_aerodynamics(delta: float) -> void:
 	heading_angle = pitch_yaw_angle

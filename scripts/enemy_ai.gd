@@ -99,7 +99,7 @@ func _make_decision() -> void:
 			_decision_return_home()
 
 func _decision_takeoff() -> void:
-	var pitch_input := -0.5
+	var pitch_input := 0.5
 	var throttle := 1.0
 	_apply_input(pitch_input, throttle)
 

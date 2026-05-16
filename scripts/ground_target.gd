@@ -35,15 +35,19 @@ func _try_aa_fire() -> void:
 	if not player:
 		return
 
-	var dist := global_position.distance_to(player.global_position)
+	var to_player: Vector2 = player.global_position - global_position
+	var dist := to_player.length()
 	if dist > aa_range:
+		return
+
+	var angle_from_horizontal := atan2(to_player.y, to_player.x)
+	if angle_from_horizontal > deg_to_rad(-10):
 		return
 
 	aa_timer = aa_cooldown
 
-	var to_player: Vector2 = player.global_position - global_position
 	var bullet: CharacterBody2D = AA_PROJECTILE.instantiate()
-	bullet.global_position = global_position + Vector2(0, -20)
+	bullet.global_position = global_position + Vector2(15, -55)
 	bullet.rotation = to_player.angle()
 	bullet.speed = 300
 	bullet.assign_owner(self)
