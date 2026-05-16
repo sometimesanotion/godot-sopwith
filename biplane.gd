@@ -27,6 +27,7 @@ class_name Biplane
 @export_group("Throttle")
 @export var min_throttle: float = 0.0
 @export var max_throttle: float = 1.0
+@export var max_speed: float = 50.5
 
 const THROTTLE_STEP := 0.2
 const THROTTLE_REPEAT_DELAY := 0.1
@@ -64,6 +65,8 @@ var roll_direction: int = 1
 var roll_start_angle: float = 0.0
 var target_roll_angle: float = 0.0
 
+var roll_3d: float = 0.0
+var pitch_yaw_angle: float = 0.0
 var visual_roll: float = 0.0
 var heading_angle: float = 0.0
 
@@ -169,51 +172,65 @@ func _handle_input(delta: float) -> void:
 
 	throttle = move_toward(throttle, throttle_target, THROTTLE_RAMP_SPEED * delta)
 
-	if not is_rolling:
+	if is_rolling:
+		rotation = pitch_yaw_angle
+	else:
 		var target_angular_velocity := pitch_input * rotation_speed
 		angular_velocity = move_toward(angular_velocity, target_angular_velocity, rotation_inertia * delta)
-		rotation += angular_velocity * delta
+		pitch_yaw_angle += angular_velocity * delta
+		rotation = pitch_yaw_angle
 
 func _start_roll() -> void:
 	is_rolling = true
-	var normalized_rot := fmod(rotation, TAU)
+	roll_3d = pitch_yaw_angle
+	var normalized_rot := fmod(pitch_yaw_angle, TAU)
 	if normalized_rot < 0:
 		normalized_rot += TAU
 
 	if normalized_rot < PI:
 		roll_direction = 1
-		roll_start_angle = normalized_rot
-		target_roll_angle = normalized_rot + PI
 	else:
 		roll_direction = -1
-		roll_start_angle = normalized_rot
-		target_roll_angle = normalized_rot - PI
 
 func _handle_roll(delta: float) -> void:
-	if not is_rolling:
-		return
+	if is_rolling:
+		roll_3d += roll_speed * delta * roll_direction
 
-	visual_roll += roll_speed * delta * roll_direction
-
-	if visual_roll >= PI:
-		visual_roll -= TAU
-		is_rolling = false
-	elif visual_roll <= -PI:
-		visual_roll += TAU
-		is_rolling = false
-
-	if not is_rolling:
-		if visual_roll > 0:
-			visual_roll = PI
+		var normalized_visual := fmod(roll_3d, TAU)
+		if normalized_visual < 0:
+			normalized_visual += TAU
+		if normalized_visual > PI:
+			visual_roll = normalized_visual - TAU
 		else:
-			visual_roll = -PI
+			visual_roll = normalized_visual
+	else:
+		var target_roll: float = 0.0
+		var normalized_3d: float = fmod(roll_3d, TAU)
+		if normalized_3d < 0:
+			normalized_3d += TAU
+		var dist_to_upright: float = abs(normalized_3d)
+		var dist_to_inverted: float = abs(normalized_3d - PI)
+		if dist_to_inverted < dist_to_upright:
+			target_roll = PI
+		else:
+			target_roll = 0.0
+		var remaining := target_roll - roll_3d
+		while remaining > PI:
+			remaining -= TAU
+		while remaining < -PI:
+			remaining += TAU
+		roll_3d += remaining * 5.0 * delta
+
+		var normalized_visual := fmod(roll_3d, TAU)
+		if normalized_visual < 0:
+			normalized_visual += TAU
+		if normalized_visual > PI:
+			visual_roll = normalized_visual - TAU
+		else:
+			visual_roll = normalized_visual
 
 func _end_roll() -> void:
 	is_rolling = false
-	if abs(visual_roll) > PI / 2:
-		visual_roll = PI if visual_roll > 0 else -PI
-	else:
-		visual_roll = 0.0
 
 func is_dodging() -> bool:
 	return is_rolling
@@ -232,7 +249,7 @@ func _is_on_ground() -> bool:
 	return global_position.y >= ground_y - 15 and speed < 80
 
 func _apply_aerodynamics(delta: float) -> void:
-	heading_angle = rotation
+	heading_angle = pitch_yaw_angle
 	var forward := Vector2(cos(heading_angle), sin(heading_angle))
 
 	var vel_si := velocity / pixels_per_meter
@@ -275,15 +292,25 @@ func _apply_aerodynamics(delta: float) -> void:
 	if is_stalled:
 		cl *= 0.3
 
-	var lift_si := 0.5 * air_density * speed_si * speed_si * wing_area * cl
-	var lift_vec := Vector2.ZERO
+	var lift_si: float = 0.5 * air_density * speed_si * speed_si * wing_area * cl
+	var lift_vec: Vector2 = Vector2.ZERO
 	if speed_si > 0.5:
-		var lift_dir := Vector2(-forward.y, forward.x)
+		var lift_dir: Vector2 = Vector2(-forward.y, forward.x)
+		var is_inverted: bool = abs(visual_roll) > PI * 0.5
+		if is_inverted:
+			lift_dir = -lift_dir
 		lift_vec = lift_dir * lift_si
 
 	var parasitic_drag_si := 0.5 * air_density * speed_si * speed_si * zero_lift_drag_area
 	var induced_drag_si := 0.5 * air_density * speed_si * speed_si * wing_area * (cl * cl) / ar_efficiency
-	var total_drag_si := parasitic_drag_si + induced_drag_si
+
+	var speed_px := velocity.length()
+	var speed_limit_drag: float = 0.0
+	if speed_px > max_speed:
+		var overspeed := speed_px - max_speed
+		speed_limit_drag = overspeed * overspeed * 0.5
+
+	var total_drag_si := parasitic_drag_si + induced_drag_si + speed_limit_drag / pixels_per_meter
 	var drag_vec := Vector2.ZERO
 	if speed_si > 0.01:
 		drag_vec = -vel_si.normalized() * total_drag_si
@@ -448,7 +475,7 @@ func _fire_gun() -> void:
 	bullet.speed = bullet_speed
 
 	bullet.global_position = spawn_pos
-	bullet.rotation = rotation
+	bullet.rotation = pitch_yaw_angle
 	bullet.assign_owner(self, range_percent)
 
 	get_parent().add_child(bullet)
@@ -490,14 +517,14 @@ func _drop_bomb() -> void:
 
 	var bomb := BOMB_SCENE.instantiate()
 
-	var forward := Vector2(cos(rotation), sin(rotation))
+	var forward := Vector2(cos(pitch_yaw_angle), sin(pitch_yaw_angle))
 	var perpendicular := Vector2(-forward.y, forward.x).normalized()
 
 	var spawn_offset := perpendicular * 15.0
 
 	var spawn_pos := global_position + spawn_offset
 	bomb.global_position = spawn_pos
-	bomb.rotation = rotation
+	bomb.rotation = pitch_yaw_angle
 	bomb.initialize(self, velocity)
 
 	get_parent().add_child(bomb)
@@ -532,6 +559,8 @@ func reset_flight_state() -> void:
 	throttle_repeat_timer = 0.0
 	angular_velocity = 0.0
 	rotation = 0.0
+	pitch_yaw_angle = 0.0
+	roll_3d = 0.0
 	visual_roll = 0.0
 	is_stalled = false
 	velocity = Vector2.ZERO
@@ -571,7 +600,7 @@ func fire_gun() -> void:
 	bullet.speed = bullet_speed
 
 	bullet.global_position = spawn_pos
-	bullet.rotation = rotation
+	bullet.rotation = pitch_yaw_angle
 	bullet.assign_owner(self, range_percent)
 
 	get_parent().add_child(bullet)

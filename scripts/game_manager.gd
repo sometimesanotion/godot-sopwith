@@ -6,14 +6,14 @@ signal score_changed(new_score: int)
 signal screen_shake_requested(intensity: float)
 
 var lives: int = 5
-var fuel: float = 400.0
+var fuel: float = 100.0
 var score: int = 0
 var ammo: int = 100
 var bombs: int = 5
 var thrust_multiplier: float = 1.5
 
 const MAX_LIVES := 5
-const MAX_FUEL := 400.0
+const MAX_FUEL := 100.0
 const MAX_AMMO := 100
 const MAX_BOMBS := 5
 
