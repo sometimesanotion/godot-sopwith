@@ -45,7 +45,7 @@ const THROTTLE_RAMP_SPEED := 4.0
 @export var max_roll_angle: float = PI
 
 @export_group("Handling")
-@export var rotation_speed: float = 3.0
+@export var rotation_speed: float = 6.0
 @export var rotation_inertia: float = 2.0
 
 var throttle: float = 0.0
@@ -396,10 +396,10 @@ func _check_obstacle_collision() -> void:
 	for child in parent.get_children():
 		if child == self:
 			continue
-		if child is StaticBody2D and (child.is_in_group("ground_target") or child.is_in_group("obstacle")):
+		if child is StaticBody2D and (child.is_in_group("ground_target") or child.is_in_group("wreck") or child.is_in_group("obstacle")):
 			var dist := global_position.distance_to(child.global_position)
 			var hit_radius: float = 25.0
-			if child.is_in_group("ground_target"):
+			if child.is_in_group("ground_target") or child.is_in_group("wreck"):
 				hit_radius = 35.0
 			if dist < hit_radius:
 				flight_state = FlightState.CRASHED
@@ -562,6 +562,11 @@ func reset_flight_state() -> void:
 	reliability = 1.0
 	autopilot_enabled = false
 	is_autopilot_landing = false
+	if has_node("SmokeParticles"):
+		var sp: GPUParticles2D = get_node("SmokeParticles")
+		sp.emitting = false
+		sp.queue_free()
+		smoke_particles = null
 
 var ai_pitch_input: float = 0.0
 var ai_throttle: float = 0.5

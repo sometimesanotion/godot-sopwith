@@ -254,50 +254,68 @@ func _spawn_enemies_and_targets() -> void:
 const RUNWAY_START := 6300.0
 const RUNWAY_END := 6800.0
 
+const PLAYER_SPAWN_X := 6620.0
+const SAFE_ZONE_RADIUS := 1500.0
+
 func _create_home_base() -> void:
 	var ground_y := 650.0
 	if terrain and terrain.has_method("get_ground_height_at"):
 		ground_y = terrain.get_ground_height_at(6554.0)
 
-	var building := GROUND_TARGET_SCENE.instantiate()
-	building.target_type = "building"
-	building.position = Vector2(6494, ground_y)
-	building.has_aa = false
-	add_child(building)
+	for i in range(2):
+		var building := GROUND_TARGET_SCENE.instantiate()
+		building.target_type = "building"
+		building.position = Vector2(6494 + i * 60, ground_y)
+		building.has_aa = false
+		building.is_enemy = false
+		add_child(building)
 
-	var fuel_tank := GROUND_TARGET_SCENE.instantiate()
-	fuel_tank.target_type = "fuel_tank"
-	fuel_tank.position = Vector2(6534, ground_y)
-	fuel_tank.has_aa = false
-	add_child(fuel_tank)
-
-	for i in range(3):
-		var target := GROUND_TARGET_SCENE.instantiate()
-		target.target_type = ["building", "hangar", "tank"].pick_random()
-		target.position = Vector2(8100 + i * 800, 650)
-		if target.target_type == "building":
-			target.has_aa = false
-		else:
-			target.has_aa = randf() > 0.5
-		add_child(target)
+	for i in range(2):
+		var fuel_tank := GROUND_TARGET_SCENE.instantiate()
+		fuel_tank.target_type = "fuel_tank"
+		fuel_tank.position = Vector2(6524 + i * 40, ground_y)
+		fuel_tank.has_aa = false
+		fuel_tank.is_enemy = false
+		add_child(fuel_tank)
 
 func _create_enemy_bases() -> void:
 	for home_x in enemy_home_positions:
+		if abs(home_x - PLAYER_SPAWN_X) < SAFE_ZONE_RADIUS:
+			continue
+
 		var ground_y := 650.0
 		if terrain and terrain.has_method("get_ground_height_at"):
 			ground_y = terrain.get_ground_height_at(home_x)
 
-		var building := GROUND_TARGET_SCENE.instantiate()
-		building.target_type = "building"
-		building.position = Vector2(home_x - 60, ground_y)
-		building.has_aa = true
-		add_child(building)
+		for i in range(2):
+			var building := GROUND_TARGET_SCENE.instantiate()
+			building.target_type = "building"
+			building.position = Vector2(home_x - 80 + i * 50, ground_y)
+			building.has_aa = (i == 0)
+			building.is_enemy = true
+			building.add_to_group("enemy_target")
+			add_child(building)
 
-		var fuel_tank := GROUND_TARGET_SCENE.instantiate()
-		fuel_tank.target_type = "fuel_tank"
-		fuel_tank.position = Vector2(home_x - 20, ground_y)
-		fuel_tank.has_aa = false
-		add_child(fuel_tank)
+		for i in range(2):
+			var fuel_tank := GROUND_TARGET_SCENE.instantiate()
+			fuel_tank.target_type = "fuel_tank"
+			fuel_tank.position = Vector2(home_x - 30 + i * 40, ground_y)
+			fuel_tank.has_aa = false
+			fuel_tank.is_enemy = true
+			fuel_tank.add_to_group("enemy_target")
+			add_child(fuel_tank)
+
+		for i in range(3):
+			var target := GROUND_TARGET_SCENE.instantiate()
+			target.target_type = ["building", "hangar", "tank"].pick_random()
+			target.position = Vector2(home_x + 100 + i * 500, 650)
+			if target.target_type == "building":
+				target.has_aa = false
+			else:
+				target.has_aa = randf() > 0.5
+			target.is_enemy = true
+			target.add_to_group("enemy_target")
+			add_child(target)
 
 func _physics_process(delta: float) -> void:
 	if game_state != "PLAYING" or is_paused:
@@ -359,11 +377,18 @@ func _respawn_biplane() -> void:
 		if camera:
 			camera.position = Vector2(6620, 400)
 		if GameManager:
-			GameManager.refuel(400.0)
-			GameManager.reload_weapons(100)
-			GameManager.reload_bombs(5)
+			GameManager.fuel = GameManager.MAX_FUEL
+			GameManager.ammo = GameManager.MAX_AMMO
+			GameManager.bombs = GameManager.MAX_BOMBS
+			GameManager.fuel_changed.emit(GameManager.fuel)
 	else:
 		_show_game_over()
+
+func _win_game() -> void:
+	game_state = "WIN"
+	if GameManager:
+		GameManager.add_score(1000)
+		GameManager.game_win()
 
 func _show_game_over() -> void:
 	game_state = "GAME_OVER"
@@ -496,3 +521,9 @@ func _update_minimap() -> void:
 		return
 	minimap_instance.update_player(biplane.position)
 	minimap_instance.update_enemies(enemies)
+
+	var enemy_targets: Array = get_tree().get_nodes_in_group("enemy_target")
+	minimap_instance.update_targets(enemy_targets)
+
+	if enemy_targets.size() == 0 and game_state == "PLAYING":
+		_win_game()

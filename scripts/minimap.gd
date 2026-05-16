@@ -7,6 +7,7 @@ const MINIMAP_HEIGHT := 80.0
 var terrain_points: PackedVector2Array = []
 var player_dot: ColorRect
 var enemy_dots: Array[ColorRect] = []
+var target_dots: Array[ColorRect] = []
 var home_marker: ColorRect
 var terrain_line: Line2D
 
@@ -108,3 +109,30 @@ func update_home(base_x: float) -> void:
 	var scale: float = MINIMAP_WIDTH / TERRAIN_LENGTH
 	var map_x: float = base_x * scale
 	home_marker.position = Vector2(map_x - 4.0, MINIMAP_HEIGHT - 12.0)
+
+func update_targets(targets: Array) -> void:
+	while target_dots.size() < targets.size():
+		var dot := ColorRect.new()
+		dot.custom_minimum_size = Vector2(3, 3)
+		dot.color = Color(0.8, 0.1, 0.1)
+		add_child(dot)
+		target_dots.append(dot)
+
+	while target_dots.size() > targets.size():
+		var dot: ColorRect = target_dots.pop_back()
+		dot.queue_free()
+
+	var scale: float = MINIMAP_WIDTH / TERRAIN_LENGTH
+	var base_y: float = MINIMAP_HEIGHT * 0.7
+
+	for i: int in range(targets.size()):
+		var target = targets[i]
+		if is_instance_valid(target):
+			var world_pos: Vector2 = target.global_position
+			var map_x: float = wrapf(world_pos.x, 0.0, TERRAIN_LENGTH) * scale
+			var map_y: float = base_y - (world_pos.y - 600.0) * 0.15
+			map_y = clamp(map_y, 5, MINIMAP_HEIGHT - 5)
+			target_dots[i].position = Vector2(map_x - 1.5, map_y - 1.5)
+			target_dots[i].visible = true
+		else:
+			target_dots[i].visible = false

@@ -6,11 +6,14 @@ extends StaticBody2D
 @export var has_aa: bool = false
 @export var aa_range: float = 400.0
 @export var aa_cooldown: float = 2.0
+@export var is_wreck: bool = false
+@export var is_enemy: bool = false
 
 var is_destroyed: bool = false
 var aa_timer: float = 0.0
 var polygon_points: PackedVector2Array = []
 var _collision_polygon: CollisionPolygon2D = null
+var original_health: float = 50.0
 
 const AA_PROJECTILE := preload("res://scenes/bullet.tscn")
 const SHATTER_SCENE := preload("res://scenes/shatter_effect.tscn")
@@ -125,6 +128,9 @@ func _draw() -> void:
 
 	draw_colored_polygon(polygon_points, color)
 
+	if is_enemy and not is_wreck:
+		_draw_enemy_flag()
+
 func draw_hangar_details() -> void:
 	draw_line(Vector2(-35, -20), Vector2(-35, -25), Color(0.2, 0.1, 0.1), 2)
 	draw_line(Vector2(0, -30), Vector2(0, -38), Color(0.2, 0.1, 0.1), 2)
@@ -147,6 +153,17 @@ func draw_building_details() -> void:
 	draw_rect(Rect2(-10, -40, 8, 10), Color(0.15, 0.15, 0.2))
 	draw_rect(Rect2(2, -40, 8, 10), Color(0.15, 0.15, 0.2))
 
+func _draw_enemy_flag() -> void:
+	var flag_x := 20.0
+	var flag_top := -45.0
+	draw_line(Vector2(flag_x, 0), Vector2(flag_x, flag_top), Color(0.6, 0.6, 0.6), 2)
+	var flag_points := PackedVector2Array([
+		Vector2(flag_x, flag_top),
+		Vector2(flag_x + 15, flag_top + 5),
+		Vector2(flag_x, flag_top + 10)
+	])
+	draw_colored_polygon(flag_points, Color(0.8, 0.1, 0.1))
+
 func take_damage(amount: float, attacker: Node) -> void:
 	if is_destroyed:
 		return
@@ -168,34 +185,120 @@ func _destroy() -> void:
 	is_destroyed = true
 
 	if target_type == "fuel_tank":
-		_spawn_violent_explosion()
-		_spawn_violent_explosion()
-		_spawn_violent_explosion()
+		_create_fuel_tank_explosion()
 		if GameManager:
-			GameManager.request_screen_shake(40.0)
+			GameManager.request_screen_shake(50.0)
 	else:
-		var explosion: Node = EXPLOSION_SCENE.instantiate()
-		explosion.global_position = global_position
-		get_parent().add_child(explosion)
+		_create_normal_explosion()
 
-		var color := Color(0.3, 0.3, 0.35)
-		if target_type == "hangar":
-			color = Color(0.4, 0.2, 0.2)
-		elif target_type == "tank":
-			color = Color(0.2, 0.3, 0.2)
-
-		if polygon_points.size() >= 3:
-			var shatter: Node = SHATTER_SCENE.instantiate()
-			shatter.setup(polygon_points, color, global_position)
-			get_parent().add_child(shatter)
-
-		if GameManager:
-			GameManager.request_screen_shake(15.0)
+	_create_wreck()
 
 	if GameManager:
 		GameManager.add_score(100)
 
 	queue_free()
+
+func _create_fuel_tank_explosion() -> void:
+	for i in range(5):
+		var explosion: Node = EXPLOSION_SCENE.instantiate()
+		explosion.global_position = global_position + Vector2(randf_range(-30, 30), randf_range(-40, 10))
+		get_parent().add_child(explosion)
+
+	for i in range(5):
+		var fire := GPUParticles2D.new()
+		fire.name = "WreckFire"
+		fire.emitting = true
+		fire.one_shot = false
+		fire.explosiveness = 0.0
+		fire.amount = 30
+		fire.lifetime = 4.0
+		fire.position = global_position + Vector2(randf_range(-20, 20), randf_range(-20, 0))
+
+		var fire_mat := ParticleProcessMaterial.new()
+		fire_mat.emission_shape = 1
+		fire_mat.emission_sphere_radius = 15.0
+		fire_mat.gravity = Vector3(0, -50, 0)
+		fire_mat.spread = 180.0
+		fire_mat.initial_velocity_min = 30.0
+		fire_mat.initial_velocity_max = 80.0
+		fire_mat.scale_min = 3.0
+		fire_mat.scale_max = 8.0
+		fire_mat.color = Color(1, 0.4, 0.1, 1)
+		fire.process_material = fire_mat
+		get_parent().add_child(fire)
+
+	for i in range(3):
+		var smoke := GPUParticles2D.new()
+		smoke.name = "WreckSmoke"
+		smoke.emitting = true
+		smoke.one_shot = false
+		smoke.amount = 20
+		smoke.lifetime = 6.0
+		smoke.position = global_position + Vector2(randf_range(-15, 15), randf_range(-15, 0))
+
+		var smoke_mat := ParticleProcessMaterial.new()
+		smoke_mat.emission_shape = 1
+		smoke_mat.emission_sphere_radius = 20.0
+		smoke_mat.gravity = Vector3(0, -15, 0)
+		smoke_mat.spread = 180.0
+		smoke_mat.initial_velocity_min = 20.0
+		smoke_mat.initial_velocity_max = 50.0
+		smoke_mat.scale_min = 4.0
+		smoke_mat.scale_max = 10.0
+		smoke_mat.color = Color(0.1, 0.1, 0.1, 0.8)
+		smoke.process_material = smoke_mat
+		get_parent().add_child(smoke)
+
+	if polygon_points.size() >= 3:
+		var shatter: Node = SHATTER_SCENE.instantiate()
+		shatter.setup(polygon_points, Color(0.2, 0.5, 0.2), global_position)
+		get_parent().add_child(shatter)
+
+func _create_normal_explosion() -> void:
+	var explosion: Node = EXPLOSION_SCENE.instantiate()
+	explosion.global_position = global_position
+	get_parent().add_child(explosion)
+
+	var color := Color(0.3, 0.3, 0.35)
+	if target_type == "hangar":
+		color = Color(0.4, 0.2, 0.2)
+	elif target_type == "tank":
+		color = Color(0.2, 0.3, 0.2)
+
+	if polygon_points.size() >= 3:
+		var shatter: Node = SHATTER_SCENE.instantiate()
+		shatter.setup(polygon_points, color, global_position)
+		get_parent().add_child(shatter)
+
+	if GameManager:
+		GameManager.request_screen_shake(15.0)
+
+func _create_wreck() -> void:
+	var wreck: StaticBody2D = StaticBody2D.new()
+	wreck.position = global_position
+	wreck.set_meta("is_wreck", true)
+	wreck.add_to_group("destructible")
+	wreck.add_to_group("wreck")
+
+	var collision_poly := CollisionPolygon2D.new()
+	var wrecked_points := PackedVector2Array()
+	for pt in polygon_points:
+		wrecked_points.append(pt + Vector2(randf_range(-3, 3), randf_range(-3, 3)))
+	collision_poly.polygon = wrecked_points
+	wreck.add_child(collision_poly)
+
+	var wreck_draw := Node2D.new()
+	var color := Color(0.15, 0.15, 0.18)
+	if target_type == "hangar":
+		color = Color(0.2, 0.1, 0.1)
+	elif target_type == "tank":
+		color = Color(0.1, 0.15, 0.1)
+	elif target_type == "fuel_tank":
+		color = Color(0.1, 0.25, 0.1)
+	wreck_draw.draw_colored_polygon(wrecked_points, color)
+	wreck.add_child(wreck_draw)
+
+	get_parent().add_child(wreck)
 
 func _spawn_violent_explosion() -> void:
 	var explosion: Node = EXPLOSION_SCENE.instantiate()
