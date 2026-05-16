@@ -206,6 +206,10 @@ func _start_playing(is_vs_computer: bool) -> void:
 			if biplane.crashed.is_connected(_on_biplane_crashed):
 				biplane.crashed.disconnect(_on_biplane_crashed)
 			biplane.crashed.connect(_on_biplane_crashed)
+		if biplane.has_signal("damaged"):
+			if biplane.damaged.is_connected(_on_biplane_damaged):
+				biplane.damaged.disconnect(_on_biplane_damaged)
+			biplane.damaged.connect(_on_biplane_damaged)
 	if camera:
 		camera.position = Vector2(6520, 400)
 	if SoundManager:
@@ -381,6 +385,11 @@ func _on_biplane_crashed() -> void:
 		shatter.setup(plane_poly, Color(0.5, 0.55, 0.5), biplane.global_position)
 		add_child(shatter)
 
+	if SoundManager:
+		SoundManager.play_explosion()
+
+func _on_biplane_damaged(impact_force: float, v_perp: float) -> void:
+	GameManager.request_screen_shake(10.0)
 	if SoundManager:
 		SoundManager.play_explosion()
 

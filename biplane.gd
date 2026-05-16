@@ -48,6 +48,13 @@ const THROTTLE_RAMP_SPEED := 4.0
 @export var rotation_speed: float = 6.0
 @export var rotation_inertia: float = 3.0
 
+@export_group("Impact Physics (Sopwith Camel)")
+@export var camel_mass_kg: float = 659.0
+@export var bungee_compression_time: float = 0.15
+@export var soft_landing_vperp: float = 1.5
+@export var hard_landing_vperp: float = 4.0
+@export var max_landing_tilt_deg: float = 20.0
+
 var throttle: float = 0.0
 var throttle_target: float = 0.0
 var throttle_repeat_timer: float = 0.0
@@ -93,15 +100,18 @@ const BOMB_SCENE := preload("res://scenes/bomb.tscn")
 signal fired_bullet(position: Vector2, direction: Vector2, speed: float, owner: Node, range_percent: float)
 signal dropped_bomb(position: Vector2, velocity: Vector2, owner: Node)
 signal crashed()
+signal damaged(impact_force: float, v_perp: float)
 
 enum FlightState {
 	FLYING,
 	STALLED,
 	FALLING,
+	DAMAGED,
 	CRASHED
 }
 
 var flight_state: FlightState = FlightState.FLYING
+var is_damaged: bool = false
 
 func _ready() -> void:
 	motion_mode = MotionMode.MOTION_MODE_FLOATING
@@ -123,11 +133,11 @@ func _physics_process(delta: float) -> void:
 	_handle_weapons(delta)
 	_check_altitude_engine_cutoff(delta)
 	_apply_aerodynamics(delta)
+	_check_ground_collision()
 	_apply_ground_forces(delta)
 	_handle_roll(delta)
 
 	global_position += velocity * delta
-	_check_ground_collision()
 	_check_obstacle_collision()
 	_check_fuel_consumption(delta)
 	_check_home_refuel(delta)
@@ -321,7 +331,10 @@ func _apply_aerodynamics(delta: float) -> void:
 
 	if on_ground:
 		is_stalled = false
-		flight_state = FlightState.FLYING
+		if flight_state == FlightState.DAMAGED:
+			pass
+		else:
+			flight_state = FlightState.FLYING
 	elif abs(angle_of_attack) > stall_aoa or speed_si < stall_speed_ms:
 		is_stalled = true
 		if flight_state == FlightState.FLYING:
@@ -348,13 +361,21 @@ func _apply_aerodynamics(delta: float) -> void:
 	var parasitic_drag_si := 0.5 * air_density * speed_si * speed_si * zero_lift_drag_area
 	var induced_drag_si := 0.5 * air_density * speed_si * speed_si * wing_area * (cl * cl) / ar_efficiency
 
+	var effective_max_speed: float = max_speed
+	if is_damaged:
+		effective_max_speed *= 0.7
+
 	var speed_px := velocity.length()
 	var speed_limit_drag: float = 0.0
-	if speed_px > max_speed:
-		var overspeed := speed_px - max_speed
+	if speed_px > effective_max_speed:
+		var overspeed := speed_px - effective_max_speed
 		speed_limit_drag = overspeed * overspeed * 0.5
 
 	var total_drag_si := parasitic_drag_si + induced_drag_si + speed_limit_drag / pixels_per_meter
+
+	if is_damaged:
+		total_drag_si *= 1.4
+
 	var drag_vec := Vector2.ZERO
 	if speed_si > 0.01:
 		drag_vec = -vel_si.normalized() * total_drag_si
@@ -379,7 +400,6 @@ func _apply_ground_forces(delta: float) -> void:
 		velocity.y = 0
 	elif global_position.y > ground_y - 12:
 		global_position.y = ground_y - 12
-		velocity.y = 0
 
 func _calc_thrust(speed_si: float, thr: float) -> float:
 	var ground_y: float = 650.0
@@ -420,7 +440,9 @@ func _check_ground_collision() -> void:
 
 	if global_position.y >= ground_y - 8:
 		var speed = get_speed()
-		var normalized_rot: float = fmod(rotation, TAU)
+		var v_perp: float = abs(velocity.y)
+		print_rich("[color=yellow]  _check_gc: ENTERED pos_y=", global_position.y, " gy=", ground_y, " speed=", speed, " v_perp=", v_perp, "[/color]")
+		var normalized_rot: float = fmod(pitch_yaw_angle, TAU)
 		if normalized_rot < 0:
 			normalized_rot += TAU
 
@@ -437,21 +459,41 @@ func _check_ground_collision() -> void:
 			relative_angle += TAU
 
 		var tilt_angle: float = abs(relative_angle)
-		var is_excessive_tilt: bool = tilt_angle > deg_to_rad(20)
-		var is_excessive_speed: bool = speed > 50.0
+		print_rich("[color=cyan]  _check_gc: tilt_angle=", rad_to_deg(tilt_angle), " deg, speed=", speed, "[/color]")
 
-		if is_excessive_tilt or is_excessive_speed:
+		if tilt_angle >= deg_to_rad(max_landing_tilt_deg) or speed > 45.0:
+			print_rich("[color=red]  _check_gc: CRASH condition met![/color]")
 			flight_state = FlightState.CRASHED
 			crashed.emit()
 			if is_player and GameManager:
 				GameManager.take_damage()
-		else:
+			return
+
+		var impact_force: float = (camel_mass_kg * v_perp) / bungee_compression_time
+		print_rich("[color=green]  _check_gc: impact_force=", impact_force, " N, v_perp=", v_perp, "[/color]")
+
+		if v_perp <= soft_landing_vperp:
+			print_rich("[color=green]  _check_gc: SOFT LANDING[/color]")
 			global_position.y = ground_y - 10
 			velocity.y = 0
 			flight_state = FlightState.FLYING
+		elif v_perp <= hard_landing_vperp:
+			print_rich("[color=orange]  _check_gc: HARD LANDING (damaged)[/color]")
+			global_position.y = ground_y - 10
+			velocity.y = 0
+			velocity.x *= 0.5
+			flight_state = FlightState.DAMAGED
+			is_damaged = true
+			damaged.emit(impact_force, v_perp)
+		else:
+			print_rich("[color=red]  _check_gc: DESTROYED (v_perp too high)[/color]")
+			flight_state = FlightState.CRASHED
+			crashed.emit()
+			if is_player and GameManager:
+				GameManager.take_damage()
 
 func _check_obstacle_collision() -> void:
-	if flight_state == FlightState.CRASHED:
+	if flight_state == FlightState.CRASHED or flight_state == FlightState.DAMAGED:
 		return
 
 	var speed := get_speed()
@@ -648,11 +690,19 @@ func _check_home_refuel(delta: float) -> void:
 	if hit_count > 0:
 		hit_count = 0
 		reliability = 1.0
+		damage_percent = 0.0
+		if is_damaged:
+			is_damaged = false
+			flight_state = FlightState.FLYING
 		if has_node("SmokeParticles"):
 			var sp: GPUParticles2D = get_node("SmokeParticles")
 			sp.emitting = false
 			sp.queue_free()
 			smoke_particles = null
+		if has_node("BlackSmokeParticles"):
+			var sp: GPUParticles2D = get_node("BlackSmokeParticles")
+			sp.emitting = false
+			sp.queue_free()
 
 	var old_ammo: int = GameManager.ammo
 	var old_bombs: int = GameManager.bombs
@@ -704,6 +754,7 @@ func reset_flight_state() -> void:
 	hit_count = 0
 	damage_percent = 0.0
 	reliability = 1.0
+	is_damaged = false
 	autopilot_enabled = false
 	is_autopilot_landing = false
 	has_added_white_smoke = false
