@@ -51,9 +51,9 @@ const THROTTLE_RAMP_SPEED := 4.0
 @export_group("Impact Physics (Sopwith Camel)")
 @export var camel_mass_kg: float = 659.0
 @export var bungee_compression_time: float = 0.15
-@export var soft_landing_vperp: float = 1.5
-@export var hard_landing_vperp: float = 4.0
-@export var max_landing_tilt_deg: float = 20.0
+@export var soft_landing_vperp: float = 40.0
+@export var hard_landing_vperp: float = 100.0
+@export var max_landing_tilt_deg: float = 34.0
 
 var throttle: float = 0.0
 var throttle_target: float = 0.0
@@ -111,7 +111,6 @@ enum FlightState {
 }
 
 var flight_state: FlightState = FlightState.FLYING
-var is_damaged: bool = false
 
 func _ready() -> void:
 	motion_mode = MotionMode.MOTION_MODE_FLOATING
@@ -362,8 +361,8 @@ func _apply_aerodynamics(delta: float) -> void:
 	var induced_drag_si := 0.5 * air_density * speed_si * speed_si * wing_area * (cl * cl) / ar_efficiency
 
 	var effective_max_speed: float = max_speed
-	if is_damaged:
-		effective_max_speed *= 0.7
+	if damage_percent > 0:
+		effective_max_speed *= (1.0 - damage_percent * 0.3)
 
 	var speed_px := velocity.length()
 	var speed_limit_drag: float = 0.0
@@ -373,8 +372,8 @@ func _apply_aerodynamics(delta: float) -> void:
 
 	var total_drag_si := parasitic_drag_si + induced_drag_si + speed_limit_drag / pixels_per_meter
 
-	if is_damaged:
-		total_drag_si *= 1.4
+	if damage_percent > 0:
+		total_drag_si *= (1.0 + damage_percent * 0.4)
 
 	var drag_vec := Vector2.ZERO
 	if speed_si > 0.01:
@@ -438,10 +437,11 @@ func _check_ground_collision() -> void:
 	if terrain and terrain.has_method("get_ground_height_at"):
 		ground_y = terrain.get_ground_height_at(global_position.x)
 
-	if global_position.y >= ground_y - 8:
+	if global_position.y >= ground_y - 14 and velocity.y > 20:
+		print_rich("[color=yellow]  _check_gc: CALLED pos_y=", global_position.y, "[/color]")
 		var speed = get_speed()
 		var v_perp: float = abs(velocity.y)
-		print_rich("[color=yellow]  _check_gc: ENTERED pos_y=", global_position.y, " gy=", ground_y, " speed=", speed, " v_perp=", v_perp, "[/color]")
+		print_rich("[color=magenta]  _check_gc: IN RANGE pos_y=", global_position.y, " gy=", ground_y, " speed=", speed, " v_perp=", v_perp, "[/color]")
 		var normalized_rot: float = fmod(pitch_yaw_angle, TAU)
 		if normalized_rot < 0:
 			normalized_rot += TAU
@@ -450,7 +450,7 @@ func _check_ground_collision() -> void:
 		if terrain and terrain.has_method("get_ground_height_at"):
 			var ground_ahead: float = terrain.get_ground_height_at(global_position.x + 10)
 			var ground_behind: float = terrain.get_ground_height_at(global_position.x - 10)
-			slope_angle = atan2(ground_ahead - ground_behind, 20.0)
+			slope_angle = atan2(ground_ahead - ground_behind, 30.0)
 
 		var relative_angle: float = normalized_rot - slope_angle
 		while relative_angle > PI:
@@ -461,7 +461,7 @@ func _check_ground_collision() -> void:
 		var tilt_angle: float = abs(relative_angle)
 		print_rich("[color=cyan]  _check_gc: tilt_angle=", rad_to_deg(tilt_angle), " deg, speed=", speed, "[/color]")
 
-		if tilt_angle >= deg_to_rad(max_landing_tilt_deg) or speed > 45.0:
+		if tilt_angle >= deg_to_rad(max_landing_tilt_deg) and velocity.y > 40.0:
 			print_rich("[color=red]  _check_gc: CRASH condition met![/color]")
 			flight_state = FlightState.CRASHED
 			crashed.emit()
@@ -483,7 +483,13 @@ func _check_ground_collision() -> void:
 			velocity.y = 0
 			velocity.x *= 0.5
 			flight_state = FlightState.DAMAGED
-			is_damaged = true
+			hit_count += 1
+			damage_percent = float(hit_count) / 3.0
+			print_rich("[color=orange]  _check_gc: HARD LANDING damage: hit_count=", hit_count, " damage_percent=", damage_percent, "[/color]")
+			reliability = 0.75
+			_add_smoke_stream(Color(0.9, 0.9, 0.9, 0.6), 15)
+			if damage_percent > 0.5:
+				_ensure_black_smoke()
 			damaged.emit(impact_force, v_perp)
 		else:
 			print_rich("[color=red]  _check_gc: DESTROYED (v_perp too high)[/color]")
@@ -687,13 +693,11 @@ func _check_home_refuel(delta: float) -> void:
 	if dist_to_home > home_base_width:
 		return
 
-	if hit_count > 0:
+	if damage_percent > 0:
+		damage_percent = 0.0
 		hit_count = 0
 		reliability = 1.0
-		damage_percent = 0.0
-		if is_damaged:
-			is_damaged = false
-			flight_state = FlightState.FLYING
+		flight_state = FlightState.FLYING
 		if has_node("SmokeParticles"):
 			var sp: GPUParticles2D = get_node("SmokeParticles")
 			sp.emitting = false
@@ -751,10 +755,7 @@ func reset_flight_state() -> void:
 	velocity = Vector2.ZERO
 	is_rolling = false
 	is_losing_control = false
-	hit_count = 0
-	damage_percent = 0.0
 	reliability = 1.0
-	is_damaged = false
 	autopilot_enabled = false
 	is_autopilot_landing = false
 	has_added_white_smoke = false

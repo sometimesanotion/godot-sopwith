@@ -55,8 +55,8 @@ func _create_visuals() -> void:
 		_create_hangar(_collision_polygon)
 	elif target_type == "tank":
 		_create_tank(_collision_polygon)
-	elif target_type == "fuel_tank":
-		_create_fuel_tank(_collision_polygon)
+	elif target_type == "fuel_depot":
+		_create_fuel_depot(_collision_polygon)
 	else:
 		_create_building(_collision_polygon)
 	add_child(_collision_polygon)
@@ -86,7 +86,7 @@ func _create_tank(polygon: CollisionPolygon2D) -> void:
 	])
 	polygon.polygon = points
 
-func _create_fuel_tank(polygon: CollisionPolygon2D) -> void:
+func _create_fuel_depot(polygon: CollisionPolygon2D) -> void:
 	var points := PackedVector2Array([
 		Vector2(-15, 0),
 		Vector2(-15, -20),
@@ -119,9 +119,9 @@ func _draw() -> void:
 	elif target_type == "tank":
 		color = Color(0.2, 0.3, 0.2)
 		draw_tank_details()
-	elif target_type == "fuel_tank":
+	elif target_type == "fuel_depot":
 		color = Color(0.2, 0.5, 0.2)
-		draw_fuel_tank_details()
+		draw_fuel_depot_details()
 	elif target_type == "building":
 		color = Color(0.35, 0.35, 0.4)
 		draw_building_details()
@@ -142,7 +142,7 @@ func draw_tank_details() -> void:
 	draw_line(Vector2(-20, -15), Vector2(-25, -18), Color(0.15, 0.25, 0.15), 2)
 	draw_line(Vector2(20, -15), Vector2(25, -18), Color(0.15, 0.25, 0.15), 2)
 
-func draw_fuel_tank_details() -> void:
+func draw_fuel_depot_details() -> void:
 	draw_line(Vector2(-12, -18), Vector2(-14, -22), Color(0.1, 0.2, 0.1), 2)
 	draw_line(Vector2(12, -18), Vector2(14, -22), Color(0.1, 0.2, 0.1), 2)
 	draw_rect(Rect2(-3, -22, 6, 3), Color(0.3, 0.2, 0.1))
@@ -184,8 +184,8 @@ func take_damage(amount: float, attacker: Node) -> void:
 func _destroy() -> void:
 	is_destroyed = true
 
-	if target_type == "fuel_tank":
-		_create_fuel_tank_explosion()
+	if target_type == "fuel_depot":
+		_create_fuel_depot_explosion()
 		if GameManager:
 			GameManager.request_screen_shake(50.0)
 	else:
@@ -198,7 +198,7 @@ func _destroy() -> void:
 
 	queue_free()
 
-func _create_fuel_tank_explosion() -> void:
+func _create_fuel_depot_explosion() -> void:
 	for i in range(5):
 		var explosion: Node = EXPLOSION_SCENE.instantiate()
 		explosion.global_position = global_position + Vector2(randf_range(-30, 30), randf_range(-40, 10))
@@ -344,7 +344,7 @@ func _get_wreck_color() -> Color:
 		color = Color(0.2, 0.1, 0.1)
 	elif target_type == "tank":
 		color = Color(0.1, 0.15, 0.1)
-	elif target_type == "fuel_tank":
+	elif target_type == "fuel_depot":
 		color = Color(0.1, 0.25, 0.1)
 	return color
 

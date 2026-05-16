@@ -296,12 +296,12 @@ func _create_home_base() -> void:
 		add_child(building)
 
 	for i in range(2):
-		var fuel_tank := GROUND_TARGET_SCENE.instantiate()
-		fuel_tank.target_type = "fuel_tank"
-		fuel_tank.position = Vector2(6424 + i * 40, ground_y)
-		fuel_tank.has_aa = false
-		fuel_tank.is_enemy = false
-		add_child(fuel_tank)
+		var fuel_depot := GROUND_TARGET_SCENE.instantiate()
+		fuel_depot.target_type = "fuel_depot"
+		fuel_depot.position = Vector2(6424 + i * 40, ground_y)
+		fuel_depot.has_aa = false
+		fuel_depot.is_enemy = false
+		add_child(fuel_depot)
 
 func _create_enemy_bases() -> void:
 	for home_x in enemy_home_positions:
@@ -322,13 +322,13 @@ func _create_enemy_bases() -> void:
 			add_child(building)
 
 		for i in range(2):
-			var fuel_tank := GROUND_TARGET_SCENE.instantiate()
-			fuel_tank.target_type = "fuel_tank"
-			fuel_tank.position = Vector2(home_x - 30 + i * 40, ground_y)
-			fuel_tank.has_aa = false
-			fuel_tank.is_enemy = true
-			fuel_tank.add_to_group("enemy_target")
-			add_child(fuel_tank)
+			var fuel_depot := GROUND_TARGET_SCENE.instantiate()
+			fuel_depot.target_type = "fuel_depot"
+			fuel_depot.position = Vector2(home_x - 30 + i * 40, ground_y)
+			fuel_depot.has_aa = false
+			fuel_depot.is_enemy = true
+			fuel_depot.add_to_group("enemy_target")
+			add_child(fuel_depot)
 
 		for i in range(3):
 			var target := GROUND_TARGET_SCENE.instantiate()
