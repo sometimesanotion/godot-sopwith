@@ -46,7 +46,8 @@ func _process(_delta: float) -> void:
 		var speed := int(biplane.get_speed())
 		speed_label.text = "SPEED: %d" % speed
 
-		if biplane.is_stalling():
+		var speed_ms: float = biplane.get_speed() / biplane.pixels_per_meter
+		if speed_ms < biplane.stall_speed_ms:
 			var pulse := sin(Time.get_ticks_msec() * 0.015)
 			var red := clampf(1.0 - pulse * 0.8, 0.2, 1.0)
 			speed_label.modulate = Color(1, red, red)

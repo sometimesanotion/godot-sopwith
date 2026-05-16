@@ -17,6 +17,9 @@ var patrol_range: float = 2000.0
 var enemy_state: String = "GROUNDED"
 var landing_threshold: float = 800.0
 var is_using_autopilot: bool = false
+var unlimited_fuel_ammo: bool = false
+var takeoff_delay: float = 0.0
+var takeoff_timer: float = 0.0
 
 const TERRAIN_LENGTH := 16384.0
 
@@ -27,6 +30,11 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if not target or not biplane:
 		return
+
+	if takeoff_delay > 0:
+		takeoff_timer += delta
+		if takeoff_timer < takeoff_delay:
+			return
 
 	_update_state(delta)
 

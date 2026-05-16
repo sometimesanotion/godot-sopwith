@@ -37,6 +37,7 @@ func _input(event):
 		match event.keycode:
 			KEY_Q:
 				_on_back()
+				get_viewport().set_input_as_handled()
 			KEY_TAB:
 				_cycle_selection(1)
 			KEY_UP:

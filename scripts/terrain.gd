@@ -25,8 +25,8 @@ func _create_terrain() -> void:
 	
 	var collision_poly := CollisionPolygon2D.new()
 	var poly_points := ground_points.duplicate()
-	poly_points.append(Vector2(TERRAIN_LENGTH, 850.0))
-	poly_points.append(Vector2(0, 850.0))
+	poly_points.append(Vector2(TERRAIN_LENGTH, 1050.0))
+	poly_points.append(Vector2(0, 1050.0))
 	collision_poly.polygon = poly_points
 	terrain_body.add_child(collision_poly)
 	terrain_body.collision_layer = 1

@@ -75,9 +75,17 @@ var last_shot_range: float = 0.0
 
 var hit_count: int = 0
 var reliability: float = 1.0
+var damage_percent: float = 0.0
 var smoke_particles: GPUParticles2D = null
 var is_losing_control: bool = false
 var game_active: bool = false
+
+const ENGINE_EFFICIENCY_START_ALTITUDE := 500.0
+const ENGINE_CUTOFF_ALTITUDE := 800.0
+
+var engine_cutoff: bool = false
+var engine_restart_hold_time: float = 0.0
+var engine_restart_required_time: float = 0.0
 
 const BULLET_SCENE := preload("res://scenes/bullet.tscn")
 const BOMB_SCENE := preload("res://scenes/bomb.tscn")
@@ -113,6 +121,7 @@ func _physics_process(delta: float) -> void:
 
 	_handle_input(delta)
 	_handle_weapons(delta)
+	_check_altitude_engine_cutoff(delta)
 	_apply_aerodynamics(delta)
 	_apply_ground_forces(delta)
 	_handle_roll(delta)
@@ -134,6 +143,31 @@ func _check_crash_on_spin() -> void:
 		crashed.emit()
 		if is_player and GameManager:
 			GameManager.take_damage()
+
+func _check_altitude_engine_cutoff(delta: float) -> void:
+	if unlimited_fuel_ammo:
+		return
+
+	var ground_y: float = 650.0
+	var terrain = get_parent().get_node_or_null("Terrain")
+	if terrain and terrain.has_method("get_ground_height_at"):
+		ground_y = terrain.get_ground_height_at(global_position.x)
+
+	var altitude: float = ground_y - global_position.y
+
+	if not engine_cutoff:
+		if altitude >= ENGINE_CUTOFF_ALTITUDE:
+			engine_cutoff = true
+			throttle = 0.0
+			throttle_target = 0.0
+			engine_restart_hold_time = 0.0
+			engine_restart_required_time = 4.0 + randf() * 4.0
+	else:
+		if is_player and Input.is_action_pressed("throttle_up"):
+			engine_restart_hold_time += delta
+			if engine_restart_hold_time >= engine_restart_required_time:
+				engine_cutoff = false
+				engine_restart_hold_time = 0.0
 
 func _handle_input(delta: float) -> void:
 	var pitch_authority: float = 1.0
@@ -164,7 +198,9 @@ func _handle_input(delta: float) -> void:
 			pitch_input = Input.get_axis("pull_up", "pull_down") * pitch_authority
 
 		var throttle_changed := false
-		if Input.is_action_pressed("throttle_up"):
+		if engine_cutoff:
+			pass
+		elif Input.is_action_pressed("throttle_up"):
 			throttle_repeat_timer -= delta
 			if throttle_repeat_timer <= 0:
 				throttle_target = min(max_throttle, throttle_target + THROTTLE_STEP)
@@ -178,7 +214,7 @@ func _handle_input(delta: float) -> void:
 				throttle_changed = true
 		else:
 			throttle_repeat_timer = 0.0
-		if not throttle_changed and throttle_target < min_throttle:
+		if not throttle_changed and throttle_target < min_throttle and not engine_cutoff:
 			throttle_target = min_throttle
 
 		if Input.is_action_just_pressed("roll") and not is_rolling:
@@ -191,7 +227,8 @@ func _handle_input(delta: float) -> void:
 	if is_rolling:
 		rotation = pitch_yaw_angle + bank_angle
 	else:
-		var target_angular_velocity := pitch_input * rotation_speed
+		var effective_rotation_speed := rotation_speed * (1.0 - damage_percent * 0.4)
+		var target_angular_velocity := pitch_input * effective_rotation_speed
 		angular_velocity = move_toward(angular_velocity, target_angular_velocity, rotation_inertia * delta)
 		pitch_yaw_angle += angular_velocity * delta
 		rotation = pitch_yaw_angle + bank_angle
@@ -345,8 +382,23 @@ func _apply_ground_forces(delta: float) -> void:
 		velocity.y = 0
 
 func _calc_thrust(speed_si: float, thr: float) -> float:
+	var ground_y: float = 650.0
+	var terrain = get_parent().get_node_or_null("Terrain")
+	if terrain and terrain.has_method("get_ground_height_at"):
+		ground_y = terrain.get_ground_height_at(global_position.x)
+
+	var altitude: float = ground_y - global_position.y
+	var altitude_efficiency: float = 1.0
+	if altitude > ENGINE_EFFICIENCY_START_ALTITUDE:
+		altitude_efficiency = 1.0 - clampf((altitude - ENGINE_EFFICIENCY_START_ALTITUDE) / (ENGINE_CUTOFF_ALTITUDE - ENGINE_EFFICIENCY_START_ALTITUDE), 0.0, 1.0)
+
+	if engine_cutoff:
+		return 0.0
+
 	if speed_si < 0.5:
-		return 2000.0 * thr
+		var base_thrust := 2000.0 * thr
+		var damage_reduction := 1.0 - (damage_percent * 0.5)
+		return base_thrust * damage_reduction * altitude_efficiency
 
 	var eta := 0.8 * (1.0 - pow((speed_si - 40.0) / 40.0, 2))
 	eta = maxf(eta, 0.0)
@@ -357,7 +409,8 @@ func _calc_thrust(speed_si: float, thr: float) -> float:
 	if GameManager:
 		gm_thrust_mult = GameManager.thrust_multiplier
 
-	return thrust_from_power * thr * gm_thrust_mult
+	var damage_reduction := 1.0 - (damage_percent * 0.5)
+	return thrust_from_power * thr * gm_thrust_mult * damage_reduction * altitude_efficiency
 
 func _check_ground_collision() -> void:
 	var ground_y: float = 650.0
@@ -385,15 +438,15 @@ func _check_ground_collision() -> void:
 
 		var tilt_angle: float = abs(relative_angle)
 		var is_excessive_tilt: bool = tilt_angle > deg_to_rad(20)
+		var is_excessive_speed: bool = speed > 50.0
 
-		if is_excessive_tilt:
+		if is_excessive_tilt or is_excessive_speed:
 			flight_state = FlightState.CRASHED
 			crashed.emit()
 			if is_player and GameManager:
 				GameManager.take_damage()
-		elif speed < 30:
+		else:
 			global_position.y = ground_y - 10
-			velocity.x = 0
 			velocity.y = 0
 			flight_state = FlightState.FLYING
 
@@ -418,6 +471,8 @@ func _check_obstacle_collision() -> void:
 			if child.is_in_group("ground_target") or child.is_in_group("wreck"):
 				hit_radius = 35.0
 			if dist < hit_radius:
+				if child.is_in_group("ground_target") and child.has_method("take_damage") and not child.is_destroyed:
+					child.take_damage(100.0, self)
 				flight_state = FlightState.CRASHED
 				crashed.emit()
 				if is_player and GameManager:
@@ -514,6 +569,9 @@ func _find_nearest_enemy() -> Node:
 	return nearest
 
 func _drop_bomb() -> void:
+	if bombs_disabled:
+		return
+
 	if current_bombs <= 0:
 		return
 
@@ -538,7 +596,22 @@ func _drop_bomb() -> void:
 	get_parent().add_child(bomb)
 	dropped_bomb.emit(spawn_pos, velocity, self)
 
+func get_reliability() -> float:
+	return reliability
+
+var unlimited_fuel_ammo: bool = false
+var bombs_disabled: bool = false
+
+func set_unlimited_fuel_ammo(val: bool) -> void:
+	unlimited_fuel_ammo = val
+
+func disable_bombs() -> void:
+	bombs_disabled = true
+
 func _check_fuel_consumption(delta: float) -> void:
+	if unlimited_fuel_ammo:
+		return
+
 	if is_player and GameManager:
 		if GameManager.fuel <= 0:
 			_add_white_smoke_when_out_of_fuel()
@@ -629,15 +702,23 @@ func reset_flight_state() -> void:
 	is_rolling = false
 	is_losing_control = false
 	hit_count = 0
+	damage_percent = 0.0
 	reliability = 1.0
 	autopilot_enabled = false
 	is_autopilot_landing = false
 	has_added_white_smoke = false
+	engine_cutoff = false
+	engine_restart_hold_time = 0.0
+	engine_restart_required_time = 0.0
 	if has_node("SmokeParticles"):
 		var sp: GPUParticles2D = get_node("SmokeParticles")
 		sp.emitting = false
 		sp.queue_free()
 		smoke_particles = null
+	if has_node("BlackSmokeParticles"):
+		var sp: GPUParticles2D = get_node("BlackSmokeParticles")
+		sp.emitting = false
+		sp.queue_free()
 
 var ai_pitch_input: float = 0.0
 var ai_throttle: float = 0.5
@@ -813,6 +894,7 @@ func take_damage(amount: float, attacker: Node) -> void:
 		return
 
 	hit_count += 1
+	damage_percent = float(hit_count) / 3.0
 
 	if hit_count == 1:
 		reliability = 0.75
@@ -823,6 +905,9 @@ func take_damage(amount: float, attacker: Node) -> void:
 	elif hit_count >= 3:
 		reliability = 0.0
 		_start_spinning_out()
+
+	if damage_percent > 0.3:
+		_ensure_black_smoke()
 
 func _add_smoke_stream(color: Color, amount: int) -> void:
 	if has_node("SmokeParticles"):
@@ -854,5 +939,26 @@ func _start_spinning_out() -> void:
 	throttle = 0.0
 	_start_roll()
 
-func get_reliability() -> float:
-	return reliability
+func _ensure_black_smoke() -> void:
+	if has_node("BlackSmokeParticles"):
+		return
+	var black_smoke := GPUParticles2D.new()
+	black_smoke.name = "BlackSmokeParticles"
+	black_smoke.emitting = true
+	black_smoke.amount = 30
+	black_smoke.lifetime = 0.8
+	black_smoke.speed_scale = 1.5
+
+	var material = ParticleProcessMaterial.new()
+	material.emission_shape = 1
+	material.emission_sphere_radius = 8.0
+	material.gravity = Vector3(0, 30, 0)
+	material.spread = 30.0
+	material.initial_velocity_min = 30.0
+	material.initial_velocity_max = 60.0
+	material.scale_min = 4.0
+	material.scale_max = 10.0
+	material.color = Color(0.05, 0.05, 0.05, 0.85)
+	black_smoke.process_material = material
+
+	add_child(black_smoke)

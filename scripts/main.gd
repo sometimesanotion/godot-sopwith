@@ -31,6 +31,7 @@ var is_respawning: bool = false
 var screen_shake_intensity: float = 0.0
 var enemies: Array = []
 var minimap_instance: Control = null
+var is_vs_computer: bool = false
 
 func _ready() -> void:
 	add_to_group("main")
@@ -107,6 +108,7 @@ func _input(event: InputEvent) -> void:
 func _abort_game() -> void:
 	game_state = "TITLE"
 	is_paused = false
+	is_vs_computer = false
 	if biplane:
 		biplane.velocity = Vector2.ZERO
 		biplane.autopilot_enabled = false
@@ -159,9 +161,11 @@ func _on_back_to_menu() -> void:
 	_show_title_screen()
 
 func _on_start_game() -> void:
+	is_vs_computer = false
 	_start_playing(false)
 
 func _on_start_vs_computer() -> void:
+	is_vs_computer = true
 	_start_playing(true)
 
 func _start_playing(is_vs_computer: bool) -> void:
@@ -244,6 +248,14 @@ func _spawn_enemies_and_targets() -> void:
 			ai.target = biplane
 			ai.biplane = enemy
 			ai.home_base_x = enemy_base_x[i]
+			ai.unlimited_fuel_ammo = is_vs_computer
+		if is_vs_computer:
+			enemy.set_unlimited_fuel_ammo(true)
+			enemy.disable_bombs()
+			var takeoff_delay := i * 1.5
+			if enemy.has_node("EnemyAI"):
+				enemy.get_node("EnemyAI").takeoff_delay = takeoff_delay
+				enemy.get_node("EnemyAI").enemy_state = "GROUNDED"
 		add_child(enemy)
 		enemies.append(enemy)
 
@@ -418,7 +430,7 @@ func _update_camera(delta: float) -> void:
 	if biplane.velocity.x < 0:
 		look_ahead = Vector2(-50, 0)
 
-	var target_pos := biplane.position + look_ahead
+	var target_pos: Vector2 = biplane.position + look_ahead
 
 	if screen_shake_intensity > 0:
 		target_pos += Vector2(randf_range(-1, 1), randf_range(-1, 1)) * screen_shake_intensity
@@ -430,7 +442,7 @@ func _handle_wrap_around() -> void:
 	if not biplane:
 		return
 
-	var pos := biplane.position
+	var pos: Vector2 = biplane.position
 
 	if pos.x < VIEWPORT_MIN_X:
 		biplane.position.x = TERRAIN_LENGTH - 1
@@ -476,8 +488,8 @@ func _update_ghost_biplane() -> void:
 	if not ghost_biplane or not biplane:
 		return
 
-	var pos := biplane.position
-	var wrapped_x := wrapf(pos.x, 0, TERRAIN_LENGTH)
+	var pos: Vector2 = biplane.position
+	var wrapped_x: float = wrapf(pos.x, 0, TERRAIN_LENGTH)
 
 	if pos.x < GHOST_THRESHOLD:
 		ghost_biplane.visible = true
@@ -507,7 +519,7 @@ func _update_ghost_terrain() -> void:
 	if not biplane:
 		return
 
-	var pos := biplane.position
+	var pos: Vector2 = biplane.position
 
 	if pos.x < GHOST_THRESHOLD:
 		ghost_terrain.visible = true
