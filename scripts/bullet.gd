@@ -61,7 +61,11 @@ func _handle_collision(collision: KinematicCollision2D) -> void:
 		if randf() > reliability:
 			queue_free()
 			return
-		
+
+		if not is_instance_valid(_bullet_owner):
+			queue_free()
+			return
+
 		collider.take_damage(damage, _bullet_owner)
 
 	queue_free()

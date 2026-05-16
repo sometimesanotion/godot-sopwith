@@ -8,8 +8,8 @@ class_name Biplane
 
 @export_group("Flight Parameters (SI Units)")
 @export var mass: float = 447.0
-@export var engine_power_watts: float = 50000.0 # 96941.0
-@export var wing_area: float = 21.46
+@export var engine_power_watts: float = 30000.0 # 96941.0
+@export var wing_area: float = 32.0 # 21.46
 @export var gravity: float = 9.81
 
 @export_group("Scale & Arcade Tuning")

@@ -396,8 +396,11 @@ func _on_biplane_damaged(impact_force: float, v_perp: float) -> void:
 func _respawn_biplane() -> void:
 	is_respawning = false
 	if GameManager and GameManager.lives > 0:
+		var ground_y: float = 650.0
+		if terrain and terrain.has_method("get_ground_height_at"):
+			ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
 		biplane.visible = true
-		biplane.position = Vector2(PLAYER_SPAWN_X, 500)
+		biplane.position = Vector2(PLAYER_SPAWN_X, ground_y)
 		biplane.rotation = 0
 		biplane.velocity = Vector2.ZERO
 		if biplane.has_method("reset_flight_state"):
@@ -405,7 +408,7 @@ func _respawn_biplane() -> void:
 		if biplane.has_method("set_game_active"):
 			biplane.set_game_active(true)
 		if camera:
-			camera.position = Vector2(PLAYER_SPAWN_X, 400)
+			camera.position = Vector2(PLAYER_SPAWN_X, ground_y - 250)
 		if GameManager:
 			GameManager.fuel = GameManager.MAX_FUEL
 			GameManager.ammo = GameManager.MAX_AMMO
