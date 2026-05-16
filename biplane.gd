@@ -1,6 +1,21 @@
+class_name Biplane
 extends CharacterBody2D
 
-class_name Biplane
+class PlayerStats:
+	var ammo: int = 100
+	var bombs: int = 5
+	var fuel: float = 100.0
+	var hit_count: int = 0
+	var damage_percent: float = 0.0
+	var reliability: float = 1.0
+
+	func reset() -> void:
+		ammo = 100
+		bombs = 5
+		fuel = 100.0
+		hit_count = 0
+		damage_percent = 0.0
+		reliability = 1.0
 
 ## Biplane flight controller with SI-based aerodynamics
 ## Sopwith Camel baseline: 659 kg MTOW, 130hp rotary, 21.46 m2 wing
@@ -61,11 +76,10 @@ var throttle_repeat_timer: float = 0.0
 var angular_velocity: float = 0.0
 var is_stalled: bool = false
 
-var current_ammo: int = 100
-var current_bombs: int = 5
 var gun_timer: float = 0.0
 var bomb_timer: float = 0.0
 var is_player: bool = true
+var stats: PlayerStats = PlayerStats.new()
 
 var is_rolling: bool = false
 var roll_direction: int = 1
@@ -80,9 +94,6 @@ var heading_angle: float = 0.0
 var max_bullet_range: float = 600.0
 var last_shot_range: float = 0.0
 
-var hit_count: int = 0
-var reliability: float = 1.0
-var damage_percent: float = 0.0
 var smoke_particles: GPUParticles2D = null
 var is_losing_control: bool = false
 var game_active: bool = false
@@ -236,7 +247,7 @@ func _handle_input(delta: float) -> void:
 	if is_rolling:
 		rotation = pitch_yaw_angle + bank_angle
 	else:
-		var effective_rotation_speed := rotation_speed * (1.0 - damage_percent * 0.4)
+		var effective_rotation_speed := rotation_speed * (1.0 - stats.damage_percent * 0.4)
 		var target_angular_velocity := pitch_input * effective_rotation_speed
 		angular_velocity = move_toward(angular_velocity, target_angular_velocity, rotation_inertia * delta)
 		pitch_yaw_angle += angular_velocity * delta
@@ -361,8 +372,8 @@ func _apply_aerodynamics(delta: float) -> void:
 	var induced_drag_si := 0.5 * air_density * speed_si * speed_si * wing_area * (cl * cl) / ar_efficiency
 
 	var effective_max_speed: float = max_speed
-	if damage_percent > 0:
-		effective_max_speed *= (1.0 - damage_percent * 0.3)
+	if stats.damage_percent > 0:
+		effective_max_speed *= (1.0 - stats.damage_percent * 0.3)
 
 	var speed_px := velocity.length()
 	var speed_limit_drag: float = 0.0
@@ -372,8 +383,8 @@ func _apply_aerodynamics(delta: float) -> void:
 
 	var total_drag_si := parasitic_drag_si + induced_drag_si + speed_limit_drag / pixels_per_meter
 
-	if damage_percent > 0:
-		total_drag_si *= (1.0 + damage_percent * 0.4)
+	if stats.damage_percent > 0:
+		total_drag_si *= (1.0 + stats.damage_percent * 0.4)
 
 	var drag_vec := Vector2.ZERO
 	if speed_si > 0.01:
@@ -416,7 +427,7 @@ func _calc_thrust(speed_si: float, thr: float) -> float:
 
 	if speed_si < 0.5:
 		var base_thrust := 2000.0 * thr
-		var damage_reduction := 1.0 - (damage_percent * 0.5)
+		var damage_reduction := 1.0 - (stats.damage_percent * 0.5)
 		return base_thrust * damage_reduction * altitude_efficiency
 
 	var eta := 0.8 * (1.0 - pow((speed_si - 40.0) / 40.0, 2))
@@ -428,7 +439,7 @@ func _calc_thrust(speed_si: float, thr: float) -> float:
 	if GameManager:
 		gm_thrust_mult = GameManager.thrust_multiplier
 
-	var damage_reduction := 1.0 - (damage_percent * 0.5)
+	var damage_reduction := 1.0 - (stats.damage_percent * 0.5)
 	return thrust_from_power * thr * gm_thrust_mult * damage_reduction * altitude_efficiency
 
 func _check_ground_collision() -> void:
@@ -483,12 +494,12 @@ func _check_ground_collision() -> void:
 			velocity.y = 0
 			velocity.x *= 0.5
 			flight_state = FlightState.DAMAGED
-			hit_count += 1
-			damage_percent = float(hit_count) / 3.0
-			print_rich("[color=orange]  _check_gc: HARD LANDING damage: hit_count=", hit_count, " damage_percent=", damage_percent, "[/color]")
-			reliability = 0.75
+			stats.hit_count += 1
+			stats.damage_percent = float(stats.hit_count) / 3.0
+			print_rich("[color=orange]  _check_gc: HARD LANDING damage: hit_count=", stats.hit_count, " damage_percent=", stats.damage_percent, "[/color]")
+			stats.reliability = 0.75
 			_add_smoke_stream(Color(0.9, 0.9, 0.9, 0.6), 15)
-			if damage_percent > 0.5:
+			if stats.damage_percent > 0.5:
 				_ensure_black_smoke()
 			damaged.emit(impact_force, v_perp)
 		else:
@@ -549,8 +560,8 @@ func _handle_weapons(delta: float) -> void:
 	bomb_timer = max(0, bomb_timer - delta)
 
 	if is_player and GameManager:
-		current_ammo = GameManager.ammo
-		current_bombs = GameManager.bombs
+		stats.ammo = GameManager.ammo
+		stats.bombs = GameManager.bombs
 
 	if Input.is_action_pressed("fire") and gun_timer <= 0:
 		_fire_gun()
@@ -559,7 +570,7 @@ func _handle_weapons(delta: float) -> void:
 		_drop_bomb()
 
 func _fire_gun() -> void:
-	if current_ammo <= 0:
+	if stats.ammo <= 0:
 		return
 
 	gun_timer = gun_cooldown
@@ -620,7 +631,7 @@ func _drop_bomb() -> void:
 	if bombs_disabled:
 		return
 
-	if current_bombs <= 0:
+	if stats.bombs <= 0:
 		return
 
 	bomb_timer = bomb_cooldown
@@ -645,7 +656,7 @@ func _drop_bomb() -> void:
 	dropped_bomb.emit(spawn_pos, velocity, self)
 
 func get_reliability() -> float:
-	return reliability
+	return stats.reliability
 
 var unlimited_fuel_ammo: bool = false
 var bombs_disabled: bool = false
@@ -667,7 +678,7 @@ func _check_fuel_consumption(delta: float) -> void:
 			throttle_target = 0
 		elif throttle > 0:
 			var fuel_loss = throttle * delta * 1.0
-			if hit_count >= 2:
+			if stats.hit_count >= 2:
 				fuel_loss *= 2.0
 			GameManager.use_fuel(fuel_loss)
 
@@ -693,10 +704,10 @@ func _check_home_refuel(delta: float) -> void:
 	if dist_to_home > home_base_width:
 		return
 
-	if damage_percent > 0:
-		damage_percent = 0.0
-		hit_count = 0
-		reliability = 1.0
+	if stats.damage_percent > 0:
+		stats.damage_percent = 0.0
+		stats.hit_count = 0
+		stats.reliability = 1.0
 		flight_state = FlightState.FLYING
 		if has_node("SmokeParticles"):
 			var sp: GPUParticles2D = get_node("SmokeParticles")
@@ -736,10 +747,10 @@ func set_game_active(active: bool) -> void:
 	game_active = active
 
 func get_ammo() -> int:
-	return current_ammo
+	return stats.ammo
 
 func get_bombs() -> int:
-	return current_bombs
+	return stats.bombs
 
 func reset_flight_state() -> void:
 	flight_state = FlightState.FLYING
@@ -755,7 +766,7 @@ func reset_flight_state() -> void:
 	velocity = Vector2.ZERO
 	is_rolling = false
 	is_losing_control = false
-	reliability = 1.0
+	stats.reliability = 1.0
 	autopilot_enabled = false
 	is_autopilot_landing = false
 	has_added_white_smoke = false
@@ -782,7 +793,7 @@ func set_ai_input(pitch: float, throttle_val: float) -> void:
 	is_ai_controlled = true
 
 func fire_gun() -> void:
-	if current_ammo <= 0:
+	if stats.ammo <= 0:
 		return
 
 	gun_timer = gun_cooldown
@@ -854,8 +865,8 @@ func _perform_teleport_landing() -> void:
 		GameManager.ammo_changed.emit(GameManager.ammo)
 		GameManager.bombs_changed.emit(GameManager.bombs)
 
-	hit_count = 0
-	reliability = 1.0
+	stats.hit_count = 0
+	stats.reliability = 1.0
 	if has_node("SmokeParticles"):
 		var sp: GPUParticles2D = get_node("SmokeParticles")
 		sp.emitting = false
@@ -945,20 +956,20 @@ func take_damage(amount: float, attacker: Node) -> void:
 	if flight_state == FlightState.CRASHED:
 		return
 
-	hit_count += 1
-	damage_percent = float(hit_count) / 3.0
+	stats.hit_count += 1
+	stats.damage_percent = float(stats.hit_count) / 3.0
 
-	if hit_count == 1:
-		reliability = 0.75
+	if stats.hit_count == 1:
+		stats.reliability = 0.75
 		_add_smoke_stream(Color(0.9, 0.9, 0.9, 0.6), 15)
-	elif hit_count == 2:
-		reliability = 0.5
+	elif stats.hit_count == 2:
+		stats.reliability = 0.5
 		_add_smoke_stream(Color(0.3, 0.3, 0.3, 0.8), 25)
-	elif hit_count >= 3:
-		reliability = 0.0
+	elif stats.hit_count >= 3:
+		stats.reliability = 0.0
 		_start_spinning_out()
 
-	if damage_percent > 0.3:
+	if stats.damage_percent > 0.3:
 		_ensure_black_smoke()
 
 func _add_smoke_stream(color: Color, amount: int) -> void:
