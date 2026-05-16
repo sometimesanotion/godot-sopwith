@@ -286,7 +286,7 @@ func _apply_aerodynamics(delta: float) -> void:
 	var lift_si: float = 0.5 * air_density * speed_si * speed_si * wing_area * cl
 	var lift_vec: Vector2 = Vector2.ZERO
 	if speed_si > 0.5:
-		var lift_dir: Vector2 = Vector2(-forward.y, forward.x)
+		var lift_dir: Vector2 = Vector2(forward.y, -forward.x)
 		var is_inverted: bool = abs(visual_roll) > PI * 0.5
 		if is_inverted:
 			lift_dir = -lift_dir
@@ -450,7 +450,7 @@ func _fire_gun() -> void:
 			return
 
 	var heading_dir := Vector2(cos(pitch_yaw_angle), sin(pitch_yaw_angle))
-	var spawn_pos := global_position + heading_dir * 20
+	var spawn_pos := global_position + heading_dir * 30
 	var direction := heading_dir
 
 	var target_enemy: Node = _find_nearest_enemy()
@@ -578,7 +578,8 @@ func fire_gun() -> void:
 
 	gun_timer = gun_cooldown
 
-	var spawn_pos := global_position + transform.x * 20
+	var heading_dir := Vector2(cos(pitch_yaw_angle), sin(pitch_yaw_angle))
+	var spawn_pos := global_position + heading_dir * 30
 	var target_enemy: Node = _find_nearest_enemy()
 	var range_percent: float = 0.5
 	if target_enemy:
@@ -596,7 +597,7 @@ func fire_gun() -> void:
 	bullet.assign_owner(self, range_percent)
 
 	get_parent().add_child(bullet)
-	fired_bullet.emit(spawn_pos, transform.x, bullet_speed, self, range_percent)
+	fired_bullet.emit(spawn_pos, heading_dir, bullet_speed, self, range_percent)
 
 var autopilot_enabled: bool = false
 
