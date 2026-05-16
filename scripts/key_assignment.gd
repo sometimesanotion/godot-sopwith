@@ -11,7 +11,7 @@ var key_mappings := {
 	"roll": {"action": "roll", "label": "Flip/Roll", "default_key": ".", "current_key": null},
 	"fire": {"action": "fire", "label": "Fire Machine Gun", "default_key": "Space", "current_key": null},
 	"bomb": {"action": "bomb", "label": "Drop Bomb", "default_key": "B", "current_key": null},
-	"autopilot": {"action": "autopilot", "label": "Navigate Home", "default_key": "Left Shift", "current_key": null},
+	"autopilot": {"action": "autopilot", "label": "Navigate Home", "default_key": "A", "current_key": null},
 	"abort": {"action": "abort", "label": "Abort/Exit", "default_key": "Q", "current_key": null}
 }
 
@@ -219,7 +219,7 @@ func _reset_to_defaults() -> void:
 		"roll": {"keycode": 0, "physical": 46},
 		"fire": {"keycode": 0, "physical": 32},
 		"bomb": {"keycode": 0, "physical": 66},
-		"autopilot": {"keycode": 0, "physical": 16777218}
+		"autopilot": {"keycode": 0, "physical": 16777217}
 	}
 	
 	for action_name in defaults.keys():

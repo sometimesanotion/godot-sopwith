@@ -8,6 +8,11 @@ var thrust_value_label: Label
 func _ready() -> void:
 	_create_ui()
 
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.is_echo():
+		if event.keycode == KEY_Q:
+			_on_back()
+
 func _create_ui() -> void:
 	var bg := ColorRect.new()
 	bg.anchors_preset = Control.PRESET_FULL_RECT

@@ -386,16 +386,16 @@ func _check_ground_collision() -> void:
 		var tilt_angle: float = abs(relative_angle)
 		var is_excessive_tilt: bool = tilt_angle > deg_to_rad(20)
 
-		if speed < 30 and not is_excessive_tilt:
-			global_position.y = ground_y - 10
-			velocity.x = 0
-			velocity.y = 0
-			flight_state = FlightState.FLYING
-		elif is_excessive_tilt:
+		if is_excessive_tilt:
 			flight_state = FlightState.CRASHED
 			crashed.emit()
 			if is_player and GameManager:
 				GameManager.take_damage()
+		elif speed < 30:
+			global_position.y = ground_y - 10
+			velocity.x = 0
+			velocity.y = 0
+			flight_state = FlightState.FLYING
 
 func _check_obstacle_collision() -> void:
 	if flight_state == FlightState.CRASHED:
@@ -539,14 +539,27 @@ func _drop_bomb() -> void:
 	dropped_bomb.emit(spawn_pos, velocity, self)
 
 func _check_fuel_consumption(delta: float) -> void:
-	if is_player and GameManager and throttle > 0:
-		var fuel_loss = throttle * delta * 2.0
-		if hit_count >= 2:
-			fuel_loss *= 2.0
-		GameManager.use_fuel(fuel_loss)
+	if is_player and GameManager:
+		if GameManager.fuel <= 0:
+			_add_white_smoke_when_out_of_fuel()
+			throttle = 0
+			throttle_target = 0
+		elif throttle > 0:
+			var fuel_loss = throttle * delta * 1.0
+			if hit_count >= 2:
+				fuel_loss *= 2.0
+			GameManager.use_fuel(fuel_loss)
 
 	if is_player and SoundManager:
 		SoundManager.play_engine(throttle)
+
+var has_added_white_smoke: bool = false
+
+func _add_white_smoke_when_out_of_fuel() -> void:
+	if has_added_white_smoke:
+		return
+	has_added_white_smoke = true
+	_add_smoke_stream(Color(1, 1, 1, 0.7), 20)
 
 func _check_home_refuel(delta: float) -> void:
 	if not is_player or not GameManager:
@@ -619,6 +632,7 @@ func reset_flight_state() -> void:
 	reliability = 1.0
 	autopilot_enabled = false
 	is_autopilot_landing = false
+	has_added_white_smoke = false
 	if has_node("SmokeParticles"):
 		var sp: GPUParticles2D = get_node("SmokeParticles")
 		sp.emitting = false

@@ -254,6 +254,31 @@ func _create_fuel_tank_explosion() -> void:
 		shatter.setup(polygon_points, Color(0.2, 0.5, 0.2), global_position)
 		get_parent().add_child(shatter)
 
+func _create_fire_plume() -> Node2D:
+	var plume := Node2D.new()
+	plume.set_script(_get_fire_plume_script())
+	plume.setup(10.0)
+	return plume
+
+func _get_fire_plume_script() -> GDScript:
+	return load("res://scripts/fire_plume.gd")
+
+func _create_heavy_black_smoke() -> Node2D:
+	var smoke := Node2D.new()
+	smoke.set_script(_get_heavy_smoke_script())
+	smoke.setup(5.0, Color(0.05, 0.05, 0.05, 0.9))
+	return smoke
+
+func _get_heavy_smoke_script() -> GDScript:
+	return load("res://scripts/smoke_puff.gd")
+
+func _damage_nearby_planes(radius: float) -> void:
+	var planes = get_tree().get_nodes_in_group("destructible")
+	for plane in planes:
+		if plane.has_method("take_damage") and plane != self:
+			if plane.global_position.distance_to(global_position) < radius:
+				plane.take_damage(50.0, self)
+
 func _create_normal_explosion() -> void:
 	var explosion: Node = EXPLOSION_SCENE.instantiate()
 	explosion.global_position = global_position
@@ -270,8 +295,26 @@ func _create_normal_explosion() -> void:
 		shatter.setup(polygon_points, color, global_position)
 		get_parent().add_child(shatter)
 
+	# _create_building_smoke_puffs()
+
 	if GameManager:
 		GameManager.request_screen_shake(15.0)
+
+func _create_building_smoke_puffs() -> void:
+	for i in range(3):
+		var smoke_puff := _create_fading_smoke_puff()
+		smoke_puff.global_position = global_position + Vector2(randf_range(-15, 15), randf_range(-35, -10))
+		smoke_puff.scale = Vector2(5, 5)
+		get_parent().add_child(smoke_puff)
+
+func _create_fading_smoke_puff() -> Node2D:
+	var puff := Node2D.new()
+	puff.set_script(_get_smoke_puff_script())
+	puff.setup(2.0, Color(0.2, 0.2, 0.2, 0.8))
+	return puff
+
+func _get_smoke_puff_script() -> GDScript:
+	return load("res://scripts/smoke_puff.gd")
 
 func _create_wreck() -> void:
 	var wreck: StaticBody2D = StaticBody2D.new()

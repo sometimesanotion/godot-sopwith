@@ -26,6 +26,15 @@ func _physics_process(delta: float) -> void:
 func _handle_collision(collision: KinematicCollision2D) -> void:
 	var collider = collision.get_collider()
 	if collider and collider.has_method("take_damage"):
+		if collider == _bullet_owner:
+			queue_free()
+			return
+
+		if collider.is_in_group("ground_target") and _bullet_owner and _bullet_owner.is_in_group("ground_target"):
+			if collider.get("is_enemy") == true and _bullet_owner.get("is_enemy") == true:
+				queue_free()
+				return
+
 		var dodge_chance: float = 0.0
 		var is_dodging: bool = false
 		

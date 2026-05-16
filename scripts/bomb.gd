@@ -1,6 +1,6 @@
 extends CharacterBody2D
 
-var gravity: float = 294.3
+var gravity: float = 147.15
 var explosion_radius: float = 80.0
 var explosion_damage: float = 50.0
 
@@ -14,20 +14,20 @@ const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
 func _ready() -> void:
 	motion_mode = MotionMode.MOTION_MODE_FLOATING
 	add_to_group("destructible")
+	add_to_group("bomb")
 
 func take_damage(amount: float, attacker: Node) -> void:
 	explode()
 
 func initialize(owner: Node, inherit_velocity: Vector2) -> void:
 	_bomb_owner = owner
-	velocity = inherit_velocity
+	velocity = inherit_velocity * 0.7
 
 func _physics_process(delta: float) -> void:
 	if has_exploded:
 		return
 
 	velocity.y += gravity * delta
-	velocity.x *= 0.99
 
 	var collision := move_and_collide(velocity * delta)
 	if collision:
@@ -58,7 +58,10 @@ func explode() -> void:
 			continue
 		if body is Node2D and body.global_position.distance_to(global_position) < explosion_radius:
 			if body.has_method("take_damage"):
-				body.take_damage(explosion_damage, _bomb_owner)
+				if body.has_method("is_player_plane") or body.has_method("is_enemy_plane"):
+					body.take_damage(200.0, _bomb_owner)
+				else:
+					body.take_damage(explosion_damage, _bomb_owner)
 
 	queue_free()
 

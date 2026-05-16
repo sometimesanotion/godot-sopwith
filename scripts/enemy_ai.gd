@@ -15,6 +15,8 @@ var is_rolling: bool = false
 var home_base_x: float = 1400.0
 var patrol_range: float = 2000.0
 var enemy_state: String = "GROUNDED"
+var landing_threshold: float = 800.0
+var is_using_autopilot: bool = false
 
 const TERRAIN_LENGTH := 16384.0
 
@@ -133,6 +135,19 @@ func _decision_return_home() -> void:
 	var to_home := home_pos - biplane.global_position
 	var distance := to_home.length()
 
+	if distance < landing_threshold and not is_using_autopilot:
+		_enable_autopilot_for_landing()
+
+	if is_using_autopilot:
+		if biplane.has_method("update_autopilot"):
+			biplane.update_autopilot(home_pos)
+		if biplane.is_grounded():
+			is_using_autopilot = false
+			enemy_state = "GROUNDED"
+			if biplane.has_method("disable_autopilot"):
+				biplane.disable_autopilot()
+		return
+
 	var target_angle := to_home.angle()
 	var diff_angle := target_angle - biplane.rotation
 	while diff_angle > PI:
@@ -226,6 +241,19 @@ func get_dodge_chance() -> float:
 func _apply_input(pitch: float, throttle_amount: float) -> void:
 	if biplane.has_method("set_ai_input"):
 		biplane.set_ai_input(pitch, throttle_amount)
+
+func _enable_autopilot_for_landing() -> void:
+	is_using_autopilot = true
+	if biplane.has_method("enable_autopilot"):
+		biplane.enable_autopilot()
+	if biplane.has_method("set_home_base"):
+		biplane.set_home_base(home_base_x)
+	if biplane.has_method("set_spawn_info"):
+		var terrain = get_parent().get_node_or_null("Terrain")
+		var ground_y := 650.0
+		if terrain and terrain.has_method("get_ground_height_at"):
+			ground_y = terrain.get_ground_height_at(home_base_x)
+		biplane.set_spawn_info(Vector2(home_base_x, ground_y - 12), 0.0)
 
 func _fire_weapon() -> void:
 	if biplane.has_method("fire_gun"):

@@ -9,7 +9,7 @@ const TERRAIN_LENGTH := 16384.0
 const VIEWPORT_MIN_X := 0.0
 const VIEWPORT_MAX_X := 1280.0
 const GHOST_THRESHOLD := 300.0
-const HOME_BASE := Vector2(6554, 650)
+const HOME_BASE := Vector2(6454, 650)
 const RESPAWN_DELAY := 2.0
 
 const TITLE_SCENE := preload("res://scenes/title_screen.tscn")
@@ -172,7 +172,7 @@ func _start_playing(is_vs_computer: bool) -> void:
 		biplane.set_game_active(true)
 	if camera:
 		camera.enabled = true
-		camera.position = Vector2(6554, 400)
+		camera.position = Vector2(6520, 400)
 	if terrain:
 		terrain.visible = true
 	if ui:
@@ -183,10 +183,10 @@ func _start_playing(is_vs_computer: bool) -> void:
 	
 	var ground_y := 650.0
 	if terrain and terrain.has_method("get_ground_height_at"):
-		ground_y = terrain.get_ground_height_at(6554.0)
+		ground_y = terrain.get_ground_height_at(6454.0)
 
 	if biplane:
-		biplane.position = Vector2(6620, ground_y - 12)
+		biplane.position = Vector2(6520, ground_y - 12)
 		biplane.rotation = 0
 		biplane.velocity = Vector2.ZERO
 		if biplane.has_method("reset_flight_state"):
@@ -195,7 +195,7 @@ func _start_playing(is_vs_computer: bool) -> void:
 		if biplane.has_method("set_home_base"):
 			biplane.set_home_base(HOME_BASE.x)
 		if biplane.has_method("set_spawn_info"):
-			biplane.set_spawn_info(Vector2(6620, ground_y - 12), 0.0)
+			biplane.set_spawn_info(Vector2(6520, ground_y - 12), 0.0)
 		biplane.add_to_group("player")
 		biplane.add_to_group("destructible")
 		if biplane.has_signal("crashed"):
@@ -203,12 +203,16 @@ func _start_playing(is_vs_computer: bool) -> void:
 				biplane.crashed.disconnect(_on_biplane_crashed)
 			biplane.crashed.connect(_on_biplane_crashed)
 	if camera:
-		camera.position = Vector2(6620, 400)
+		camera.position = Vector2(6520, 400)
 	if SoundManager:
 		SoundManager.play_music()
 	_create_minimap()
 	_create_ghost_biplane()
 	_spawn_enemies_and_targets()
+	if GameManager:
+		GameManager.ammo_changed.emit(GameManager.ammo)
+		GameManager.bombs_changed.emit(GameManager.bombs)
+		GameManager.fuel_changed.emit(GameManager.fuel)
 
 const COW_SCENE := preload("res://scenes/cow.tscn")
 const BIRD_FLOCK_SCENE := preload("res://scenes/bird_flock.tscn")
@@ -259,18 +263,18 @@ func _spawn_enemies_and_targets() -> void:
 const RUNWAY_START := 6300.0
 const RUNWAY_END := 6800.0
 
-const PLAYER_SPAWN_X := 6620.0
+const PLAYER_SPAWN_X := 6520.0
 const SAFE_ZONE_RADIUS := 1500.0
 
 func _create_home_base() -> void:
 	var ground_y := 650.0
 	if terrain and terrain.has_method("get_ground_height_at"):
-		ground_y = terrain.get_ground_height_at(6554.0)
+		ground_y = terrain.get_ground_height_at(6454.0)
 
 	for i in range(2):
 		var building := GROUND_TARGET_SCENE.instantiate()
 		building.target_type = "building"
-		building.position = Vector2(6494 + i * 60, ground_y)
+		building.position = Vector2(6394 + i * 60, ground_y)
 		building.has_aa = false
 		building.is_enemy = false
 		add_child(building)
@@ -278,7 +282,7 @@ func _create_home_base() -> void:
 	for i in range(2):
 		var fuel_tank := GROUND_TARGET_SCENE.instantiate()
 		fuel_tank.target_type = "fuel_tank"
-		fuel_tank.position = Vector2(6524 + i * 40, ground_y)
+		fuel_tank.position = Vector2(6424 + i * 40, ground_y)
 		fuel_tank.has_aa = false
 		fuel_tank.is_enemy = false
 		add_child(fuel_tank)
@@ -372,7 +376,7 @@ func _respawn_biplane() -> void:
 	is_respawning = false
 	if GameManager and GameManager.lives > 0:
 		biplane.visible = true
-		biplane.position = Vector2(6620, 500)
+		biplane.position = Vector2(PLAYER_SPAWN_X, 500)
 		biplane.rotation = 0
 		biplane.velocity = Vector2.ZERO
 		if biplane.has_method("reset_flight_state"):
@@ -380,12 +384,14 @@ func _respawn_biplane() -> void:
 		if biplane.has_method("set_game_active"):
 			biplane.set_game_active(true)
 		if camera:
-			camera.position = Vector2(6620, 400)
+			camera.position = Vector2(PLAYER_SPAWN_X, 400)
 		if GameManager:
 			GameManager.fuel = GameManager.MAX_FUEL
 			GameManager.ammo = GameManager.MAX_AMMO
 			GameManager.bombs = GameManager.MAX_BOMBS
 			GameManager.fuel_changed.emit(GameManager.fuel)
+			GameManager.ammo_changed.emit(GameManager.ammo)
+			GameManager.bombs_changed.emit(GameManager.bombs)
 	else:
 		_show_game_over()
 
