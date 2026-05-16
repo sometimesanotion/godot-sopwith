@@ -254,11 +254,11 @@ func _apply_aerodynamics(delta: float) -> void:
 		var lift_dir := Vector2(forward.y, -forward.x)
 		velocity += lift_dir * lift_force * delta
 
-	var effective_mass: float = mass_scale
+	var effective_thrust: float = thrust_force
 	if GameManager:
-		effective_mass = mass_scale * GameManager.thrust_multiplier
+		effective_thrust = thrust_force * GameManager.thrust_multiplier
 
-	var thrust_accel: float = throttle * thrust_force / mass_scale
+	var thrust_accel: float = throttle * effective_thrust / mass_scale
 
 	if on_ground:
 		var ground_thrust := Vector2(forward.x, 0)
