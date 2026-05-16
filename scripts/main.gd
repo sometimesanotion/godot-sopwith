@@ -349,6 +349,10 @@ func _respawn_biplane() -> void:
 			biplane.set_game_active(true)
 		if camera:
 			camera.position = Vector2(6554, 400)
+		if GameManager:
+			GameManager.refuel(400.0)
+			GameManager.reload_weapons(100)
+			GameManager.reload_bombs(5)
 	else:
 		_show_game_over()
 

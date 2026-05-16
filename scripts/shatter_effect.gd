@@ -42,16 +42,18 @@ func _create_fragment(poly: PackedVector2Array, color: Color, center: Vector2) -
 	var rb := RigidBody2D.new()
 	rb.position = global_position
 
-	var shape := CollisionPolygon2D.new()
 	var fragment_poly := PackedVector2Array()
-	var num_points: int = randi_range(3, 6)
+	var num_points: int = randi_range(3, 5)
+	var angle_step := TAU / num_points
+	var start_angle := randf() * TAU
 	for i in range(num_points):
-		var angle := randf() * TAU
+		var angle := start_angle + i * angle_step
 		var dist := randf_range(5, 15)
 		fragment_poly.append(Vector2(cos(angle), sin(angle)) * dist)
 
-	shape.polygon = fragment_poly
-	rb.add_child(shape)
+	var collision := CollisionPolygon2D.new()
+	collision.polygon = fragment_poly
+	rb.add_child(collision)
 
 	var sprite := Polygon2D.new()
 	sprite.polygon = fragment_poly

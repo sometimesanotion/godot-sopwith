@@ -7,23 +7,22 @@ class_name Biplane
 ## Thrust multiplier applied from GameManager (default 1.5x)
 
 @export_group("Flight Parameters")
-@export var thrust_force: float = 250.0
-@export var drag_coefficient: float = 0.04
-@export var gravity: float = 400.0
+@export var thrust_force: float = 1490.0
+@export var drag_coefficient: float = 0.038
+@export var gravity: float = 350.0
 @export var rotation_speed: float = 3.0
 @export var rotation_inertia: float = 2.5
-@export var mass_scale: float = 15.0
+@export var mass_scale: float = 25.0
 
 @export_group("Aerodynamics")
-@export var lift_coefficient: float = 4.0
-@export var stall_threshold: float = 30.0
+@export var stall_threshold: float = 77.0
 
 @export_group("Throttle")
 @export var min_throttle: float = 0.0
 @export var max_throttle: float = 1.0
 
 const THROTTLE_STEP := 0.2
-const THROTTLE_REPEAT_DELAY := 0.3
+const THROTTLE_REPEAT_DELAY := 0.1
 
 @export_group("Weapons")
 @export var gun_cooldown: float = 0.1
@@ -238,49 +237,55 @@ func _apply_aerodynamics(delta: float) -> void:
 		if flight_state == FlightState.STALLED:
 			flight_state = FlightState.FLYING
 
-	var dot_product := forward.dot(velocity.normalized()) if speed > 0 else 0.0
-	var lift_factor := clampf(dot_product, -1.0, 1.0)
-	lift_factor = lift_factor * lift_factor * sign(dot_product)
+	var angle_of_attack: float = 0.0
+	if speed > 1.0:
+		var velocity_dir := velocity.normalized()
+		angle_of_attack = forward.angle_to(velocity_dir)
+	else:
+		angle_of_attack = 0.0
 
-	var normalized_speed: float = speed / 200.0
-	normalized_speed = clampf(normalized_speed, 0.0, 1.5)
-	var lift_magnitude: float = lift_coefficient * normalized_speed * 150.0
-	if is_stalled:
-		lift_magnitude *= 0.2
-
-	var lift_direction := Vector2(forward.y, -forward.x)
 	if not on_ground:
-		velocity += lift_direction * lift_magnitude * delta
-	else:
-		var ground_lift := lift_magnitude * 0.1
-		if lift_direction.y < 0:
-			velocity += lift_direction * ground_lift * delta
+		var cl: float = angle_of_attack * 2.0 * PI
+		cl = clampf(cl, -1.4, 1.4)
+		if is_stalled:
+			cl *= 0.3
+		var dynamic_pressure: float = 0.5 * 1.225 * speed * speed
+		var lift_force: float = dynamic_pressure * 21.46 * cl * 0.01
+		var lift_dir := Vector2(forward.y, -forward.x)
+		velocity += lift_dir * lift_force * delta
 
-	var thrust_mult: float = 3.0
+	var effective_mass: float = mass_scale
 	if GameManager:
-		thrust_mult = GameManager.thrust_multiplier
-	var effective_mass: float = PhysicsServer2D.body_get_param(get_rid(), PhysicsServer2D.BODY_PARAM_MASS)
-	if effective_mass <= 0:
-		effective_mass = mass_scale
+		effective_mass = mass_scale * GameManager.thrust_multiplier
+
+	var thrust_accel: float = throttle * thrust_force / mass_scale
 
 	if on_ground:
-		thrust_mult *= 0.7
-
-	var thrust_accel: float = throttle * thrust_force * thrust_mult / effective_mass
-	var thrust_direction: Vector2 = forward * thrust_accel
-	if is_stalled and flight_state == FlightState.STALLED:
-		thrust_direction *= 0.0
-
-	velocity += thrust_direction * delta
-
-	var drag_magnitude: float
-	if on_ground:
-		drag_magnitude = speed * 0.3
+		var ground_thrust := Vector2(forward.x, 0)
+		if ground_thrust.x < 0:
+			ground_thrust.x = -ground_thrust.x
+		velocity += ground_thrust * thrust_accel * 0.85 * delta
 	else:
-		drag_magnitude = drag_coefficient * speed * speed * 0.01
+		velocity += forward * thrust_accel * delta
 
-	var drag_direction := -velocity.normalized() if speed > 0 else Vector2.ZERO
-	velocity += drag_direction * drag_magnitude * delta
+	if is_stalled and flight_state == FlightState.STALLED:
+		pass
+
+	var drag_magnitude: float = 0.0
+	if on_ground:
+		drag_magnitude = speed * 0.05
+	else:
+		var frontal_drag: float = 0.5 * 1.225 * speed * speed * 0.811 * 0.001
+		var induced_drag: float = 0.0
+		if speed > 10:
+			var cl: float = abs(angle_of_attack * 2.0 * PI)
+			cl = clampf(cl, 0.0, 1.4)
+			induced_drag = 0.5 * 1.225 * speed * speed * 21.46 * 0.04 * cl * cl * 0.00001
+		drag_magnitude = frontal_drag + induced_drag
+
+	if speed > 0:
+		var drag_dir := -velocity.normalized()
+		velocity += drag_dir * drag_magnitude * delta
 
 func _apply_forces(delta: float) -> void:
 	var ground_y: float = 650.0
@@ -475,9 +480,19 @@ func get_bombs() -> int:
 func reset_flight_state() -> void:
 	flight_state = FlightState.FLYING
 	throttle = 0.0
+	throttle_target = 0.0
+	throttle_repeat_timer = 0.0
 	angular_velocity = 0.0
+	rotation = 0.0
+	visual_roll = 0.0
 	is_stalled = false
 	velocity = Vector2.ZERO
+	is_rolling = false
+	is_losing_control = false
+	hit_count = 0
+	reliability = 1.0
+	autopilot_enabled = false
+	is_autopilot_landing = false
 
 var ai_pitch_input: float = 0.0
 var ai_throttle: float = 0.5
