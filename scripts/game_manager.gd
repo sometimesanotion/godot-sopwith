@@ -10,6 +10,7 @@ var fuel: float = 100.0
 var score: int = 0
 var ammo: int = 100
 var bombs: int = 5
+var thrust_multiplier: float = 3.0
 
 const MAX_LIVES := 5
 const MAX_FUEL := 100.0
@@ -18,10 +19,25 @@ const MAX_BOMBS := 5
 
 var game_state: String = "PLAYING"
 
+func set_thrust_multiplier(value: float) -> void:
+	thrust_multiplier = clampf(value, 1.0, 5.0)
+	_save_settings()
+
+func _save_settings() -> void:
+	var config = ConfigFile.new()
+	config.set_value("difficulty", "thrust_multiplier", thrust_multiplier)
+	config.save("user://settings.cfg")
+
+func _load_settings() -> void:
+	var config = ConfigFile.new()
+	if config.load("user://settings.cfg") == OK:
+		thrust_multiplier = config.get_value("difficulty", "thrust_multiplier", 3.0)
+
 func request_screen_shake(intensity: float) -> void:
 	screen_shake_requested.emit(intensity)
 
 func _ready() -> void:
+	_load_settings()
 	reset_game()
 
 func reset_game() -> void:

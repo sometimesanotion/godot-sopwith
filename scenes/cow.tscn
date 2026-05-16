@@ -6,6 +6,5 @@
 script = ExtResource("1_cow")
 
 [node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="."]
-polygon = PackedVector2Array([-15, 0, -15, -20, -10, -28, 10, -28, 15, -20, 15, 0])
 
-[node name="Node2D" type="Node2D" parent="."]
+[node name="Visual" type="Node2D" parent="."]

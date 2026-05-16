@@ -1,6 +1,9 @@
-[gd_scene load_steps=2 format=3 uid="uid://bird_scene"]
+[gd_scene load_steps=3 format=3 uid="uid://bird_scene"]
 
 [ext_resource type="Script" path="res://scripts/bird.gd" id="1_bird"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_bird"]
+radius = 8.0
 
 [node name="Bird" type="Node2D"]
 script = ExtResource("1_bird")
@@ -8,5 +11,4 @@ script = ExtResource("1_bird")
 [node name="Area2D" type="Area2D" parent="."]
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
-shape = CircleShape2D.new()
-shape.radius = 8.0
+shape = SubResource("CircleShape2D_bird")

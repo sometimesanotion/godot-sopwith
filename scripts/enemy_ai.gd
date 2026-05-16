@@ -12,6 +12,12 @@ var incoming_bullet_timer: float = 0.0
 var roll_timer: float = 0.0
 var is_rolling: bool = false
 
+var home_base_x: float = 1400.0
+var patrol_range: float = 1228.0
+var enemy_state: String = "GROUNDED"
+
+const TERRAIN_LENGTH := 4096.0
+
 func _ready() -> void:
 	add_to_group("enemy")
 	add_to_group("destructible")
@@ -20,12 +26,14 @@ func _physics_process(delta: float) -> void:
 	if not target or not biplane:
 		return
 
+	_update_state(delta)
+
 	incoming_bullet_timer = max(0, incoming_bullet_timer - delta)
 	roll_timer = max(0, roll_timer - delta)
 	if roll_timer <= 0 and is_rolling:
 		is_rolling = false
 		_end_roll()
-	
+
 	if is_rolling:
 		_do_roll(delta)
 
@@ -34,18 +42,64 @@ func _physics_process(delta: float) -> void:
 		decision_timer = decision_interval
 		_make_decision()
 
+func _update_state(delta: float) -> void:
+	if not biplane:
+		return
+
+	var dist_to_home := _get_wrapped_distance(biplane.global_position.x, home_base_x)
+	var player_dist := 0.0
+	var player_x := target.global_position.x if target else 0.0
+	if target:
+		player_dist = _get_wrapped_distance(target.global_position.x, home_base_x)
+
+	match enemy_state:
+		"GROUNDED":
+			if player_dist < patrol_range:
+				enemy_state = "TAKING_OFF"
+		"TAKING_OFF":
+			if dist_to_home > 100:
+				enemy_state = "ENGAGING"
+		"ENGAGING":
+			if player_dist > patrol_range:
+				enemy_state = "RETURNING"
+			elif biplane.is_grounded():
+				enemy_state = "GROUNDED"
+		"RETURNING":
+			if dist_to_home < 50 and biplane.is_grounded():
+				enemy_state = "GROUNDED"
+			elif dist_to_home > patrol_range * 0.5:
+				enemy_state = "ENGAGING"
+
+func _get_wrapped_distance(x1: float, x2: float) -> float:
+	var d: float = abs(x1 - x2)
+	if d > TERRAIN_LENGTH * 0.5:
+		d = TERRAIN_LENGTH - d
+	return d
+
 func _make_decision() -> void:
 	if not target:
 		return
 
+	match enemy_state:
+		"GROUNDED", "TAKING_OFF":
+			_decision_takeoff()
+		"ENGAGING":
+			_decision_engage()
+		"RETURNING":
+			_decision_return_home()
+
+func _decision_takeoff() -> void:
+	var pitch_input := -0.5
+	var throttle := 1.0
+	_apply_input(pitch_input, throttle)
+
+func _decision_engage() -> void:
 	var target_pos := target.global_position
 	var my_pos := biplane.global_position
-
 	var to_target := target_pos - my_pos
 	var distance := to_target.length()
 
 	var diff_angle := to_target.angle() - biplane.rotation
-
 	while diff_angle > PI:
 		diff_angle -= TAU
 	while diff_angle < -PI:
@@ -57,9 +111,9 @@ func _make_decision() -> void:
 	elif diff_angle < -0.2:
 		pitch_input = 1.0
 
-	var throttle := 0.7
+	var throttle := 0.8
 	if distance < 200:
-		throttle = 0.4
+		throttle = 0.5
 	elif distance > 500:
 		throttle = 1.0
 
@@ -73,6 +127,33 @@ func _make_decision() -> void:
 
 	if incoming_bullet_timer > 0 and not is_rolling and randf() < 0.5:
 		_start_roll()
+
+func _decision_return_home() -> void:
+	var home_pos := Vector2(home_base_x, 650.0)
+	var to_home := home_pos - biplane.global_position
+	var distance := to_home.length()
+
+	var target_angle := to_home.angle()
+	var diff_angle := target_angle - biplane.rotation
+	while diff_angle > PI:
+		diff_angle -= TAU
+	while diff_angle < -PI:
+		diff_angle += TAU
+
+	var pitch_input := 0.0
+	if diff_angle > 0.2:
+		pitch_input = -1.0
+	elif diff_angle < -0.2:
+		pitch_input = 1.0
+
+	var throttle := 0.3
+	if distance > 300:
+		throttle = 0.5
+
+	if is_rolling:
+		pitch_input = 0.0
+
+	_apply_input(pitch_input, throttle)
 
 func _do_roll(delta: float) -> void:
 	if not biplane:

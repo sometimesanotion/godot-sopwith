@@ -8,11 +8,10 @@ var terrain_points: PackedVector2Array = []
 var player_dot: ColorRect
 var enemy_dots: Array[ColorRect] = []
 var home_marker: ColorRect
-
 var terrain_line: Line2D
 
 func _ready() -> void:
-	_minimum_size = Vector2(MINIMAP_WIDTH, MINIMAP_HEIGHT)
+	custom_minimum_size = Vector2(MINIMAP_WIDTH, MINIMAP_HEIGHT)
 	_create_background()
 	_create_terrain_line()
 	_create_player_marker()
@@ -63,23 +62,23 @@ func _update_terrain_display() -> void:
 		return
 	
 	terrain_line.clear_points()
-	var scale := MINIMAP_WIDTH / TERRAIN_LENGTH
-	var base_y := MINIMAP_HEIGHT * 0.7
+	var scale: float = MINIMAP_WIDTH / TERRAIN_LENGTH
+	var base_y: float = MINIMAP_HEIGHT * 0.7
 	
-	for point in terrain_points:
+	for point: Vector2 in terrain_points:
 		if point.x <= TERRAIN_LENGTH:
-			var map_x := point.x * scale
-			var map_y := base_y - (point.y - 600) * 0.15
+			var map_x: float = point.x * scale
+			var map_y: float = base_y - (point.y - 600.0) * 0.15
 			map_y = clamp(map_y, 5, MINIMAP_HEIGHT - 5)
 			terrain_line.add_point(Vector2(map_x, map_y))
 
 func update_player(world_pos: Vector2) -> void:
-	var scale := MINIMAP_WIDTH / TERRAIN_LENGTH
-	var map_x := wrapf(world_pos.x, 0, TERRAIN_LENGTH) * scale
-	var base_y := MINIMAP_HEIGHT * 0.7
-	var map_y := base_y - (world_pos.y - 600) * 0.15
+	var scale: float = MINIMAP_WIDTH / TERRAIN_LENGTH
+	var map_x: float = wrapf(world_pos.x, 0.0, TERRAIN_LENGTH) * scale
+	var base_y: float = MINIMAP_HEIGHT * 0.7
+	var map_y: float = base_y - (world_pos.y - 600.0) * 0.15
 	map_y = clamp(map_y, 5, MINIMAP_HEIGHT - 5)
-	player_dot.position = Vector2(map_x - 3, map_y - 3)
+	player_dot.position = Vector2(map_x - 3.0, map_y - 3.0)
 
 func update_enemies(enemies: Array) -> void:
 	while enemy_dots.size() < enemies.size():
@@ -90,22 +89,22 @@ func update_enemies(enemies: Array) -> void:
 		enemy_dots.append(dot)
 	
 	while enemy_dots.size() > enemies.size():
-		var dot := enemy_dots.pop_back()
+		var dot: ColorRect = enemy_dots.pop_back()
 		dot.queue_free()
 	
-	var scale := MINIMAP_WIDTH / TERRAIN_LENGTH
-	var base_y := MINIMAP_HEIGHT * 0.7
+	var scale: float = MINIMAP_WIDTH / TERRAIN_LENGTH
+	var base_y: float = MINIMAP_HEIGHT * 0.7
 	
-	for i in range(enemies.size()):
+	for i: int in range(enemies.size()):
 		if enemies[i]:
-			var world_pos := enemies[i].global_position
-			var map_x := wrapf(world_pos.x, 0, TERRAIN_LENGTH) * scale
-			var map_y := base_y - (world_pos.y - 600) * 0.15
+			var world_pos: Vector2 = enemies[i].global_position
+			var map_x: float = wrapf(world_pos.x, 0.0, TERRAIN_LENGTH) * scale
+			var map_y: float = base_y - (world_pos.y - 600.0) * 0.15
 			map_y = clamp(map_y, 5, MINIMAP_HEIGHT - 5)
-			enemy_dots[i].position = Vector2(map_x - 2, map_y - 2)
+			enemy_dots[i].position = Vector2(map_x - 2.0, map_y - 2.0)
 			enemy_dots[i].visible = true
 
 func update_home(base_x: float) -> void:
-	var scale := MINIMAP_WIDTH / TERRAIN_LENGTH
-	var map_x := base_x * scale
-	home_marker.position = Vector2(map_x - 4, MINIMAP_HEIGHT - 12)
+	var scale: float = MINIMAP_WIDTH / TERRAIN_LENGTH
+	var map_x: float = base_x * scale
+	home_marker.position = Vector2(map_x - 4.0, MINIMAP_HEIGHT - 12.0)

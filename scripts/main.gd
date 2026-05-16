@@ -4,7 +4,6 @@ extends Node2D
 @onready var biplane: CharacterBody2D = $Biplane
 @onready var terrain: Node2D = $Terrain
 @onready var ui: CanvasLayer = $UI
-@onready var minimap: Control = $UI/Minimap
 
 const TERRAIN_LENGTH := 4096.0
 const VIEWPORT_MIN_X := 0.0
@@ -38,14 +37,20 @@ func _ready() -> void:
 	_load_keybindings()
 	if GameManager:
 		GameManager.screen_shake_requested.connect(_on_screen_shake)
+	print("Main _ready: hiding game elements and showing title")
 	_hide_game_elements()
 	_show_title_screen()
 
 func _hide_game_elements() -> void:
 	if biplane:
 		biplane.visible = false
+		biplane.set_game_active(false)
 	if camera:
 		camera.enabled = false
+	if terrain:
+		terrain.visible = false
+	if ui:
+		ui.visible = false
 
 func get_biplane_position() -> float:
 	if biplane:
@@ -69,6 +74,9 @@ func _load_keybindings() -> void:
 				InputMap.action_add_event(action_name, event)
 
 func _input(event: InputEvent) -> void:
+	if event is not InputEventKey:
+		return
+
 	if event.is_action_pressed("ui_accept"):
 		if game_state == "TITLE" and title_screen:
 			title_screen.queue_free()
@@ -83,7 +91,7 @@ func _input(event: InputEvent) -> void:
 		if game_state == "PLAYING" and not is_paused:
 			_toggle_pause()
 
-	if event.is_action_just_pressed("autopilot"):
+	if event.is_action_pressed("autopilot") and not event.is_echo():
 		if game_state == "PLAYING" and biplane and biplane.has_method("enable_autopilot"):
 			if biplane.autopilot_enabled:
 				biplane.disable_autopilot()
@@ -94,11 +102,11 @@ func _input(event: InputEvent) -> void:
 		if game_state == "PLAYING":
 			_abort_game()
 	
-	if event.is_key_pressed(KEY_Q):
-		if game_state == "PLAYING":
-			_abort_game()
-		elif game_state == "GAME_OVER":
-			_abort_game()
+	if event is InputEventKey:
+		var key_event := event as InputEventKey
+		if key_event.keycode == KEY_Q:
+			if game_state == "PLAYING" or game_state == "GAME_OVER":
+				_abort_game()
 
 func _abort_game() -> void:
 	game_state = "TITLE"
@@ -116,7 +124,7 @@ func _abort_game() -> void:
 func _clear_game_objects() -> void:
 	var children = get_children()
 	for child in children:
-		if child != biplane and child != camera and child != terrain and child != ui and child != Background:
+		if child != biplane and child != camera and child != terrain and child != ui and child.name != "Background" and child.name != "GhostBiplane" and child.name != "GhostTerrain":
 			if child.has_method("queue_free"):
 				child.queue_free()
 
@@ -140,11 +148,18 @@ func _on_screen_shake(intensity: float) -> void:
 	screen_shake_intensity = intensity
 
 func _show_title_screen() -> void:
+	print("_show_title_screen: creating title screen")
 	game_state = "TITLE"
 	title_screen = TITLE_SCENE.instantiate()
 	title_screen.start_game.connect(_on_start_game)
 	title_screen.start_vs_computer.connect(_on_start_vs_computer)
+	title_screen.back_to_menu.connect(_on_back_to_menu)
 	add_child(title_screen)
+	print("Title screen added to scene")
+
+func _on_back_to_menu() -> void:
+	_hide_game_elements()
+	_show_title_screen()
 
 func _on_start_game() -> void:
 	_start_playing(false)
@@ -157,8 +172,14 @@ func _start_playing(is_vs_computer: bool) -> void:
 	
 	if biplane:
 		biplane.visible = true
+		biplane.set_game_active(true)
 	if camera:
 		camera.enabled = true
+		camera.position = Vector2(400, 400)
+	if terrain:
+		terrain.visible = true
+	if ui:
+		ui.visible = true
 	
 	if GameManager:
 		GameManager.reset_game()
@@ -177,6 +198,8 @@ func _start_playing(is_vs_computer: bool) -> void:
 		biplane.add_to_group("player")
 		biplane.add_to_group("destructible")
 		if biplane.has_signal("crashed"):
+			if biplane.crashed.is_connected(_on_biplane_crashed):
+				biplane.crashed.disconnect(_on_biplane_crashed)
 			biplane.crashed.connect(_on_biplane_crashed)
 	if camera:
 		camera.position = Vector2(400, 400)
@@ -189,17 +212,33 @@ func _start_playing(is_vs_computer: bool) -> void:
 const COW_SCENE := preload("res://scenes/cow.tscn")
 const BIRD_FLOCK_SCENE := preload("res://scenes/bird_flock.tscn")
 
+var enemy_home_positions: Array[float] = []
+
 func _spawn_enemies_and_targets() -> void:
 	enemies.clear()
-	for i in range(3):
+	enemy_home_positions.clear()
+
+	var enemy_base_x := [
+		1400.0,
+		2400.0,
+		3400.0,
+		800.0
+	]
+
+	for i in range(4):
+		enemy_home_positions.append(enemy_base_x[i])
 		var enemy := ENEMY_SCENE.instantiate()
-		enemy.position = Vector2(800 + i * 500, 300 + randf() * 200)
-		enemy.rotation = randf() * TAU
+		var ground_y := 650.0
+		if terrain and terrain.has_method("get_ground_height_at"):
+			ground_y = terrain.get_ground_height_at(enemy_base_x[i])
+		enemy.position = Vector2(enemy_base_x[i], ground_y - 12)
+		enemy.rotation = 0
 		enemy.add_to_group("destructible")
 		if enemy.has_node("EnemyAI"):
 			var ai := enemy.get_node("EnemyAI")
 			ai.target = biplane
 			ai.biplane = enemy
+			ai.home_base_x = enemy_base_x[i]
 		add_child(enemy)
 		enemies.append(enemy)
 
@@ -207,13 +246,14 @@ func _spawn_enemies_and_targets() -> void:
 		var cow = COW_SCENE.instantiate()
 		cow.position = Vector2(200 + randf() * 3500, 650)
 		add_child(cow)
-	
+
 	for i in range(3):
 		var flock = BIRD_FLOCK_SCENE.instantiate()
 		flock.position = Vector2(200 + randf() * 3500, 150 + randf() * 200)
 		add_child(flock)
 
 	_create_home_base()
+	_create_enemy_bases()
 
 const RUNWAY_START := 200.0
 const RUNWAY_END := 600.0
@@ -222,13 +262,13 @@ func _create_home_base() -> void:
 	var ground_y := 650.0
 	if terrain and terrain.has_method("get_ground_height_at"):
 		ground_y = terrain.get_ground_height_at(350.0)
-	
+
 	var building := GROUND_TARGET_SCENE.instantiate()
 	building.target_type = "building"
 	building.position = Vector2(340, ground_y)
 	building.has_aa = false
 	add_child(building)
-	
+
 	var fuel_tank := GROUND_TARGET_SCENE.instantiate()
 	fuel_tank.target_type = "fuel_tank"
 	fuel_tank.position = Vector2(380, ground_y)
@@ -245,6 +285,24 @@ func _create_home_base() -> void:
 			target.has_aa = randf() > 0.5
 		add_child(target)
 
+func _create_enemy_bases() -> void:
+	for home_x in enemy_home_positions:
+		var ground_y := 650.0
+		if terrain and terrain.has_method("get_ground_height_at"):
+			ground_y = terrain.get_ground_height_at(home_x)
+
+		var building := GROUND_TARGET_SCENE.instantiate()
+		building.target_type = "building"
+		building.position = Vector2(home_x - 60, ground_y)
+		building.has_aa = true
+		add_child(building)
+
+		var fuel_tank := GROUND_TARGET_SCENE.instantiate()
+		fuel_tank.target_type = "fuel_tank"
+		fuel_tank.position = Vector2(home_x - 20, ground_y)
+		fuel_tank.has_aa = false
+		add_child(fuel_tank)
+
 func _physics_process(delta: float) -> void:
 	if game_state != "PLAYING" or is_paused:
 		return
@@ -256,7 +314,7 @@ func _physics_process(delta: float) -> void:
 		_handle_wrap_around()
 		_update_ghost_biplane()
 		_update_camera(delta)
-		_check_runway_landing()
+		_check_runway_landing(delta)
 		_update_ghost_terrain()
 		_update_minimap()
 
@@ -281,11 +339,16 @@ func _on_biplane_crashed() -> void:
 func _respawn_biplane() -> void:
 	is_respawning = false
 	if GameManager and GameManager.lives > 0:
+		biplane.visible = true
 		biplane.position = Vector2(400, 500)
 		biplane.rotation = 0
 		biplane.velocity = Vector2.ZERO
 		if biplane.has_method("reset_flight_state"):
 			biplane.reset_flight_state()
+		if biplane.has_method("set_game_active"):
+			biplane.set_game_active(true)
+		if camera:
+			camera.position = Vector2(400, 400)
 	else:
 		_show_game_over()
 
@@ -325,7 +388,7 @@ func _handle_wrap_around() -> void:
 	elif pos.x >= TERRAIN_LENGTH:
 		biplane.position.x = VIEWPORT_MIN_X + 1
 
-func _check_runway_landing() -> void:
+func _check_runway_landing(delta: float) -> void:
 	if not biplane or not terrain:
 		return
 
@@ -382,8 +445,10 @@ func _create_ghost_terrain() -> void:
 	ghost_terrain = Node2D.new()
 	ghost_terrain.name = "GhostTerrain"
 	if terrain and terrain.has_method("get_visual_line"):
-		var ghost_line = terrain.get_visual_line().duplicate()
-		ghost_terrain.add_child(ghost_line)
+		var visual_line = terrain.get_visual_line()
+		if visual_line:
+			var ghost_line = visual_line.duplicate()
+			ghost_terrain.add_child(ghost_line)
 	add_child(ghost_terrain)
 
 func _update_ghost_terrain() -> void:
