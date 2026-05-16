@@ -20,7 +20,7 @@ class_name Biplane
 @export var zero_lift_drag_area: float = 0.811
 @export var ar_efficiency: float = 11.0
 @export var max_lift_coeff: float = 1.4
-@export var air_density: float = 4.225
+@export var air_density: float = 5.225
 @export var stall_aoa: float = 0.244
 @export var stall_speed_ms: float = 21.4
 
@@ -29,7 +29,7 @@ class_name Biplane
 @export var max_throttle: float = 1.0
 @export var max_speed: float = 50.5
 
-const THROTTLE_STEP := 0.2
+const THROTTLE_STEP := 0.1
 const THROTTLE_REPEAT_DELAY := 0.1
 const THROTTLE_RAMP_SPEED := 4.0
 

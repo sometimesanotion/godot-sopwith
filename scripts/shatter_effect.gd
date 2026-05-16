@@ -122,6 +122,6 @@ func _create_fragment(poly: PackedVector2Array, color: Color, center: Vector2) -
 	return rb
 
 func _on_fragment_hit(body: Node) -> void:
-	if body is Biplane and body.is_player:
-		if body.has_method("take_damage"):
+	if body.has_method("take_damage"):
+		if "is_player" in body and body.is_player:
 			body.take_damage(_damage_amount, self)

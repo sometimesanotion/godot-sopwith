@@ -27,7 +27,6 @@ func _ready() -> void:
 	_create_buttons()
 
 func _load_current_bindings() -> void:
-	var input_map := InputMap.new()
 	for action_name in key_mappings.keys():
 		var events = InputMap.get_action_list(action_name)
 		if events.size() > 0:
@@ -59,7 +58,7 @@ func _get_key_name(event: InputEventKey) -> String:
 		KEY_BRACKETLEFT: return "["
 		KEY_BRACKETRIGHT: return "]"
 		KEY_SEMICOLON: return ";"
-		KEY_QUOTE: return "'"
+		KEY_APOSTROPHE: return "'"
 		KEY_EQUAL: return "="
 		KEY_MINUS: return "-"
 		KEY_0: return "0"

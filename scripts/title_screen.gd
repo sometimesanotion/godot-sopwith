@@ -23,12 +23,16 @@ func _input(event: InputEvent) -> void:
 			KEY_O:
 				print("O pressed - options")
 				_show_options()
-			KEY_K:
-				print("K pressed - keys")
-				_show_key_assignment()
+			
 			KEY_Q:
 				print("Q pressed - quit")
 				get_tree().quit()
+			KEY_K:
+				print("K pressed - temp test key_assignment")
+				var key_screen = load("res://scenes/key_assignment.tscn").instantiate()
+				key_screen.back_to_menu.connect(_on_key_assignment_back)
+				get_parent().add_child(key_screen)
+				visible = false
 
 func _show_options() -> void:
 	var options = load("res://scenes/options.tscn").instantiate()
@@ -38,12 +42,6 @@ func _show_options() -> void:
 
 func _on_options_back() -> void:
 	visible = true
-
-func _show_key_assignment() -> void:
-	var key_screen = load("res://scenes/key_assignment.tscn").instantiate()
-	key_screen.back_to_menu.connect(_on_key_assignment_back)
-	get_parent().add_child(key_screen)
-	visible = false
 
 func _on_key_assignment_back() -> void:
 	visible = true
