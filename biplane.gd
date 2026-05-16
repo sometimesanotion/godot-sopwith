@@ -685,7 +685,12 @@ func set_spawn_info(pos: Vector2, rot: float) -> void:
 	spawn_rotation = rot
 
 func _perform_teleport_landing() -> void:
-	global_position = spawn_position
+	var terrain = get_parent().get_node_or_null("Terrain")
+	var ground_y: float = 650.0
+	if terrain and terrain.has_method("get_ground_height_at"):
+		ground_y = terrain.get_ground_height_at(spawn_position.x)
+
+	global_position = Vector2(spawn_position.x, ground_y - 12)
 	rotation = spawn_rotation
 	pitch_yaw_angle = spawn_rotation
 	bank_angle = 0.0

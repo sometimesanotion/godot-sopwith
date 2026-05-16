@@ -154,6 +154,7 @@ func _show_title_screen() -> void:
 	print("Title screen added to scene")
 
 func _on_back_to_menu() -> void:
+	biplane = null
 	_hide_game_elements()
 	_show_title_screen()
 

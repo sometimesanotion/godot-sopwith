@@ -19,7 +19,7 @@ func _ready() -> void:
 	_check_sound_files()
 
 func _check_sound_files() -> void:
-	_sound_files_loaded = _has_valid_sound(SOUND_DIR + "engine.flac")
+	_sound_files_loaded = _has_valid_sound(SOUND_DIR + "kakaist-ak47-machine-gun-burst-sfx-332103.mp3")
 
 func _has_valid_sound(path: String) -> bool:
 	if not FileAccess.file_exists(path):
@@ -62,8 +62,8 @@ func play_engine(throttle: float) -> void:
 	engine_sound.volume_db = linear_to_db(0.3 + throttle * 0.4)
 	
 	if not engine_sound.playing:
-		if _has_valid_sound(SOUND_DIR + "engine.flac"):
-			engine_sound.stream = load(SOUND_DIR + "engine.flac")
+		if _has_valid_sound(SOUND_DIR + "engine.mp3"):
+			engine_sound.stream = load(SOUND_DIR + "engine.mp3")
 			engine_sound.play()
 
 func stop_engine() -> void:
@@ -73,29 +73,37 @@ func stop_engine() -> void:
 func play_machine_gun() -> void:
 	if not machine_gun_sound or not _sound_files_loaded:
 		return
-	
-	if _has_valid_sound(SOUND_DIR + "machine_gun.flac"):
+
+	if _has_valid_sound(SOUND_DIR + "kakaist-ak47-machine-gun-burst-sfx-332103.mp3"):
+		machine_gun_sound.stream = load(SOUND_DIR + "kakaist-ak47-machine-gun-burst-sfx-332103.mp3")
+		machine_gun_sound.play()
+	elif _has_valid_sound(SOUND_DIR + "machine_gun.mp3"):
 		if not machine_gun_sound.playing:
-			machine_gun_sound.stream = load(SOUND_DIR + "machine_gun.flac")
+			machine_gun_sound.stream = load(SOUND_DIR + "machine_gun.mp3")
 			machine_gun_sound.play()
-		else:
+	elif _has_valid_sound(SOUND_DIR + "machine_gun.mp3"):
+		if not machine_gun_sound.playing:
+			machine_gun_sound.stream = load(SOUND_DIR + "machine_gun.mp3")
 			machine_gun_sound.play()
 
 func play_explosion() -> void:
 	if not explosion_sound or not _sound_files_loaded:
 		return
-	
-	if _has_valid_sound(SOUND_DIR + "explosion.flac"):
-		explosion_sound.stream = load(SOUND_DIR + "explosion.flac")
+
+	if _has_valid_sound(SOUND_DIR + "explosion.mp3"):
+		explosion_sound.stream = load(SOUND_DIR + "explosion.mp3")
+		explosion_sound.play()
+	elif _has_valid_sound(SOUND_DIR + "explosion.mp3"):
+		explosion_sound.stream = load(SOUND_DIR + "explosion.mp3")
 		explosion_sound.play()
 
 func play_stall_warning() -> void:
 	if not stall_warning_sound or not _sound_files_loaded:
 		return
 	
-	if _has_valid_sound(SOUND_DIR + "stall_warning.flac"):
+	if _has_valid_sound(SOUND_DIR + "stall_warning.mp3"):
 		if not stall_warning_sound.playing:
-			stall_warning_sound.stream = load(SOUND_DIR + "stall_warning.flac")
+			stall_warning_sound.stream = load(SOUND_DIR + "stall_warning.mp3")
 			stall_warning_sound.play()
 
 func stop_stall_warning() -> void:

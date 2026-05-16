@@ -288,6 +288,14 @@ func _create_wreck() -> void:
 	wreck.add_child(collision_poly)
 
 	var wreck_draw := Node2D.new()
+	wreck_draw.set_script(_get_wreck_draw_script())
+	wreck_draw.set_meta("wreck_color", _get_wreck_color())
+	wreck_draw.set_meta("wreck_points", wrecked_points)
+	wreck.add_child(wreck_draw)
+
+	get_parent().add_child(wreck)
+
+func _get_wreck_color() -> Color:
 	var color := Color(0.15, 0.15, 0.18)
 	if target_type == "hangar":
 		color = Color(0.2, 0.1, 0.1)
@@ -295,10 +303,10 @@ func _create_wreck() -> void:
 		color = Color(0.1, 0.15, 0.1)
 	elif target_type == "fuel_tank":
 		color = Color(0.1, 0.25, 0.1)
-	wreck_draw.draw_colored_polygon(wrecked_points, color)
-	wreck.add_child(wreck_draw)
+	return color
 
-	get_parent().add_child(wreck)
+func _get_wreck_draw_script() -> GDScript:
+	return load("res://scripts/wreck_draw.gd")
 
 func _spawn_violent_explosion() -> void:
 	var explosion: Node = EXPLOSION_SCENE.instantiate()
