@@ -2,20 +2,27 @@ extends CharacterBody2D
 
 class_name Biplane
 
-## Biplane flight controller using vector-force aerodynamics
-## Sopwith Camel: 1.49 kN thrust, 422 kg, Cd=0.0378, Area=0.811 m²
-## Thrust multiplier applied from GameManager (default 1.5x)
+## Biplane flight controller with SI-based aerodynamics
+## Sopwith Camel baseline: 659 kg MTOW, 130hp rotary, 21.46 m2 wing
+## Arcade feel achieved via gravity multiplier and tuned propeller curve
 
-@export_group("Flight Parameters")
-@export var thrust_force: float = 1490.0
-@export var drag_coefficient: float = 0.038
-@export var gravity: float = 350.0
-@export var rotation_speed: float = 3.0
-@export var rotation_inertia: float = 2.5
-@export var mass_scale: float = 25.0
+@export_group("Flight Parameters (SI Units)")
+@export var mass: float = 659.0
+@export var engine_power_watts: float = 96941.0
+@export var wing_area: float = 21.46
+@export var gravity: float = 9.81
+
+@export_group("Scale & Arcade Tuning")
+@export var pixels_per_meter: float = 10.0
+@export var arcade_gravity_multiplier: float = 3.0
 
 @export_group("Aerodynamics")
-@export var stall_threshold: float = 77.0
+@export var zero_lift_drag_area: float = 0.811
+@export var ar_efficiency: float = 11.0
+@export var max_lift_coeff: float = 1.4
+@export var air_density: float = 1.225
+@export var stall_aoa: float = 0.244
+@export var stall_speed_ms: float = 21.4
 
 @export_group("Throttle")
 @export var min_throttle: float = 0.0
@@ -23,6 +30,7 @@ class_name Biplane
 
 const THROTTLE_STEP := 0.2
 const THROTTLE_REPEAT_DELAY := 0.1
+const THROTTLE_RAMP_SPEED := 4.0
 
 @export_group("Weapons")
 @export var gun_cooldown: float = 0.1
@@ -35,10 +43,13 @@ const THROTTLE_REPEAT_DELAY := 0.1
 @export var roll_speed: float = 4.0
 @export var max_roll_angle: float = PI
 
+@export_group("Handling")
+@export var rotation_speed: float = 3.0
+@export var rotation_inertia: float = 2.0
+
 var throttle: float = 0.0
 var throttle_target: float = 0.0
 var throttle_repeat_timer: float = 0.0
-const THROTTLE_RAMP_SPEED: float = 2.5
 var angular_velocity: float = 0.0
 var is_stalled: bool = false
 
@@ -83,12 +94,12 @@ var flight_state: FlightState = FlightState.FLYING
 
 func _ready() -> void:
 	motion_mode = MotionMode.MOTION_MODE_FLOATING
-	PhysicsServer2D.body_set_param(get_rid(), PhysicsServer2D.BODY_PARAM_MASS, mass_scale)
+	PhysicsServer2D.body_set_param(get_rid(), PhysicsServer2D.BODY_PARAM_MASS, mass)
 
 func _physics_process(delta: float) -> void:
 	if not game_active:
 		return
-		
+
 	if flight_state == FlightState.CRASHED:
 		_apply_crash_physics(delta)
 		return
@@ -100,9 +111,9 @@ func _physics_process(delta: float) -> void:
 	_handle_input(delta)
 	_handle_weapons(delta)
 	_apply_aerodynamics(delta)
-	_apply_forces(delta)
+	_apply_ground_forces(delta)
 	_handle_roll(delta)
-	
+
 	global_position += velocity * delta
 	_check_ground_collision()
 	_check_fuel_consumption(delta)
@@ -112,7 +123,7 @@ func _check_crash_on_spin() -> void:
 	var terrain = get_parent().get_node_or_null("Terrain")
 	if terrain and terrain.has_method("get_ground_height_at"):
 		ground_y = terrain.get_ground_height_at(global_position.x)
-	
+
 	if global_position.y >= ground_y - 5:
 		flight_state = FlightState.CRASHED
 		crashed.emit()
@@ -120,8 +131,9 @@ func _check_crash_on_spin() -> void:
 			GameManager.take_damage()
 
 func _handle_input(delta: float) -> void:
-	if flight_state == FlightState.STALLED or flight_state == FlightState.FALLING:
-		return
+	var pitch_authority: float = 1.0
+	if flight_state == FlightState.STALLED:
+		pitch_authority = 0.4
 
 	var pitch_input: float
 	var new_throttle: float
@@ -130,7 +142,7 @@ func _handle_input(delta: float) -> void:
 		pitch_input = ai_pitch_input
 		throttle_target = ai_throttle
 	else:
-		pitch_input = Input.get_axis("pull_up", "pull_down")
+		pitch_input = Input.get_axis("pull_up", "pull_down") * pitch_authority
 		var throttle_changed := false
 		if Input.is_action_pressed("throttle_up"):
 			throttle_repeat_timer -= delta
@@ -166,7 +178,7 @@ func _start_roll() -> void:
 	var normalized_rot := fmod(rotation, TAU)
 	if normalized_rot < 0:
 		normalized_rot += TAU
-	
+
 	if normalized_rot < PI:
 		roll_direction = 1
 		roll_start_angle = normalized_rot
@@ -181,14 +193,14 @@ func _handle_roll(delta: float) -> void:
 		return
 
 	visual_roll += roll_speed * delta * roll_direction
-	
+
 	if visual_roll >= PI:
 		visual_roll -= TAU
 		is_rolling = false
 	elif visual_roll <= -PI:
 		visual_roll += TAU
 		is_rolling = false
-	
+
 	if not is_rolling:
 		if visual_roll > 0:
 			visual_roll = PI
@@ -221,14 +233,34 @@ func _is_on_ground() -> bool:
 func _apply_aerodynamics(delta: float) -> void:
 	heading_angle = rotation
 	var forward := Vector2(cos(heading_angle), sin(heading_angle))
-	var speed := velocity.length()
+
+	var vel_si := velocity / pixels_per_meter
+	var speed_si := vel_si.length()
 
 	var on_ground := _is_on_ground()
+
+	if on_ground and speed_si < 0.5:
+		var thrust_si := _calc_thrust(0.0, throttle)
+		velocity.x += thrust_si * throttle * 0.85 * delta * pixels_per_meter / mass
+		var drag_si := speed_si * 0.5 * 0.05
+		if speed_si > 0.01:
+			velocity += (-vel_si.normalized()) * drag_si * delta * pixels_per_meter / mass
+		return
+
+	var thrust_si := _calc_thrust(speed_si, throttle)
+	var thrust_vec := forward * thrust_si
+
+	var angle_of_attack: float = 0.0
+	if speed_si > 0.5:
+		var vel_dir := vel_si.normalized()
+		angle_of_attack = forward.angle_to(vel_dir)
+	else:
+		angle_of_attack = 0.0
 
 	if on_ground:
 		is_stalled = false
 		flight_state = FlightState.FLYING
-	elif speed < stall_threshold:
+	elif abs(angle_of_attack) > stall_aoa or speed_si < stall_speed_ms:
 		is_stalled = true
 		if flight_state == FlightState.FLYING:
 			flight_state = FlightState.STALLED
@@ -237,72 +269,60 @@ func _apply_aerodynamics(delta: float) -> void:
 		if flight_state == FlightState.STALLED:
 			flight_state = FlightState.FLYING
 
-	var angle_of_attack: float = 0.0
-	if speed > 1.0:
-		var velocity_dir := velocity.normalized()
-		angle_of_attack = forward.angle_to(velocity_dir)
-	else:
-		angle_of_attack = 0.0
+	var cl: float = angle_of_attack * 2.0 * PI
+	cl = clampf(cl, -max_lift_coeff, max_lift_coeff)
+	if is_stalled:
+		cl *= 0.3
 
-	if not on_ground:
-		var cl: float = angle_of_attack * 2.0 * PI
-		cl = clampf(cl, -1.4, 1.4)
-		if is_stalled:
-			cl *= 0.3
-		var dynamic_pressure: float = 0.5 * 1.225 * speed * speed
-		var lift_force: float = dynamic_pressure * 21.46 * cl * 0.01
-		var lift_dir := Vector2(forward.y, -forward.x)
-		velocity += lift_dir * lift_force * delta
+	var lift_si := 0.5 * air_density * speed_si * speed_si * wing_area * cl
+	var lift_vec := Vector2.ZERO
+	if speed_si > 0.5:
+		var lift_dir := Vector2(-forward.y, forward.x)
+		lift_vec = lift_dir * lift_si
 
-	var effective_thrust: float = thrust_force
-	if GameManager:
-		effective_thrust = thrust_force * GameManager.thrust_multiplier
+	var parasitic_drag_si := 0.5 * air_density * speed_si * speed_si * zero_lift_drag_area
+	var induced_drag_si := 0.5 * air_density * speed_si * speed_si * wing_area * (cl * cl) / ar_efficiency
+	var total_drag_si := parasitic_drag_si + induced_drag_si
+	var drag_vec := Vector2.ZERO
+	if speed_si > 0.01:
+		drag_vec = -vel_si.normalized() * total_drag_si
 
-	var thrust_accel: float = throttle * effective_thrust / mass_scale
+	var weight_vec := Vector2(0, mass * gravity)
 
-	if on_ground:
-		var ground_thrust := Vector2(forward.x, 0)
-		if ground_thrust.x < 0:
-			ground_thrust.x = -ground_thrust.x
-		velocity += ground_thrust * thrust_accel * 0.85 * delta
-	else:
-		velocity += forward * thrust_accel * delta
+	var net_force_si := thrust_vec + lift_vec + drag_vec + weight_vec
 
-	if is_stalled and flight_state == FlightState.STALLED:
-		pass
+	var accel_si := net_force_si / mass
+	var accel_px := accel_si * pixels_per_meter
 
-	var drag_magnitude: float = 0.0
-	if on_ground:
-		drag_magnitude = speed * 0.05
-	else:
-		var frontal_drag: float = 0.5 * 1.225 * speed * speed * 0.811 * 0.001
-		var induced_drag: float = 0.0
-		if speed > 10:
-			var cl: float = abs(angle_of_attack * 2.0 * PI)
-			cl = clampf(cl, 0.0, 1.4)
-			induced_drag = 0.5 * 1.225 * speed * speed * 21.46 * 0.04 * cl * cl * 0.00001
-		drag_magnitude = frontal_drag + induced_drag
+	velocity += accel_px * delta
 
-	if speed > 0:
-		var drag_dir := -velocity.normalized()
-		velocity += drag_dir * drag_magnitude * delta
-
-func _apply_forces(delta: float) -> void:
+func _apply_ground_forces(delta: float) -> void:
 	var ground_y: float = 650.0
 	var terrain = get_parent().get_node_or_null("Terrain")
 	if terrain and terrain.has_method("get_ground_height_at"):
 		ground_y = terrain.get_ground_height_at(global_position.x)
 
-	if _is_on_ground():
+	if global_position.y >= ground_y - 12:
 		global_position.y = ground_y - 12
 		velocity.y = 0
 	elif global_position.y > ground_y - 12:
 		global_position.y = ground_y - 12
 		velocity.y = 0
-	elif is_stalled and flight_state == FlightState.STALLED:
-		velocity.y += gravity * 2.5 * delta
-	else:
-		velocity.y += gravity * delta
+
+func _calc_thrust(speed_si: float, thr: float) -> float:
+	if speed_si < 0.5:
+		return 2000.0 * thr
+
+	var eta := 0.8 * (1.0 - pow((speed_si - 40.0) / 40.0, 2))
+	eta = maxf(eta, 0.0)
+
+	var thrust_from_power := engine_power_watts * eta / speed_si
+
+	var gm_thrust_mult := 1.5
+	if GameManager:
+		gm_thrust_mult = GameManager.thrust_multiplier
+
+	return thrust_from_power * thr * gm_thrust_mult
 
 func _check_ground_collision() -> void:
 	var ground_y: float = 650.0
@@ -343,7 +363,7 @@ func _check_ground_collision() -> void:
 				GameManager.take_damage()
 
 func _apply_crash_physics(delta: float) -> void:
-	velocity.y += gravity * delta
+	velocity.y += gravity * pixels_per_meter * arcade_gravity_multiplier * delta
 	rotation += velocity.x * 0.01 * delta
 	move_and_slide()
 	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
@@ -385,7 +405,7 @@ func _fire_gun() -> void:
 
 	var spawn_pos := global_position + transform.x * 20
 	var direction := transform.x
-	
+
 	var target_enemy: Node = _find_nearest_enemy()
 	var range_percent: float = 0.0
 	if target_enemy:
@@ -405,14 +425,14 @@ func _fire_gun() -> void:
 
 	get_parent().add_child(bullet)
 	fired_bullet.emit(spawn_pos, direction, bullet_speed, self, range_percent)
-	
+
 	if SoundManager:
 		SoundManager.play_machine_gun()
 
 func _find_nearest_enemy() -> Node:
 	var nearest: Node = null
 	var min_dist := INF
-	
+
 	var parent := get_parent()
 	for child in parent.get_children():
 		if child == self:
@@ -427,7 +447,7 @@ func _find_nearest_enemy() -> Node:
 			if dist < min_dist:
 				min_dist = dist
 				nearest = child
-	
+
 	return nearest
 
 func _drop_bomb() -> void:
@@ -441,12 +461,12 @@ func _drop_bomb() -> void:
 			return
 
 	var bomb := BOMB_SCENE.instantiate()
-	
+
 	var forward := Vector2(cos(rotation), sin(rotation))
 	var perpendicular := Vector2(-forward.y, forward.x).normalized()
-	
+
 	var spawn_offset := perpendicular * 15.0
-	
+
 	var spawn_pos := global_position + spawn_offset
 	bomb.global_position = spawn_pos
 	bomb.rotation = rotation
@@ -461,7 +481,7 @@ func _check_fuel_consumption(delta: float) -> void:
 		if hit_count >= 2:
 			fuel_loss *= 2.0
 		GameManager.use_fuel(fuel_loss)
-	
+
 	if is_player and SoundManager:
 		SoundManager.play_engine(throttle)
 
@@ -546,7 +566,7 @@ func update_autopilot(target_pos: Vector2) -> void:
 
 	var to_target := target_pos - global_position
 	var distance := to_target.length()
-	
+
 	if distance < 150:
 		_handle_autopilot_landing(to_target)
 		return
@@ -577,29 +597,29 @@ func _handle_autopilot_landing(to_home: Vector2) -> void:
 		autopilot_enabled = false
 		throttle = 0.0
 		return
-	
+
 	is_autopilot_landing = true
-	
+
 	var home_angle := to_home.angle()
 	var angle_diff := home_angle - rotation
 	while angle_diff > PI:
 		angle_diff -= TAU
 	while angle_diff < -PI:
 		angle_diff += TAU
-	
+
 	var pitch_input: float = 0.0
 	if angle_diff > 0.2:
 		pitch_input = -1.0
 	elif angle_diff < -0.2:
 		pitch_input = 1.0
-	
+
 	if to_home.x > 0 and rotation > -0.3 and rotation < 0.3:
 		pitch_input = 0.3
-	
+
 	var speed_val := get_speed()
 	if speed_val > 60:
 		pitch_input = max(pitch_input, 0.3)
-	
+
 	set_ai_input(pitch_input, 0.3)
 
 func is_player_plane() -> bool:
@@ -620,9 +640,9 @@ func get_visual_roll() -> float:
 func take_damage(amount: float, attacker: Node) -> void:
 	if flight_state == FlightState.CRASHED:
 		return
-	
+
 	hit_count += 1
-	
+
 	if hit_count == 1:
 		reliability = 0.75
 		_add_smoke_stream(Color(0.9, 0.9, 0.9, 0.6), 15)
@@ -643,7 +663,7 @@ func _add_smoke_stream(color: Color, amount: int) -> void:
 		smoke_particles.amount = amount
 		smoke_particles.lifetime = 0.5
 		smoke_particles.speed_scale = 1.0
-		
+
 		var material = ParticleProcessMaterial.new()
 		material.emission_shape = 1
 		material.emission_sphere_radius = 5.0
@@ -655,7 +675,7 @@ func _add_smoke_stream(color: Color, amount: int) -> void:
 		material.scale_max = 8.0
 		material.color = color
 		smoke_particles.process_material = material
-		
+
 		add_child(smoke_particles)
 
 func _start_spinning_out() -> void:

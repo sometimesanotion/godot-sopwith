@@ -83,12 +83,8 @@ func _input(event: InputEvent) -> void:
 		elif game_state == "GAME_OVER":
 			get_tree().reload_current_scene()
 
-	if event.is_action_pressed("roll"):
-		if game_state == "PLAYING" and not is_paused:
-			_toggle_pause()
-
-	if event.is_action_pressed("ui_cancel"):
-		if game_state == "PLAYING" and not is_paused:
+	if event.is_action_pressed("ui_cancel") or (event is InputEventKey and (event as InputEventKey).keycode == KEY_P):
+		if game_state == "PLAYING":
 			_toggle_pause()
 
 	if event.is_action_pressed("autopilot") and not event.is_echo():

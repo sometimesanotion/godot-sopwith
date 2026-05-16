@@ -1,6 +1,6 @@
 extends CharacterBody2D
 
-var gravity: float = 400.0
+var gravity: float = 294.3
 var explosion_radius: float = 80.0
 var explosion_damage: float = 50.0
 
