@@ -38,6 +38,7 @@ const TERRAIN_RISE_THRESHOLD := 0.3
 const TAKEOFF_ROTATE_SPEED := 80.0
 const TAKEOFF_PITCH := -0.4
 const RETURN_REENGAGE_RANGE := 300.0
+const MAX_ALTITUDE := 800.0
 
 @export var target: Node2D
 @export var biplane: CharacterBody2D
@@ -63,6 +64,7 @@ var takeoff_timer: float = 0.0
 
 var last_pitch_input: float = 0.0
 var last_throttle: float = 0.0
+var desired_heading: float = 0.0
 
 var patrol_time: float = 0.0
 var territory_left: float = 0.0
@@ -291,7 +293,8 @@ func _compute_patrol_pitch() -> float:
 	var patrol_y = ground_y - PATROL_ALTITUDE + oscillation
 
 	var aim_point = Vector2(patrol_x, patrol_y)
-	return _steer_toward(aim_point)
+	_steer_toward(aim_point)
+	return _compute_pitch_from_heading()
 
 func _compute_patrol_throttle(avatar) -> float:
 	var alt = _get_altitude_above_ground()
@@ -333,7 +336,8 @@ func _compute_engage_pitch() -> float:
 		else:
 			aim_point = _lead_pursuit_point(target_pos, 0.7)
 
-	return _steer_toward(aim_point)
+	_steer_toward(aim_point)
+	return _compute_pitch_from_heading()
 
 func _compute_engage_throttle(avatar) -> float:
 	if not biplane or not target:
@@ -407,16 +411,19 @@ func _stalking_waypoint(target_pos: Vector2) -> Vector2:
 
 	return target_pos
 
-func _steer_toward(aim_point: Vector2) -> float:
+func _steer_toward(aim_point: Vector2) -> void:
 	if not biplane:
-		return 0.0
+		return
 
 	var my_pos = biplane.global_position
 	var to_aim = aim_point - my_pos
-	var desired_heading = to_aim.angle()
-	var current_heading = biplane.rotation
+	desired_heading = to_aim.angle()
 
-	var angle_diff = wrapf(desired_heading - current_heading, -PI, PI)
+func _compute_pitch_from_heading() -> float:
+	if not biplane:
+		return 0.0
+
+	var angle_diff = wrapf(desired_heading - biplane.rotation, -PI, PI)
 
 	var avatar = _get_avatar()
 	var angular_vel: float = 0.0
@@ -470,16 +477,17 @@ func _compute_return_pitch() -> float:
 	if distance < HOME_PROXIMITY * 2.0:
 		var landing_ground = _get_ground_height(home_base_x)
 		var landing_pos = Vector2(home_base_x, landing_ground - 50.0)
-		var pitch_to_land = _steer_toward(landing_pos)
+		_steer_toward(landing_pos)
 
 		if distance < HOME_PROXIMITY and not is_using_autopilot:
 			_enable_autopilot_for_landing()
 
-		return pitch_to_land
+		return _compute_pitch_from_heading()
 
 	var aim_point = _lead_pursuit_point(home_pos, 0.5)
 	aim_point.y = minf(aim_point.y, ground_y - PATROL_ALTITUDE)
-	return _steer_toward(aim_point)
+	_steer_toward(aim_point)
+	return _compute_pitch_from_heading()
 
 func _compute_return_throttle(avatar) -> float:
 	if not biplane:
@@ -548,6 +556,10 @@ func _apply_reflexes(pitch: float, throttle: float) -> Array:
 		pitch = alt_correction
 		throttle = maxf(throttle, 0.8)
 
+	var ceiling_correction = _altitude_ceiling_reflex()
+	if ceiling_correction != 0.0:
+		pitch = maxf(pitch, ceiling_correction)
+
 	var terrain_correction = _terrain_projection_reflex()
 	if terrain_correction != 0.0:
 		pitch = minf(pitch, terrain_correction)
@@ -574,6 +586,18 @@ func _altitude_reflex() -> float:
 		return -0.7
 	elif altitude < MIN_ALTITUDE_ABOVE_GROUND:
 		return -0.3
+	return 0.0
+
+func _altitude_ceiling_reflex() -> float:
+	if not biplane:
+		return 0.0
+
+	var altitude = _get_altitude_above_ground()
+
+	if altitude > MAX_ALTITUDE:
+		return 0.5
+	elif altitude > MAX_ALTITUDE - 50.0:
+		return 0.2
 	return 0.0
 
 func _terrain_projection_reflex() -> float:

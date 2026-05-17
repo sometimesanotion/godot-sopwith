@@ -957,6 +957,8 @@ func get_bombs(avatar: AvatarData) -> int:
 func fire_gun(avatar: AvatarData) -> void:
 	if avatar.ammo <= 0:
 		return
+	if avatar.gun_timer > 0:
+		return
 
 	avatar.gun_timer = gun_cooldown
 
