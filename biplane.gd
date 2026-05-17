@@ -6,7 +6,7 @@ extends CharacterBody2D
 ## Arcade feel achieved via gravity multiplier and tuned propeller curve
 
 @export_group("Flight Parameters (SI Units)")
-@export var arcade_multiplier: float = 2.0
+@export var arcade_multiplier: float = 1.5
 
 @export var mass: float = 447.0
 @export var engine_power_watts: float = 96941.0 * arcade_multiplier # 96941.0
@@ -97,7 +97,7 @@ static func _init_particle_materials() -> void:
 	_black_smoke_material.initial_velocity_max = 60.0
 	_black_smoke_material.scale_min = 4.0
 	_black_smoke_material.scale_max = 10.0
-	_black_smoke_material.color = Color(0.05, 0.05, 0.05, 0.75)
+	_black_smoke_material.color = Color(0.05, 0.05, 0.05, 0.5)
 
 	_fire_material = ParticleProcessMaterial.new()
 	_fire_material.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
@@ -106,9 +106,9 @@ static func _init_particle_materials() -> void:
 	_fire_material.spread = 30.0
 	_fire_material.initial_velocity_min = 60.0
 	_fire_material.initial_velocity_max = 90.0
-	_fire_material.scale_min = 4.0
-	_fire_material.scale_max = 10.0
-	_fire_material.color = Color(0.95, 0.35, 0.05, 0.15)
+	_fire_material.scale_min = 3.0
+	_fire_material.scale_max = 6.0
+	_fire_material.color = Color(0.95, 0.5, 0.2, 0.9)
 
 signal fired_bullet(position: Vector2, direction: Vector2, speed: float, owner: Node, range_percent: float)
 signal dropped_bomb(position: Vector2, velocity: Vector2, owner: Node)
@@ -623,10 +623,10 @@ func _check_ground_collision(avatar: AvatarData) -> void:
 		ground_y = terrain.get_ground_height_at(global_position.x)
 
 	if global_position.y >= ground_y - 14 and velocity.y > 20:
-		print_rich("[color=yellow]  _check_gc: CALLED pos_y=", global_position.y, "[/color]")
+		# print_rich("[color=yellow]  _check_gc: CALLED pos_y=", global_position.y, "[/color]")
 		var speed = get_avatar_speed(avatar)
 		var v_perp: float = abs(velocity.y)
-		print_rich("[color=magenta]  _check_gc: IN RANGE pos_y=", global_position.y, " gy=", ground_y, " speed=", speed, " v_perp=", v_perp, "[/color]")
+		# print_rich("[color=magenta]  _check_gc: IN RANGE pos_y=", global_position.y, " gy=", ground_y, " speed=", speed, " v_perp=", v_perp, "[/color]")
 		var normalized_rot: float = fmod(avatar.pitch_angle, TAU)
 		if normalized_rot < 0:
 			normalized_rot += TAU
@@ -644,10 +644,10 @@ func _check_ground_collision(avatar: AvatarData) -> void:
 			relative_angle += TAU
 
 		var tilt_angle: float = abs(relative_angle)
-		print_rich("[color=cyan]  _check_gc: tilt_angle=", rad_to_deg(tilt_angle), " deg, speed=", speed, "[/color]")
+		# print_rich("[color=cyan]  _check_gc: tilt_angle=", rad_to_deg(tilt_angle), " deg, speed=", speed, "[/color]")
 
 		if tilt_angle >= deg_to_rad(max_landing_tilt_deg) and velocity.y > 40.0:
-			print_rich("[color=red]  _check_gc: CRASH condition met![/color]")
+			# print_rich("[color=red]  _check_gc: CRASH condition met![/color]")
 			avatar.flight_state = FlightState.CRASHED
 			crashed.emit()
 			if avatar.is_player and GameManager:
@@ -655,28 +655,28 @@ func _check_ground_collision(avatar: AvatarData) -> void:
 			return
 
 		var impact_force: float = (camel_mass_kg * v_perp) / bungee_compression_time
-		print_rich("[color=green]  _check_gc: impact_force=", impact_force, " N, v_perp=", v_perp, "[/color]")
+		# print_rich("[color=green]  _check_gc: impact_force=", impact_force, " N, v_perp=", v_perp, "[/color]")
 
 		if v_perp <= soft_landing_vperp:
-			print_rich("[color=green]  _check_gc: SOFT LANDING[/color]")
+			# print_rich("[color=green]  _check_gc: SOFT LANDING[/color]")
 			global_position.y = ground_y - 10
 			velocity.y = 0
 			avatar.flight_state = FlightState.FLYING
 		elif v_perp <= hard_landing_vperp:
-			print_rich("[color=orange]  _check_gc: HARD LANDING (damaged)[/color]")
+			# print_rich("[color=orange]  _check_gc: HARD LANDING (damaged)[/color]")
 			global_position.y = ground_y - 10
 			velocity.y = 0
 			velocity.x *= 0.5
 			avatar.flight_state = FlightState.DAMAGED
 			avatar.damage_percent += 0.2 # * impact_force / hard_landing_vperp
-			print_rich("[color=orange]  _check_gc: HARD LANDING damage: avatar.damage_percent=", avatar.damage_percent, " avatar.damage_percent=", avatar.damage_percent, "[/color]")
+			# print_rich("[color=orange]  _check_gc: HARD LANDING damage: avatar.damage_percent=", avatar.damage_percent, " avatar.damage_percent=", avatar.damage_percent, "[/color]")
 			avatar.reliability = 0.75
 			# _ensure_smoke(avatar, 15)
 			# if avatar.damage_percent > 0.5:
 			# 	_ensure_black_smoke(avatar)
 			damaged.emit(impact_force, v_perp)
 		else:
-			print_rich("[color=red]  _check_gc: DESTROYED (v_perp too high)[/color]")
+			# print_rich("[color=red]  _check_gc: DESTROYED (v_perp too high)[/color]")
 			avatar.flight_state = FlightState.CRASHED
 			crashed.emit()
 			if avatar.is_player and GameManager:
@@ -713,12 +713,22 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 				return
 
 func _apply_crash_physics(avatar: AvatarData, delta: float) -> void:
+	if avatar.flight_state != FlightState.CRASHED:
+		return
+
+	if velocity == Vector2.ZERO:
+		return
+
 	velocity.y += gravity * pixels_per_meter * delta
 	rotation += velocity.x * 0.01 * delta
 	move_and_slide()
 	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
 	if ground_ray and ground_ray.is_colliding():
 		velocity = Vector2.ZERO
+		crashed.emit()
+		damaged.emit(1.0, 0.0)
+		if avatar.is_player and GameManager:
+			GameManager.destroy_player(avatar.id)
 
 func get_avatar_speed(avatar: AvatarData) -> float:
 	return velocity.length()
@@ -850,6 +860,8 @@ func _check_fuel_consumption(avatar: AvatarData, delta: float) -> void:
 		if avatar.fuel <= 0:
 			avatar.throttle = 0
 			avatar.throttle_target = 0
+			_ensure_smoke(avatar, 1, 10) # white smoke
+
 		elif avatar.throttle > 0:
 			var fuel_loss = avatar.throttle * delta * 1.0
 			if avatar.damage_percent >= 0.5:
@@ -1024,7 +1036,7 @@ func take_damage(avatar: AvatarData, amount: float, attacker: Node) -> void:
 	elif avatar.damage_percent >= 0.5:
 		avatar.reliability = 0.5
 		_disable_fire(avatar)
-		_ensure_smoke(avatar, 2, int(30.0 * avatar.damage_percent)) # black smoke
+		_ensure_smoke(avatar, 2, int(60.0 * avatar.damage_percent)) # black smoke
 	elif avatar.damage_percent >= 0.25:
 		avatar.reliability = 0.75
 		_disable_fire(avatar)
@@ -1033,8 +1045,7 @@ func take_damage(avatar: AvatarData, amount: float, attacker: Node) -> void:
 
 	if avatar.damage_percent >= 1.0:
 		avatar.flight_state = FlightState.CRASHED
-		crashed.emit()
-		damaged.emit(1.0, 0.0)
+		# Don't emit crashed yet - wait until hitting ground
 
 func _ensure_smoke(avatar: AvatarData, smoke_type: int, amount: int) -> void:
 	if not avatar.smoke_particles:
@@ -1044,14 +1055,14 @@ func _ensure_smoke(avatar: AvatarData, smoke_type: int, amount: int) -> void:
 		avatar.smoke_particles.lifetime = 1.5
 		avatar.smoke_particles.speed_scale = 1.0
 		add_child(avatar.smoke_particles)
-	
+
 	if avatar.current_smoke_type != smoke_type:
 		avatar.current_smoke_type = smoke_type
 		if smoke_type == 1:
 			avatar.smoke_particles.process_material = _white_smoke_material
 		elif smoke_type == 2:
 			avatar.smoke_particles.process_material = _black_smoke_material
-	
+
 	avatar.smoke_particles.amount = amount
 	avatar.smoke_particles.emitting = true
 
@@ -1065,8 +1076,8 @@ func _ensure_fire(avatar: AvatarData, amount: int) -> void:
 		avatar.fire_particles = GPUParticles2D.new()
 		avatar.fire_particles.name = "FireParticles"
 		avatar.fire_particles.emitting = true
-		avatar.fire_particles.lifetime = 0.5
-		avatar.fire_particles.speed_scale = 2.0
+		avatar.fire_particles.lifetime = 0.3
+		avatar.fire_particles.speed_scale = 1.0
 		avatar.fire_particles.process_material = _fire_material
 		add_child(avatar.fire_particles)
 	avatar.fire_particles.amount = amount
