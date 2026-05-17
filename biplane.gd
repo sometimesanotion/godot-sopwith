@@ -6,10 +6,10 @@ extends CharacterBody2D
 ## Arcade feel achieved via gravity multiplier and tuned propeller curve
 
 @export_group("Flight Parameters (SI Units)")
-@export var arcade_multiplier: float = 3.0
+@export var arcade_multiplier: float = 1.8
 
 @export var mass: float = 447.0
-@export var engine_power_watts: float = 96941.0 * arcade_multiplier # 96941.0
+@export var engine_power_watts: float = 96941.0 * arcade_multiplier
 @export var wing_area: float = 21.46
 @export var gravity: float = 9.81
 
@@ -20,10 +20,10 @@ extends CharacterBody2D
 @export var zero_lift_drag_area: float = 0.811
 @export var ar_efficiency: float = 11.0
 @export var max_lift_coeff: float = 1.4
-@export var air_density: float = 2.225 * arcade_multiplier
+@export var air_density: float = 2.225 * arcade_multiplier * 1.4
 @export var ground_drag_coeff = 50.0
 @export var stall_aoa: float = 0.244
-@export var stall_speed_ms: float = 10.0 # 21.4
+@export var stall_speed_ms: float = 21.4 / 2.2
 
 @export_group("Throttle")
 @export var min_throttle: float = 0.0
@@ -46,8 +46,8 @@ const THROTTLE_RAMP_SPEED := 4.0
 @export var max_roll_angle: float = PI
 
 @export_group("Handling")
-@export var rotation_speed: float = 5.0
-@export var rotation_inertia: float = 3.0
+@export var rotation_speed: float = 7.0
+@export var rotation_inertia: float = 3.5
 
 @export_group("Impact Physics (Sopwith Camel)")
 @export var camel_mass_kg: float = 659.0
@@ -909,7 +909,7 @@ func _check_fuel_consumption(avatar: AvatarData, delta: float) -> void:
 		elif avatar.throttle > 0 or avatar.damage_percent >= 0.8:
 			var fuel_loss = avatar.throttle * delta * 1.0
 			if avatar.damage_percent >= 0.8:
-				fuel_loss *= 20.0
+				fuel_loss *= 10.0
 			elif avatar.damage_percent >= 0.5:
 				fuel_loss *= 2.0
 			avatar.fuel = maxf(0.0, avatar.fuel - fuel_loss)
@@ -1112,15 +1112,28 @@ func _ensure_smoke(avatar: AvatarData, smoke_type: int, amount: int) -> void:
 		avatar.smoke_particles.speed_scale = 1.0
 		add_child(avatar.smoke_particles)
 
-	if avatar.current_smoke_type != smoke_type:
-		avatar.current_smoke_type = smoke_type
-		if smoke_type == 1:
-			avatar.smoke_particles.process_material = _white_smoke_material
-		elif smoke_type == 2:
-			avatar.smoke_particles.process_material = _black_smoke_material
+func create_explosion() -> void:
+	var explosion_scene := load("res://scenes/explosion.tscn")
+	if explosion_scene:
+		var explosion: Node = explosion_scene.instantiate()
+		explosion.global_position = global_position
+		get_parent().add_child(explosion)
 
-	avatar.smoke_particles.amount = amount
-	avatar.smoke_particles.emitting = true
+	var shatter_scene := load("res://scenes/shatter_effect.tscn")
+	if shatter_scene and has_node("Visual"):
+		var shatter: Node = shatter_scene.instantiate()
+		shatter.setup(get_plane_polygon(), Color(0.5, 0.55, 0.5), global_position)
+		get_parent().add_child(shatter)
+
+func get_plane_polygon() -> PackedVector2Array:
+	return PackedVector2Array([
+		Vector2(20, 0),
+		Vector2(10, -4),
+		Vector2(-15, -4),
+		Vector2(-20, 0),
+		Vector2(-15, 4),
+		Vector2(10, 4)
+	])
 
 func _disable_smoke(avatar: AvatarData) -> void:
 	if avatar.smoke_particles:

@@ -382,24 +382,9 @@ func _on_biplane_crashed() -> void:
 	is_respawning = true
 	respawn_timer = RESPAWN_DELAY
 
-	if biplane and EXPLOSION_SCENE:
-		var explosion = EXPLOSION_SCENE.instantiate()
-		explosion.global_position = biplane.global_position
-		add_child(explosion)
+	if biplane and biplane.has_method("create_explosion"):
+		biplane.create_explosion()
 		GameManager.request_screen_shake(25.0)
-
-	if biplane and biplane.has_node("Visual"):
-		var plane_poly := PackedVector2Array([
-			Vector2(20, 0),
-			Vector2(10, -4),
-			Vector2(-15, -4),
-			Vector2(-20, 0),
-			Vector2(-15, 4),
-			Vector2(10, 4)
-		])
-		var shatter = load("res://scenes/shatter_effect.tscn").instantiate()
-		shatter.setup(plane_poly, Color(0.5, 0.55, 0.5), biplane.global_position)
-		add_child(shatter)
 
 	if SoundManager:
 		SoundManager.play_explosion()

@@ -155,13 +155,15 @@ func _physics_process(delta: float) -> void:
 
 	if crash_timer > 0:
 		crash_timer -= delta
-		if crash_timer <= 0:
-			_show_explosion_and_hide()
+		return
 
 	_apply_input(last_pitch_input, last_throttle)
 
-	if not biplane.visible:
-		_try_respawn()
+	if respawn_timer > 0:
+		respawn_timer -= delta
+		if respawn_timer <= 0:
+			_do_respawn()
+			return
 
 	decision_timer -= delta
 	if decision_timer <= 0.0:
@@ -861,15 +863,17 @@ func take_damage(amount: float, attacker: Node) -> void:
 				biplane.take_damage(avatar, amount, attacker)
 
 func _on_enemy_crashed() -> void:
+	if crash_timer > 0:
+		return
 	crash_timer = crash_delay
+	respawn_timer = respawn_delay
+	if biplane and biplane.has_method("create_explosion"):
+		biplane.create_explosion()
 
 func _respawn_after_delay() -> void:
 	crash_timer = crash_delay
 
-func _try_respawn() -> void:
-	if respawn_timer > 0:
-		respawn_timer -= 0.016
-		return
+func _do_respawn() -> void:
 	if not biplane:
 		return
 	var ground_y = _get_ground_height(home_base_x)
@@ -905,7 +909,6 @@ func _show_explosion_and_hide() -> void:
 		shatter.setup(plane_poly, Color(0.5, 0.55, 0.5), biplane.global_position)
 		get_parent().add_child(shatter)
 
-	biplane.visible = false
 	if biplane.has_method("set_game_active"):
 		biplane.set_game_active(false)
 	respawn_timer = respawn_delay
