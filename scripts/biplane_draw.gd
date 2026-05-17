@@ -9,6 +9,7 @@ var _svg_size: Vector2 = Vector2(48, 28)
 func _ready() -> void:
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	queue_redraw()
 
 func _process(_delta: float) -> void:
 	var biplane = get_parent()

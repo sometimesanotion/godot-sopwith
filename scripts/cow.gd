@@ -7,6 +7,7 @@ func _ready() -> void:
 	add_to_group("obstacle")
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	queue_redraw()
 
 func _draw() -> void:
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):

@@ -7,6 +7,9 @@ var explosion_damage: float = 50.0
 var _bomb_owner: Node = null
 var has_exploded: bool = false
 
+var _svg_sprite_name: String = "bomb"
+var _svg_size: Vector2 = Vector2(16, 20)
+
 signal exploded(position: Vector2, radius: float, damage: float)
 
 const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
@@ -15,6 +18,14 @@ func _ready() -> void:
 	motion_mode = MotionMode.MOTION_MODE_FLOATING
 	add_to_group("destructible")
 	add_to_group("bomb")
+	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_hide_visual_nodes()
+
+func _hide_visual_nodes() -> void:
+	var visual = get_node_or_null("BombVisual")
+	if visual:
+		visual.visible = false
 
 func take_damage(amount: float, attacker: Node) -> void:
 	explode()
@@ -36,12 +47,26 @@ func _physics_process(delta: float) -> void:
 	
 	_check_ground_hit()
 
+	if velocity.length() > 5.0:
+		rotation = velocity.angle()
+	queue_redraw()
+
 func _check_ground_hit() -> void:
 	var terrain = get_parent().get_node_or_null("Terrain")
 	if terrain and terrain.has_method("get_ground_height_at"):
 		var ground_y = terrain.get_ground_height_at(global_position.x)
 		if global_position.y >= ground_y - 5:
 			explode()
+
+func _draw() -> void:
+	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
+		SvgManager.draw_sprite_centered(self, _svg_sprite_name, Vector2.ZERO, _svg_size)
+		return
+
+	draw_rect(Rect2(-4, -6, 8, 12), Color(0.2, 0.2, 0.2))
+	draw_rect(Rect2(-8, -2, 4, 4), Color(0.2, 0.2, 0.2))
+	draw_rect(Rect2(4, -2, 4, 4), Color(0.2, 0.2, 0.2))
+	draw_rect(Rect2(-1, -10, 2, 4), Color(0.5, 0.3, 0.1))
 
 func explode() -> void:
 	if has_exploded:

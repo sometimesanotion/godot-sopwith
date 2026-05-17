@@ -879,10 +879,7 @@ func _drop_bomb(avatar: AvatarData) -> void:
 
 	var bomb := BOMB_SCENE.instantiate()
 
-	var forward := Vector2(cos(avatar.pitch_angle), sin(avatar.pitch_angle))
-	var perpendicular := Vector2(-forward.y, forward.x).normalized()
-
-	var spawn_offset := perpendicular * 15.0
+	var spawn_offset := Vector2(0, 15).rotated(avatar.pitch_angle)
 
 	var spawn_pos := global_position + spawn_offset
 	bomb.global_position = spawn_pos

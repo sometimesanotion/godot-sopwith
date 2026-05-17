@@ -5,8 +5,8 @@ var _animation_cache: Dictionary = {}
 
 const SVG_PATH := "res://assets/svg/"
 const KNOWN_SPRITES := [
-	"biplane", "cow", "bird", "fuel_depot", "runway",
-	"hangar", "building", "tank", "cloud"
+	"biplane", "cow", "bird", "fuel_depot", "building", 
+	"tank", "cloud", "bomb"
 ]
 const ANIMATION_FPS := 8.0
 

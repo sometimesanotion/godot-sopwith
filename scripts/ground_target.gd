@@ -27,6 +27,7 @@ func _ready() -> void:
 	_create_visuals()
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	queue_redraw()
 
 func _physics_process(delta: float) -> void:
 	if has_aa and not is_destroyed:
