@@ -14,6 +14,7 @@ var aa_timer: float = 0.0
 var polygon_points: PackedVector2Array = []
 var _collision_polygon: CollisionPolygon2D = null
 var original_health: float = 50.0
+var _svg_sprite_name: String = ""
 
 const AA_PROJECTILE := preload("res://scenes/bullet.tscn")
 const SHATTER_SCENE := preload("res://scenes/shatter_effect.tscn")
@@ -22,7 +23,10 @@ const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
 func _ready() -> void:
 	add_to_group("destructible")
 	add_to_group("ground_target")
+	_svg_sprite_name = target_type
 	_create_visuals()
+	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 
 func _physics_process(delta: float) -> void:
 	if has_aa and not is_destroyed:
@@ -69,47 +73,47 @@ func _create_visuals() -> void:
 
 func _create_hangar(polygon: CollisionPolygon2D) -> void:
 	var points := PackedVector2Array([
-		Vector2(-40, 0),
+		Vector2(-40, 35),
 		Vector2(-40, -25),
 		Vector2(-20, -35),
 		Vector2(20, -35),
 		Vector2(40, -25),
-		Vector2(40, 0)
+		Vector2(40, 35)
 	])
 	polygon.polygon = points
 
 func _create_tank(polygon: CollisionPolygon2D) -> void:
 	var points := PackedVector2Array([
-		Vector2(-25, 0),
+		Vector2(-25, 18),
 		Vector2(-25, -10),
 		Vector2(-15, -10),
 		Vector2(-10, -18),
 		Vector2(10, -18),
 		Vector2(15, -10),
 		Vector2(25, -10),
-		Vector2(25, 0)
+		Vector2(25, 18)
 	])
 	polygon.polygon = points
 
 func _create_fuel_depot(polygon: CollisionPolygon2D) -> void:
 	var points := PackedVector2Array([
-		Vector2(-15, 0),
+		Vector2(-15, 25),
 		Vector2(-15, -20),
 		Vector2(-10, -25),
 		Vector2(10, -25),
 		Vector2(15, -20),
-		Vector2(15, 0)
+		Vector2(15, 25)
 	])
 	polygon.polygon = points
 
 func _create_building(polygon: CollisionPolygon2D) -> void:
 	var points := PackedVector2Array([
-		Vector2(-20, 0),
-		Vector2(-20, -30),
-		Vector2(-10, -40),
-		Vector2(10, -40),
-		Vector2(20, -30),
-		Vector2(20, 0)
+		Vector2(-30, 40),
+		Vector2(-30, -30),
+		Vector2(-15, -40),
+		Vector2(15, -40),
+		Vector2(30, -30),
+		Vector2(30, 40)
 	])
 	polygon.polygon = points
 
@@ -117,21 +121,33 @@ func _draw() -> void:
 	if polygon_points.size() < 3:
 		return
 
+	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
+		var draw_rect := SvgManager.calc_draw_rect(polygon_points)
+		SvgManager.draw_sprite_fit(self, _svg_sprite_name, draw_rect)
+		if is_enemy and not is_wreck:
+			_draw_enemy_flag()
+		return
+
 	var color := Color(0.3, 0.3, 0.35)
 	if target_type == "hangar":
 		color = Color(0.4, 0.2, 0.2)
-		draw_hangar_details()
 	elif target_type == "tank":
 		color = Color(0.2, 0.3, 0.2)
-		draw_tank_details()
 	elif target_type == "fuel_depot":
 		color = Color(0.2, 0.5, 0.2)
-		draw_fuel_depot_details()
 	elif target_type == "building":
 		color = Color(0.35, 0.35, 0.4)
-		draw_building_details()
 
 	draw_colored_polygon(polygon_points, color)
+
+	if target_type == "hangar":
+		draw_hangar_details()
+	elif target_type == "tank":
+		draw_tank_details()
+	elif target_type == "fuel_depot":
+		draw_fuel_depot_details()
+	elif target_type == "building":
+		draw_building_details()
 
 	if is_enemy and not is_wreck:
 		_draw_enemy_flag()
@@ -154,12 +170,13 @@ func draw_fuel_depot_details() -> void:
 	draw_line(Vector2(0, -25), Vector2(0, -28), Color(0.8, 0.4, 0.1), 2)
 
 func draw_building_details() -> void:
-	draw_rect(Rect2(-15, -35, 30, 5), Color(0.2, 0.2, 0.25))
-	draw_rect(Rect2(-10, -40, 8, 10), Color(0.15, 0.15, 0.2))
-	draw_rect(Rect2(2, -40, 8, 10), Color(0.15, 0.15, 0.2))
+	draw_rect(Rect2(-22, -35, 44, 5), Color(0.2, 0.2, 0.25))
+	draw_rect(Rect2(-15, -40, 12, 10), Color(0.15, 0.15, 0.2))
+	draw_rect(Rect2(3, -40, 12, 10), Color(0.15, 0.15, 0.2))
 
 func _draw_enemy_flag() -> void:
-	var flag_x := 20.0
+	var right_edge := _get_right_edge()
+	var flag_x := right_edge + 5.0
 	var flag_top := -45.0
 	draw_line(Vector2(flag_x, 0), Vector2(flag_x, flag_top), Color(0.6, 0.6, 0.6), 2)
 	var flag_points := PackedVector2Array([
@@ -168,6 +185,13 @@ func _draw_enemy_flag() -> void:
 		Vector2(flag_x, flag_top + 10)
 	])
 	draw_colored_polygon(flag_points, Color(0.8, 0.1, 0.1))
+
+func _get_right_edge() -> float:
+	var max_x := -INF
+	for pt in polygon_points:
+		if pt.x > max_x:
+			max_x = pt.x
+	return max_x
 
 var _last_attacker_player_id: int = 0
 
@@ -310,8 +334,6 @@ func _create_normal_explosion() -> void:
 		var shatter: Node = SHATTER_SCENE.instantiate()
 		shatter.setup(polygon_points, color, global_position)
 		get_parent().add_child(shatter)
-
-	# _create_building_smoke_puffs()
 
 	if GameManager:
 		GameManager.request_screen_shake(15.0)

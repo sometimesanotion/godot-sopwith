@@ -1,9 +1,18 @@
 extends StaticBody2D
 
+var _svg_sprite_name: String = "cow"
+var _svg_size: Vector2 = Vector2(32, 36)
+
 func _ready() -> void:
 	add_to_group("obstacle")
+	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 
 func _draw() -> void:
+	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
+		SvgManager.draw_sprite_centered(self, _svg_sprite_name, Vector2(0, -14), _svg_size)
+		return
+
 	draw_colored_polygon(PackedVector2Array([
 		Vector2(-15, 0), Vector2(-15, -20), Vector2(-10, -28),
 		Vector2(10, -28), Vector2(15, -20), Vector2(15, 0)

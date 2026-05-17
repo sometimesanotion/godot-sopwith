@@ -18,6 +18,8 @@ var runways: Array[Vector2] = []
 
 func _ready() -> void:
 	runways.append(Vector2(RUNWAY_START, RUNWAY_END))
+	if SvgManager and SvgManager.has_sprite("runway"):
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_initialize_noise()
 	_generate_terrain()
 	_create_terrain()
@@ -51,6 +53,19 @@ func _create_terrain() -> void:
 		_create_runway_visual(runway.x, runway.y)
 
 func _create_runway_visual(start: float, end: float) -> void:
+	if SvgManager and SvgManager.has_sprite("runway"):
+		var runway_tex = SvgManager.get_sprite("runway")
+		if runway_tex:
+			var runway_sprite = Sprite2D.new()
+			runway_sprite.texture = runway_tex
+			runway_sprite.position = Vector2((start + end) * 0.5, BASE_Y + 15)
+			var tex_width = runway_tex.get_width()
+			var tex_height = runway_tex.get_height()
+			if tex_width > 0 and tex_height > 0:
+				runway_sprite.scale = Vector2((end - start) / tex_width, 30.0 / tex_height)
+			add_child(runway_sprite)
+			return
+
 	var runway := Polygon2D.new()
 	runway.polygon = PackedVector2Array([
 		Vector2(start, BASE_Y),

@@ -230,6 +230,7 @@ var enemy_home_positions: Array[float] = []
 func _spawn_enemies_and_targets() -> void:
 	enemies.clear()
 	enemy_home_positions.clear()
+	_occupied_positions.clear()
 
 	var enemy_base_x := [
 		2458.0,
@@ -301,26 +302,55 @@ const PLAYER_SPAWN_X := 6520.0
 const SAFE_ZONE_RADIUS := 1500.0
 const MIN_ENEMY_DISTANCE := 2458.0
 
+func _get_target_half_width(target_type: String) -> float:
+	match target_type:
+		"building": return 35.0
+		"hangar": return 45.0
+		"fuel_depot": return 20.0
+		"tank": return 30.0
+		_: return 30.0
+
+var _occupied_positions: Array[Vector2] = []
+
+func _is_position_occupied(x: float, half_width: float) -> bool:
+	for pos in _occupied_positions:
+		if abs(x - pos.x) < (half_width + pos.y):
+			return true
+	return false
+
+func _mark_position_occupied(x: float, half_width: float) -> void:
+	_occupied_positions.append(Vector2(x, half_width))
+
 func _create_home_base() -> void:
 	var ground_y := 650.0
 	if terrain and terrain.has_method("get_ground_height_at"):
 		ground_y = terrain.get_ground_height_at(6454.0)
 
+	var runway_left = RUNWAY_START
+	var building_hw = _get_target_half_width("building")
+
 	for i in range(2):
+		var building_x = runway_left - 10 - building_hw - i * (building_hw * 2 + 10)
 		var building := GROUND_TARGET_SCENE.instantiate()
 		building.target_type = "building"
-		building.position = Vector2(6394 + i * 60, ground_y)
+		building.position = Vector2(building_x, ground_y)
 		building.has_aa = false
 		building.is_enemy = false
 		add_child(building)
+		_mark_position_occupied(building_x, building_hw)
+
+	var depot_hw = _get_target_half_width("fuel_depot")
+	var last_building_x = runway_left - 10 - building_hw - 1 * (building_hw * 2 + 10)
 
 	for i in range(2):
+		var depot_x = last_building_x - building_hw - 10 - depot_hw - i * (depot_hw * 2 + 10)
 		var fuel_depot := GROUND_TARGET_SCENE.instantiate()
 		fuel_depot.target_type = "fuel_depot"
-		fuel_depot.position = Vector2(6424 + i * 40, ground_y)
+		fuel_depot.position = Vector2(depot_x, ground_y)
 		fuel_depot.has_aa = false
 		fuel_depot.is_enemy = false
 		add_child(fuel_depot)
+		_mark_position_occupied(depot_x, depot_hw)
 
 func _create_enemy_bases() -> void:
 	for home_x in enemy_home_positions:
@@ -331,35 +361,60 @@ func _create_enemy_bases() -> void:
 		if terrain and terrain.has_method("get_ground_height_at"):
 			ground_y = terrain.get_ground_height_at(home_x)
 
+		var runway_left = home_x + 50
+		var building_hw = _get_target_half_width("building")
+
 		for i in range(2):
+			var building_x = runway_left - 10 - building_hw - i * (building_hw * 2 + 10)
 			var building := GROUND_TARGET_SCENE.instantiate()
 			building.target_type = "building"
-			building.position = Vector2(home_x - 80 + i * 50, ground_y)
+			building.position = Vector2(building_x, ground_y)
 			building.has_aa = true
 			building.is_enemy = true
 			building.add_to_group("enemy_target")
 			add_child(building)
+			_mark_position_occupied(building_x, building_hw)
+
+		var depot_hw = _get_target_half_width("fuel_depot")
+		var last_building_x = runway_left - 10 - building_hw - 1 * (building_hw * 2 + 10)
 
 		for i in range(2):
+			var depot_x = last_building_x - building_hw - 10 - depot_hw - i * (depot_hw * 2 + 10)
 			var fuel_depot := GROUND_TARGET_SCENE.instantiate()
 			fuel_depot.target_type = "fuel_depot"
-			fuel_depot.position = Vector2(home_x - 30 + i * 40, ground_y)
+			fuel_depot.position = Vector2(depot_x, ground_y)
 			fuel_depot.has_aa = false
 			fuel_depot.is_enemy = true
 			fuel_depot.add_to_group("enemy_target")
 			add_child(fuel_depot)
+			_mark_position_occupied(depot_x, depot_hw)
 
 		for i in range(3):
+			var target_type = ["building", "hangar", "tank"].pick_random()
+			var target_hw = _get_target_half_width(target_type)
+			var target_x := home_x - 200 - i * 160
+			var attempts := 0
+			while attempts < 20:
+				if not _is_position_occupied(target_x, target_hw):
+					break
+				target_x -= target_hw * 2 + 10
+				attempts += 1
+			if _is_position_occupied(target_x, target_hw):
+				continue
 			var target := GROUND_TARGET_SCENE.instantiate()
-			target.target_type = ["building", "hangar", "tank"].pick_random()
-			target.position = Vector2(home_x - 150 - i * 150, 650)
-			if target.target_type == "building":
+			target.target_type = target_type
+			if terrain and terrain.has_method("get_ground_height_at"):
+				target.position = Vector2(target_x, terrain.get_ground_height_at(target_x))
+			else:
+				target.position = Vector2(target_x, ground_y)
+			if target_type == "building":
 				target.has_aa = false
 			else:
 				target.has_aa = randf() > 0.5
 			target.is_enemy = true
 			target.add_to_group("enemy_target")
 			add_child(target)
+			_mark_position_occupied(target_x, target_hw)
 
 func _physics_process(delta: float) -> void:
 	if game_state != "PLAYING" or is_paused:

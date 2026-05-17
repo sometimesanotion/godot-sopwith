@@ -5,6 +5,10 @@ var wing_flap: float = 0.0
 var is_scattered: bool = false
 var scatter_target: Vector2 = Vector2.ZERO
 
+var _svg_sprite_name: String = "bird"
+var _svg_size: Vector2 = Vector2(20, 14)
+var _time_alive: float = 0.0
+
 signal bird_destroyed(pos: Vector2)
 
 const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
@@ -15,6 +19,8 @@ func _ready() -> void:
 	add_to_group("destructible")
 	motion_mode = MotionMode.MOTION_MODE_FLOATING
 	move_direction = Vector2(80 + randf() * 40, randf() * 20 - 10)
+	if SvgManager and (SvgManager.has_sprite(_svg_sprite_name) or SvgManager.has_animation(_svg_sprite_name)):
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 
 func scatter_from(from_pos: Vector2) -> void:
 	if is_scattered:
@@ -34,6 +40,7 @@ func _physics_process(delta: float) -> void:
 
 	global_position += move_direction * delta
 	wing_flap += delta * 15
+	_time_alive += delta
 	queue_redraw()
 
 	if global_position.x > TERRAIN_LENGTH + 500:
@@ -42,6 +49,16 @@ func _physics_process(delta: float) -> void:
 		_destroy_bird()
 
 func _draw() -> void:
+	if SvgManager and SvgManager.has_animation(_svg_sprite_name):
+		var flip_h = move_direction.x < 0
+		SvgManager.draw_animation_frame_flipped(self, _svg_sprite_name, Vector2.ZERO, _svg_size, _time_alive, flip_h)
+		return
+
+	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
+		var flip_h = move_direction.x < 0
+		SvgManager.draw_sprite_flipped(self, _svg_sprite_name, Vector2.ZERO, _svg_size, flip_h)
+		return
+
 	var flap_angle = sin(wing_flap) * 0.5
 	draw_line(Vector2(-8, 0), Vector2(-12, -8 * flap_angle - 4), Color(0.2, 0.2, 0.2), 2)
 	draw_line(Vector2(-8, 0), Vector2(-12, 8 * flap_angle + 4), Color(0.2, 0.2, 0.2), 2)

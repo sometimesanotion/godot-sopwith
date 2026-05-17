@@ -3,6 +3,13 @@ extends Node2D
 @export var plane_color: Color = Color(0.9, 0.3, 0.3)
 @export var wing_color: Color = Color(0.1, 0.1, 0.2)
 
+var _svg_sprite_name: String = "biplane"
+var _svg_size: Vector2 = Vector2(48, 28)
+
+func _ready() -> void:
+	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+
 func _process(_delta: float) -> void:
 	var biplane = get_parent()
 	if biplane and biplane.has_method("get_visual_roll") and biplane.has_method("get_avatar_data"):
@@ -12,6 +19,10 @@ func _process(_delta: float) -> void:
 			queue_redraw()
 
 func _draw() -> void:
+	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
+		SvgManager.draw_sprite_centered(self, _svg_sprite_name, Vector2.ZERO, _svg_size)
+		return
+
 	var body_points: PackedVector2Array = [
 		Vector2(20, 0),
 		Vector2(10, -4),

@@ -8,6 +8,8 @@ var cloud_positions: Array[Vector2] = []
 var cloud_data: Array[Dictionary] = []
 
 func _ready() -> void:
+	if SvgManager and SvgManager.has_sprite("cloud"):
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_generate_background()
 
 func _generate_background() -> void:
@@ -58,6 +60,14 @@ func _draw_mountains() -> void:
 		draw_colored_polygon(points, Color(0.15, 0.18, 0.22))
 
 func _draw_clouds() -> void:
+	if SvgManager and SvgManager.has_sprite("cloud"):
+		for cloud in cloud_data:
+			var pos: Vector2 = cloud["pos"]
+			var w: float = cloud["width"]
+			var h: float = cloud["height"]
+			SvgManager.draw_sprite_centered(self, "cloud", pos, Vector2(w, h))
+		return
+
 	for cloud in cloud_data:
 		for puff in cloud["puffs"]:
 			var pos: Vector2 = cloud["pos"] + puff["offset"]

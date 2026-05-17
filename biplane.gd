@@ -504,8 +504,16 @@ func _apply_aerodynamics(avatar: AvatarData, delta: float) -> void:
 
 		var can_lift_off: bool = tilt_angle < deg_to_rad(max_landing_tilt_deg) and avatar.throttle >= THROTTLE_STEP and speed_si >= stall_speed_ms
 
+		var effective_ground_drag: float = ground_drag_coeff
+		var terrain_node = get_parent()
+		if terrain_node:
+			terrain_node = terrain_node.get_node_or_null("Terrain")
+		else:
+			terrain_node = null
+		if terrain_node and terrain_node.has_method("is_on_runway") and terrain_node.is_on_runway(global_position.x):
+			effective_ground_drag *= 40.0
 		if tilt_angle >= deg_to_rad(max_landing_tilt_deg) or avatar.throttle < THROTTLE_STEP:
-			drag_si += ground_drag_coeff
+			drag_si += effective_ground_drag
 
 		if speed_si > 0.01:
 			velocity += (-vel_si.normalized()) * drag_si * delta * pixels_per_meter / mass

@@ -24,6 +24,7 @@ config/icon="res://icon.svg"
 
 GameManager="*res://scripts/game_manager.gd"
 SoundManager="*res://scripts/sound_manager.gd"
+SvgManager="*res://scripts/svg_manager.gd"
 
 [display]
 
