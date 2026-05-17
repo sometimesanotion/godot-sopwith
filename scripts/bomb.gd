@@ -57,11 +57,15 @@ func explode() -> void:
 		if body == self:
 			continue
 		if body is Node2D and body.global_position.distance_to(global_position) < explosion_radius:
-			if body.has_method("take_damage"):
-				if body.has_method("is_player_plane") or body.has_method("is_enemy_plane"):
-					body.take_damage(200.0, _bomb_owner)
-				else:
-					body.take_damage(explosion_damage, _bomb_owner)
+			if body.has_method("get_avatar_data") and body.has_method("take_damage"):
+				var avatar = body.get_avatar_data(0)
+				if avatar:
+					if body.has_method("is_player_plane") or body.has_method("is_enemy_plane"):
+						body.take_damage(avatar, 200.0, _bomb_owner)
+					else:
+						body.take_damage(avatar, explosion_damage, _bomb_owner)
+			elif body.has_method("take_damage"):
+				body.take_damage(explosion_damage, _bomb_owner)
 
 	queue_free()
 

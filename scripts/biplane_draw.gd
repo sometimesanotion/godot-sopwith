@@ -6,8 +6,10 @@ extends Node2D
 func _process(_delta: float) -> void:
 	var biplane = get_parent()
 	if biplane and biplane.has_method("get_visual_roll"):
-		rotation = biplane.get_visual_roll()
-		queue_redraw()
+		var avatar = biplane.get_avatar_data(0)
+		if avatar:
+			rotation = biplane.get_visual_roll(avatar)
+			queue_redraw()
 
 func _draw() -> void:
 	var body_points: PackedVector2Array = [

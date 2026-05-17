@@ -1,7 +1,7 @@
 extends Node2D
 
 @onready var camera: Camera2D = $Camera2D
-@onready var biplane: CharacterBody2D = $Biplane
+@onready var biplane: Biplane = $Biplane
 @onready var terrain: Node2D = $Terrain
 @onready var ui: CanvasLayer = $UI
 
@@ -61,7 +61,7 @@ func get_biplane_position() -> float:
 func _load_keybindings() -> void:
 	var config = ConfigFile.new()
 	if config.load("user://keybindings.cfg") == OK:
-		var actions = ["throttle_up", "throttle_down", "pull_up", "pull_down", "roll", "fire", "bomb", "autopilot"]
+		var actions = ["throttle_up", "throttle_down", "pull_up", "pull_down", "roll", "fire", "bomb"]
 		for action_name in actions:
 			var keycode = config.get_value("input", action_name + "_keycode", 0)
 			var physical = config.get_value("input", action_name + "_physical", 0)
@@ -88,13 +88,6 @@ func _input(event: InputEvent) -> void:
 		if game_state == "PLAYING":
 			_toggle_pause()
 
-	if event.is_action_pressed("autopilot") and not event.is_echo():
-		if game_state == "PLAYING" and biplane and biplane.has_method("enable_autopilot"):
-			if biplane.autopilot_enabled:
-				biplane.disable_autopilot()
-			else:
-				biplane.enable_autopilot()
-	
 	if event.is_action_pressed("abort"):
 		if game_state == "PLAYING":
 			_abort_game()
@@ -111,7 +104,9 @@ func _abort_game() -> void:
 	is_vs_computer = false
 	if biplane:
 		biplane.velocity = Vector2.ZERO
-		biplane.autopilot_enabled = false
+		var avatar = biplane.get_avatar_data(0)
+		if avatar:
+			avatar.autopilot_enabled = false
 	if pause_menu:
 		pause_menu.queue_free()
 		pause_menu = null
@@ -184,7 +179,9 @@ func _start_playing(is_vs_computer: bool) -> void:
 	
 	if GameManager:
 		GameManager.reset_game()
-	
+		var player_data := GameManager.register_player(0)
+		player_data.set_avatar_id(0)
+
 	var ground_y := 650.0
 	if terrain and terrain.has_method("get_ground_height_at"):
 		ground_y = terrain.get_ground_height_at(6454.0)
@@ -195,11 +192,12 @@ func _start_playing(is_vs_computer: bool) -> void:
 		biplane.velocity = Vector2.ZERO
 		if biplane.has_method("reset_flight_state"):
 			biplane.reset_flight_state()
-		biplane.set_player(true)
+		var avatar := biplane.get_avatar_data(0)
+		avatar.is_player = true
+		if biplane.has_method("setup_homebase"):
+			biplane.setup_homebase(0, 6554.0, 200.0, Vector2(6520, ground_y - 12), 0.0)
 		if biplane.has_method("set_home_base"):
-			biplane.set_home_base(HOME_BASE.x)
-		if biplane.has_method("set_spawn_info"):
-			biplane.set_spawn_info(Vector2(6520, ground_y - 12), 0.0)
+			biplane.set_home_base(avatar, 0)
 		biplane.add_to_group("player")
 		biplane.add_to_group("destructible")
 		if biplane.has_signal("crashed"):
@@ -217,10 +215,12 @@ func _start_playing(is_vs_computer: bool) -> void:
 	_create_minimap()
 	_create_ghost_biplane()
 	_spawn_enemies_and_targets()
-	if GameManager:
-		GameManager.ammo_changed.emit(GameManager.ammo)
-		GameManager.bombs_changed.emit(GameManager.bombs)
-		GameManager.fuel_changed.emit(GameManager.fuel)
+	if GameManager and biplane and biplane.has_method("get_avatar_data"):
+		var avatar = biplane.get_avatar_data(0)
+		if avatar:
+			GameManager.ammo_changed.emit(0, avatar.ammo)
+			GameManager.bombs_changed.emit(0, avatar.bombs)
+			GameManager.fuel_changed.emit(0, avatar.fuel)
 
 const COW_SCENE := preload("res://scenes/cow.tscn")
 const BIRD_FLOCK_SCENE := preload("res://scenes/bird_flock.tscn")
@@ -240,7 +240,7 @@ func _spawn_enemies_and_targets() -> void:
 
 	for i in range(4):
 		enemy_home_positions.append(enemy_base_x[i])
-		var enemy := ENEMY_SCENE.instantiate()
+		var enemy: CharacterBody2D = ENEMY_SCENE.instantiate()
 		var ground_y := 650.0
 		if terrain and terrain.has_method("get_ground_height_at"):
 			ground_y = terrain.get_ground_height_at(enemy_base_x[i])
@@ -254,8 +254,6 @@ func _spawn_enemies_and_targets() -> void:
 			ai.home_base_x = enemy_base_x[i]
 			ai.unlimited_fuel_ammo = is_vs_computer
 		if is_vs_computer:
-			enemy.set_unlimited_fuel_ammo(true)
-			enemy.disable_bombs()
 			var takeoff_delay := i * 1.5
 			if enemy.has_node("EnemyAI"):
 				enemy.get_node("EnemyAI").takeoff_delay = takeoff_delay
@@ -316,7 +314,7 @@ func _create_enemy_bases() -> void:
 			var building := GROUND_TARGET_SCENE.instantiate()
 			building.target_type = "building"
 			building.position = Vector2(home_x - 80 + i * 50, ground_y)
-			building.has_aa = (i == 0)
+			building.has_aa = true
 			building.is_enemy = true
 			building.add_to_group("enemy_target")
 			add_child(building)
@@ -347,13 +345,10 @@ func _physics_process(delta: float) -> void:
 		return
 
 	if biplane:
-		if biplane.autopilot_enabled:
-			biplane.update_autopilot(HOME_BASE)
-
 		_handle_wrap_around()
 		_update_ghost_biplane()
 		_update_camera(delta)
-		_check_runway_landing(delta)
+		_check_runway_landing(delta, biplane)
 		_update_ghost_terrain()
 		_update_minimap()
 
@@ -395,7 +390,7 @@ func _on_biplane_damaged(impact_force: float, v_perp: float) -> void:
 
 func _respawn_biplane() -> void:
 	is_respawning = false
-	if GameManager and GameManager.lives > 0:
+	if GameManager and GameManager.get_lives(0) > 0:
 		var ground_y: float = 650.0
 		if terrain and terrain.has_method("get_ground_height_at"):
 			ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
@@ -409,20 +404,21 @@ func _respawn_biplane() -> void:
 			biplane.set_game_active(true)
 		if camera:
 			camera.position = Vector2(PLAYER_SPAWN_X, ground_y - 250)
-		if GameManager:
-			GameManager.fuel = GameManager.MAX_FUEL
-			GameManager.ammo = GameManager.MAX_AMMO
-			GameManager.bombs = GameManager.MAX_BOMBS
-			GameManager.fuel_changed.emit(GameManager.fuel)
-			GameManager.ammo_changed.emit(GameManager.ammo)
-			GameManager.bombs_changed.emit(GameManager.bombs)
+		if GameManager and biplane and biplane.has_method("get_avatar_data"):
+			var avatar = biplane.get_avatar_data(0)
+			if avatar:
+				avatar.fuel = 100.0
+				avatar.ammo = 100
+				avatar.bombs = 5
+				GameManager.fuel_changed.emit(0, avatar.fuel)
+				GameManager.ammo_changed.emit(0, avatar.ammo)
+				GameManager.bombs_changed.emit(0, avatar.bombs)
 	else:
 		_show_game_over()
 
 func _win_game() -> void:
 	game_state = "WIN"
 	if GameManager:
-		GameManager.add_score(1000)
 		GameManager.game_win()
 
 func _show_game_over() -> void:
@@ -461,27 +457,32 @@ func _handle_wrap_around() -> void:
 	elif pos.x >= TERRAIN_LENGTH:
 		biplane.position.x = VIEWPORT_MIN_X + 1
 
-func _check_runway_landing(delta: float) -> void:
-	if not biplane or not terrain:
+func _check_runway_landing(delta: float, obj: Node2D) -> void:
+	if not obj or not terrain:
 		return
 
 	if terrain.has_method("is_on_runway") and terrain.has_method("get_ground_height_at"):
 		var ground_y: float = terrain.get_ground_height_at(biplane.position.x)
-		if terrain.is_on_runway(biplane.position.x):
-			if biplane.position.y >= ground_y - 10:
-				if biplane.get_speed() < 30:
+		if terrain.is_on_runway(obj.position.x):
+			if obj.position.y >= ground_y - 10:
+				if obj.velocity.length() < 30:
 					_on_landed(delta)
 
 var refuel_rate: float = 10.0
 
 func _on_landed(delta: float) -> void:
-	if GameManager:
-		if GameManager.fuel < 100:
-			GameManager.refuel(refuel_rate * delta)
-		if GameManager.ammo < 100:
-			GameManager.reload_weapons(delta)
-		if GameManager.bombs < 5:
-			GameManager.reload_bombs(delta)
+	if GameManager and biplane and biplane.has_method("get_avatar_data"):
+		var avatar = biplane.get_avatar_data(0)
+		if avatar:
+			if avatar.fuel < 100:
+				avatar.fuel = min(100.0, avatar.fuel + refuel_rate * delta)
+				GameManager.fuel_changed.emit(0, avatar.fuel)
+			if avatar.ammo < 100:
+				avatar.ammo = min(100, avatar.ammo + int(5.0 * delta))
+				GameManager.ammo_changed.emit(0, avatar.ammo)
+			if avatar.bombs < 5:
+				avatar.bombs = min(5, avatar.bombs + 1)
+				GameManager.bombs_changed.emit(0, avatar.bombs)
 
 func _create_ghost_biplane() -> void:
 	ghost_biplane = Node2D.new()

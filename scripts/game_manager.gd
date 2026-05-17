@@ -1,106 +1,129 @@
 extends Node
 
-signal lives_changed(new_lives: int)
-signal fuel_changed(new_fuel: float)
-signal ammo_changed(new_ammo: int)
-signal bombs_changed(new_bombs: int)
-signal score_changed(new_score: int)
-signal screen_shake_requested(intensity: float)
-
-var lives: int = 5
-var fuel: float = 100.0
-var score: int = 0
-var ammo: int = 100
-var bombs: int = 5
-var thrust_multiplier: float = 1.5
+signal lives_changed(player_id: int, new_lives: int)
+signal fuel_changed(player_id: int, new_fuel: float)
+signal ammo_changed(player_id: int, new_ammo: int)
+signal bombs_changed(player_id: int, new_bombs: int)
+signal score_changed(player_id: int, new_score: int)
+signal screen_shake_requested(player_id: int, intensity: float)
+signal player_destroyed(player_id: int)
 
 const MAX_LIVES := 5
-const MAX_FUEL := 100.0
-const MAX_AMMO := 100
-const MAX_BOMBS := 5
 
 var game_state: String = "PLAYING"
 
-func set_thrust_multiplier(value: float) -> void:
-	thrust_multiplier = clampf(value, 1.0, 10.0)
-	_save_settings()
+class PlayerData:
+	var avatar_id: int = 0
+	var lives: int = MAX_LIVES
+	var is_active: bool = false
+	var is_player: bool = true
+	var score: int = 0
 
-func _save_settings() -> void:
-	var config = ConfigFile.new()
-	config.set_value("difficulty", "thrust_multiplier", thrust_multiplier)
-	config.save("user://settings.cfg")
+	func reset() -> void:
+		lives = MAX_LIVES
+		is_active = false
+		score = 0
 
-func _load_settings() -> void:
-	var config = ConfigFile.new()
-	if config.load("user://settings.cfg") == OK:
-		thrust_multiplier = config.get_value("difficulty", "thrust_multiplier", 1.5)
+	func set_avatar_id(aid: int) -> void:
+		avatar_id = aid
 
-func request_screen_shake(intensity: float) -> void:
-	screen_shake_requested.emit(intensity)
+var _players: Dictionary = {}
 
 func _ready() -> void:
 	_load_settings()
 	reset_game()
 
+func get_player_data(player_id: int) -> PlayerData:
+	if not _players.has(player_id):
+		_players[player_id] = PlayerData.new()
+	return _players[player_id]
+
+func get_or_create_player(player_id: int) -> PlayerData:
+	var data := get_player_data(player_id)
+	data.is_active = true
+	return data
+
+func has_active_players() -> bool:
+	for pid in _players:
+		if _players[pid].is_active and _players[pid].lives > 0:
+			return true
+	return false
+
+func get_total_active_players() -> int:
+	var count := 0
+	for pid in _players:
+		if _players[pid].is_active and _players[pid].lives > 0:
+			count += 1
+	return count
+
+func get_first_active_player_id() -> int:
+	for pid in _players:
+		if _players[pid].is_active and _players[pid].lives > 0:
+			return pid
+	return 0
+
+func _save_settings() -> void:
+	var config = ConfigFile.new()
+	config.save("user://settings.cfg")
+
+func _load_settings() -> void:
+	var config = ConfigFile.new()
+
+func request_screen_shake(intensity: float) -> void:
+	screen_shake_requested.emit(intensity)
+
 func reset_game() -> void:
-	lives = MAX_LIVES
-	fuel = MAX_FUEL
-	score = 0
-	ammo = MAX_AMMO
-	bombs = MAX_BOMBS
+	_players.clear()
 	game_state = "PLAYING"
-	emit_signals()
+	for pid in _players:
+		_players[pid] = 0
+	emit_signal("score_changed", 0)
 
-func emit_signals() -> void:
-	lives_changed.emit(lives)
-	fuel_changed.emit(fuel)
-	score_changed.emit(score)
+func register_player(player_id: int) -> PlayerData:
+	var data := get_or_create_player(player_id)
+	data.reset()
+	data.is_active = true
+	emit_signals_for_player(player_id)
+	return data
 
-func take_damage() -> void:
-	lives -= 1
-	lives_changed.emit(lives)
-	if lives <= 0:
+func unregister_player(player_id: int) -> void:
+	if _players.has(player_id):
+		_players[player_id].is_active = false
+
+func emit_signals_for_player(player_id: int) -> void:
+	var data := get_player_data(player_id)
+	lives_changed.emit(player_id, data.lives)
+
+	var avatar: Biplane.AvatarData = Biplane.get_avatar(player_id)
+	if avatar:
+		fuel_changed.emit(player_id, avatar.fuel)
+		ammo_changed.emit(player_id, avatar.ammo)
+		bombs_changed.emit(player_id, avatar.bombs)
+	else:
+		fuel_changed.emit(player_id, 100.0)
+		ammo_changed.emit(player_id, 100)
+		bombs_changed.emit(player_id, 5)
+
+func get_lives(player_id: int) -> int:
+	return get_player_data(player_id).lives
+
+func set_lives(player_id: int, value: int) -> void:
+	var data := get_player_data(player_id)
+	data.lives = value
+	lives_changed.emit(player_id, data.lives)
+
+func add_score(player_id: int, points: int) -> void:
+	var data := get_player_data(player_id)
+	data.score += points
+	score_changed.emit(data.score)
+
+func destroy_player(player_id: int) -> void:
+	var data := get_player_data(player_id)
+	data.lives -= 1
+	lives_changed.emit(player_id, data.lives)
+	player_destroyed.emit(player_id)
+	if not has_active_players():
 		game_over()
-
-func add_score(points: int) -> void:
-	score += points
-	score_changed.emit(score)
-
-func use_fuel(amount: float) -> void:
-	fuel = max(0, fuel - amount)
-	fuel_changed.emit(fuel)
-
-func refuel(amount: float = MAX_FUEL) -> void:
-	fuel = min(MAX_FUEL, fuel + amount)
-	fuel_changed.emit(fuel)
-
-func use_ammo() -> bool:
-	if ammo > 0:
-		ammo -= 1
-		ammo_changed.emit(ammo)
-		return true
-	return false
-
-func use_bomb() -> bool:
-	if bombs > 0:
-		bombs -= 1
-		bombs_changed.emit(bombs)
-		return true
-	return false
-
-func reload_weapons(amount: float = 0.0) -> void:
-	if amount > 0:
-		ammo = min(MAX_AMMO, ammo + amount * 50)
-	else:
-		ammo = MAX_AMMO
-	ammo_changed.emit(ammo)
-
-func reload_bombs(amount: float = 0.0) -> void:
-	if amount > 0:
-		bombs = min(MAX_BOMBS, bombs + amount)
-	else:
-		bombs = MAX_BOMBS
-	bombs_changed.emit(bombs)
 
 func game_over() -> void:
 	game_state = "GAME_OVER"

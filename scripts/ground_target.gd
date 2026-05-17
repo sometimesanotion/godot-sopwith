@@ -5,7 +5,7 @@ extends StaticBody2D
 @export var target_type: String = "building"
 @export var has_aa: bool = false
 @export var aa_range: float = 400.0
-@export var aa_cooldown: float = 2.0
+@export var aa_cooldown: float = 1.0
 @export var is_wreck: bool = false
 @export var is_enemy: bool = false
 
@@ -47,9 +47,10 @@ func _try_aa_fire() -> void:
 	aa_timer = aa_cooldown
 
 	var bullet: CharacterBody2D = AA_PROJECTILE.instantiate()
-	bullet.global_position = global_position + Vector2(15, -55)
+	bullet.global_position = global_position + Vector2(15, -45)
 	bullet.rotation = to_player.angle()
-	bullet.speed = 300
+	bullet.speed = 500
+	bullet.damage = 60.0
 	bullet.assign_owner(self)
 	get_parent().add_child(bullet)
 
@@ -168,24 +169,29 @@ func _draw_enemy_flag() -> void:
 	])
 	draw_colored_polygon(flag_points, Color(0.8, 0.1, 0.1))
 
+var _last_attacker_player_id: int = 0
+
 func take_damage(amount: float, attacker: Node) -> void:
 	if is_destroyed:
 		return
 
 	health -= amount
 	if health <= 0:
-		_destroy()
+		_destroy(attacker)
+		return
 
-	var attacker_owner: Node = null
-	if attacker.has_method("get_bullet_owner"):
-		attacker_owner = attacker.get_bullet_owner()
-	elif attacker.has_method("get_bomb_owner"):
-		attacker_owner = attacker.get_bomb_owner()
+	_last_attacker_player_id = _get_player_id_from_attacker(attacker)
+	if _last_attacker_player_id >= 0 and GameManager:
+		GameManager.add_score(_last_attacker_player_id, int(amount))
 
-	if attacker_owner and attacker_owner.has_method("add_score"):
-		attacker_owner.add_score(int(amount))
+func _get_player_id_from_attacker(attacker: Node) -> int:
+	if attacker and attacker.has_method("is_player_plane"):
+		var avatar = Biplane.get_avatar(0)
+		if avatar and avatar.is_player:
+			return avatar.id
+	return -1
 
-func _destroy() -> void:
+func _destroy(attacker: Node) -> void:
 	is_destroyed = true
 
 	if target_type == "fuel_depot":
@@ -198,7 +204,13 @@ func _destroy() -> void:
 	_create_wreck()
 
 	if GameManager:
-		GameManager.add_score(100)
+		var player_id := _get_player_id_from_attacker(attacker)
+		if player_id < 0:
+			player_id = 0
+		var points := 100
+		if target_type == "fuel_depot":
+			points = 200
+		GameManager.add_score(player_id, points)
 
 	queue_free()
 

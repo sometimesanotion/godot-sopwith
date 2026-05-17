@@ -9,6 +9,7 @@ var speed_label: Label
 var altitude_label: Label
 
 var biplane: CharacterBody2D = null
+var display_player_id: int = 0
 
 func _ready() -> void:
 	_create_ui_elements()
@@ -42,26 +43,30 @@ func _process(_delta: float) -> void:
 	if not biplane:
 		biplane = get_parent().get_node_or_null("Biplane")
 
-	if biplane and biplane.has_method("get_speed"):
-		var speed := int(biplane.get_speed())
-		speed_label.text = "SPEED: %d" % speed
+	if biplane and biplane.has_method("get_avatar_data"):
+		var avatar = biplane.get_avatar_data(0)
+		if avatar and biplane.has_method("get_avatar_speed"):
+			var speed := int(biplane.get_avatar_speed(avatar))
+			speed_label.text = "SPEED: %d" % speed
 
-		var speed_ms: float = biplane.get_speed() / biplane.pixels_per_meter
-		if speed_ms < biplane.stall_speed_ms:
-			var pulse := sin(Time.get_ticks_msec() * 0.015)
-			var red := clampf(1.0 - pulse * 0.8, 0.2, 1.0)
-			speed_label.modulate = Color(1, red, red)
-		else:
-			speed_label.modulate = Color(1, 1, 1)
+			var speed_ms: float = speed / biplane.pixels_per_meter
+			if speed_ms < biplane.stall_speed_ms:
+				var pulse := sin(Time.get_ticks_msec() * 0.015)
+				var red := clampf(1.0 - pulse * 0.8, 0.2, 1.0)
+				speed_label.modulate = Color(1, red, red)
+			else:
+				speed_label.modulate = Color(1, 1, 1)
 
-		var ground_y := 650.0
-		var alt := int(ground_y - biplane.position.y)
-		alt = maxi(0, alt)
-		altitude_label.text = "ALT: %d" % alt
+			var ground_y := 650.0
+			var alt := int(ground_y - biplane.position.y)
+			alt = maxi(0, alt)
+			altitude_label.text = "ALT: %d" % alt
 	else:
 		speed_label.modulate = Color(1, 1, 1)
 
-func _on_fuel_changed(new_fuel: float) -> void:
+func _on_fuel_changed(player_id: int, new_fuel: float) -> void:
+	if player_id != display_player_id:
+		return
 	fuel_label.text = "FUEL: %.0f%%" % new_fuel
 	if new_fuel < 20:
 		fuel_label.modulate = Color(1, 0.3, 0.3)
@@ -70,20 +75,26 @@ func _on_fuel_changed(new_fuel: float) -> void:
 	else:
 		fuel_label.modulate = Color(1, 1, 1)
 
-func _on_lives_changed(new_lives: int) -> void:
+func _on_lives_changed(player_id: int, new_lives: int) -> void:
+	if player_id != display_player_id:
+		return
 	lives_label.text = "LIVES: %d" % new_lives
 
 func _on_score_changed(new_score: int) -> void:
 	score_label.text = "SCORE: %d" % new_score
 
-func _on_ammo_changed(new_ammo: int) -> void:
+func _on_ammo_changed(player_id: int, new_ammo: int) -> void:
+	if player_id != display_player_id:
+		return
 	ammo_label.text = "AMMO: %d" % new_ammo
 	if new_ammo < 20:
 		ammo_label.modulate = Color(1, 0.3, 0.3)
 	else:
 		ammo_label.modulate = Color(1, 1, 1)
 
-func _on_bombs_changed(new_bombs: int) -> void:
+func _on_bombs_changed(player_id: int, new_bombs: int) -> void:
+	if player_id != display_player_id:
+		return
 	bombs_label.text = "BOMBS: %d" % new_bombs
 	if new_bombs == 0:
 		bombs_label.modulate = Color(1, 0.3, 0.3)
@@ -92,8 +103,16 @@ func _on_bombs_changed(new_bombs: int) -> void:
 
 func _update_display() -> void:
 	if GameManager:
-		fuel_label.text = "FUEL: %.0f%%" % GameManager.fuel
-		ammo_label.text = "AMMO: %d" % GameManager.ammo
-		bombs_label.text = "BOMBS: %d" % GameManager.bombs
-		lives_label.text = "LIVES: %d" % GameManager.lives
-		score_label.text = "SCORE: %d" % GameManager.score
+		var player_data := GameManager.get_player_data(display_player_id)
+		var avatar := Biplane.get_avatar(display_player_id)
+		if avatar:
+			fuel_label.text = "FUEL: %.0f%%" % avatar.fuel
+			ammo_label.text = "AMMO: %d" % avatar.ammo
+			bombs_label.text = "BOMBS: %d" % avatar.bombs
+		if player_data:
+			lives_label.text = "LIVES: %d" % player_data.lives
+		score_label.text = "SCORE: %d" % GameManager.get_player_data(display_player_id).score
+
+func set_display_player(player_id: int) -> void:
+	display_player_id = player_id
+	_update_display()

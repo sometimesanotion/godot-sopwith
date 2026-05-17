@@ -254,14 +254,18 @@ func _enable_autopilot_for_landing() -> void:
 	is_using_autopilot = true
 	if biplane.has_method("enable_autopilot"):
 		biplane.enable_autopilot()
-	if biplane.has_method("set_home_base"):
-		biplane.set_home_base(home_base_x)
-	if biplane.has_method("set_spawn_info"):
-		var terrain = get_parent().get_node_or_null("Terrain")
-		var ground_y := 650.0
-		if terrain and terrain.has_method("get_ground_height_at"):
-			ground_y = terrain.get_ground_height_at(home_base_x)
-		biplane.set_spawn_info(Vector2(home_base_x, ground_y - 12), 0.0)
+
+	var terrain = get_parent().get_node_or_null("Terrain")
+	var ground_y := 650.0
+	if terrain and terrain.has_method("get_ground_height_at"):
+		ground_y = terrain.get_ground_height_at(home_base_x)
+
+	if biplane.has_method("setup_homebase"):
+		biplane.setup_homebase(1, home_base_x, 200.0, Vector2(home_base_x, ground_y - 12), 0.0)
+	if biplane.has_method("set_home_base") and biplane.has_method("get_avatar_data"):
+		var avatar = biplane.get_avatar_data(1)
+		if avatar:
+			biplane.set_home_base(avatar, 1)
 
 func _fire_weapon() -> void:
 	if biplane.has_method("fire_gun"):

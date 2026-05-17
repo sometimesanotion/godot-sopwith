@@ -20,5 +20,19 @@ func _draw() -> void:
 
 func take_damage(amount: float, attacker: Node) -> void:
 	if GameManager:
-		GameManager.add_score(-50)
+		var player_id := 0
+		if attacker:
+			if attacker.has_method("get_bullet_owner"):
+				var bullet_owner = attacker.get_bullet_owner()
+				if bullet_owner and bullet_owner.has_method("is_player_plane"):
+					player_id = _get_player_id_from_biplane(bullet_owner)
+			elif attacker.has_method("is_player_plane"):
+				player_id = _get_player_id_from_biplane(attacker)
+		GameManager.add_score(player_id, -100)
 	queue_free()
+
+func _get_player_id_from_biplane(biplane: Node) -> int:
+	var avatar = Biplane.get_avatar(0)
+	if avatar and avatar.is_player:
+		return avatar.id
+	return 0

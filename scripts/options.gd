@@ -12,7 +12,6 @@ var key_mappings = {
 	"roll": {"action": "roll", "label": "Flip/Roll", "default_key": ".", "current_key": null},
 	"fire": {"action": "fire", "label": "Fire Machine Gun", "default_key": "Space", "current_key": null},
 	"bomb": {"action": "bomb", "label": "Drop Bomb", "default_key": "B", "current_key": null},
-	"autopilot": {"action": "autopilot", "label": "Navigate Home", "default_key": "A", "current_key": null},
 	"pause": {"action": "pause", "label": "Pause", "default_key": "P", "current_key": null},
 	"abort": {"action": "abort", "label": "Abort/Exit", "default_key": "Q", "current_key": null}
 }
@@ -44,10 +43,6 @@ func _input(event):
 				_cycle_selection(-1)
 			KEY_DOWN:
 				_cycle_selection(1)
-			KEY_LEFT:
-				_adjust_slider(-1)
-			KEY_RIGHT:
-				_adjust_slider(1)
 			KEY_ENTER, KEY_SPACE:
 				_activate_selected()
 
@@ -122,36 +117,6 @@ func _create_ui():
 	hint.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
 	hint.position = Vector2(300, 70)
 	add_child(hint)
-	
-	var thrust_lbl = Label.new()
-	thrust_lbl.text = "Thrust Multiplier:"
-	thrust_lbl.position = Vector2(80, 110)
-	add_child(thrust_lbl)
-	
-	thrust_slider = HSlider.new()
-	thrust_slider.min_value = 1.0
-	thrust_slider.max_value = 10.0
-	thrust_slider.step = 0.5
-	thrust_slider.value = 5.0
-	if GameManager:
-		thrust_slider.value = GameManager.thrust_multiplier
-	thrust_slider.position = Vector2(80, 135)
-	thrust_slider.custom_minimum_size = Vector2(200, 30)
-	thrust_slider.value_changed.connect(_on_thrust_changed)
-	add_child(thrust_slider)
-	controls.append(thrust_slider)
-	
-	thrust_value_label = Label.new()
-	thrust_value_label.text = "%.1fx" % thrust_slider.value
-	thrust_value_label.position = Vector2(290, 135)
-	add_child(thrust_value_label)
-	
-	var thrust_hint = Label.new()
-	thrust_hint.text = "1.0 (Realistic) - 10.0 (Arcade)"
-	thrust_hint.position = Vector2(80, 165)
-	thrust_hint.add_theme_font_size_override("font_size", 12)
-	thrust_hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
-	add_child(thrust_hint)
 	
 	var keys_title = Label.new()
 	keys_title.text = "Key Bindings:"
@@ -377,7 +342,6 @@ func _reset_to_defaults():
 		"roll": {"keycode": 0, "physical": 46},
 		"fire": {"keycode": 0, "physical": 32},
 		"bomb": {"keycode": 0, "physical": 66},
-		"autopilot": {"keycode": 0, "physical": 16777217},
 		"abort": {"keycode": 0, "physical": 81}
 	}
 	for an in defaults.keys():
@@ -391,11 +355,6 @@ func _reset_to_defaults():
 		InputMap.action_add_event(an, ev)
 	if FileAccess.file_exists("user://keybindings.cfg"):
 		DirAccess.remove_absolute("user://keybindings.cfg")
-
-func _on_thrust_changed(value):
-	thrust_value_label.text = "%.1fx" % value
-	if GameManager:
-		GameManager.set_thrust_multiplier(value)
 
 func _on_back():
 	back_to_menu.emit()
