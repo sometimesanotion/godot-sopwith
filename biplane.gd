@@ -46,7 +46,7 @@ const THROTTLE_RAMP_SPEED := 4.0
 @export var max_roll_angle: float = PI
 
 @export_group("Handling")
-@export var rotation_speed: float = 6.0
+@export var rotation_speed: float = 5.0
 @export var rotation_inertia: float = 3.0
 
 @export_group("Impact Physics (Sopwith Camel)")
@@ -497,6 +497,11 @@ func _apply_aerodynamics(avatar: AvatarData, delta: float) -> void:
 				relative_angle += TAU
 			tilt_angle = abs(relative_angle)
 
+		if tilt_angle >= deg_to_rad(max_landing_tilt_deg):
+			avatar.flight_state = FlightState.CRASHED
+			crashed.emit()
+			return
+
 		var can_lift_off: bool = tilt_angle < deg_to_rad(max_landing_tilt_deg) and avatar.throttle >= THROTTLE_STEP and speed_si >= stall_speed_ms
 
 		if tilt_angle >= deg_to_rad(max_landing_tilt_deg) or avatar.throttle < THROTTLE_STEP:
@@ -725,6 +730,8 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 			if dist < hit_radius:
 				if child.is_in_group("ground_target") and child.has_method("take_damage") and not child.is_destroyed:
 					child.take_damage(100.0, self)
+				elif child.has_method("take_damage"):
+					child.take_damage(100.0, self)
 				if avatar.flight_state != FlightState.CRASHED:
 					avatar.flight_state = FlightState.CRASHED
 					crashed.emit()
@@ -886,6 +893,9 @@ func set_unlimited_fuel_ammo(avatar: AvatarData, val: bool) -> void:
 func disable_bombs(avatar: AvatarData) -> void:
 	avatar.bombs_disabled = true
 
+func drop_bomb(avatar: AvatarData) -> void:
+	_drop_bomb(avatar)
+
 func _check_fuel_consumption(avatar: AvatarData, delta: float) -> void:
 	if avatar.unlimited_fuel_ammo:
 		return
@@ -896,13 +906,23 @@ func _check_fuel_consumption(avatar: AvatarData, delta: float) -> void:
 			avatar.throttle_target = 0
 			_ensure_smoke(avatar, 1, 10) # white smoke
 
-		elif avatar.throttle > 0:
+		elif avatar.throttle > 0 or avatar.damage_percent >= 0.8:
 			var fuel_loss = avatar.throttle * delta * 1.0
-			if avatar.damage_percent >= 0.5:
+			if avatar.damage_percent >= 0.8:
+				fuel_loss *= 20.0
+			elif avatar.damage_percent >= 0.5:
 				fuel_loss *= 2.0
 			avatar.fuel = maxf(0.0, avatar.fuel - fuel_loss)
 			if GameManager:
 				GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
+	else:
+		if avatar.fuel <= 0 and is_grounded(avatar):
+			var home_x := get_homebase_x(avatar)
+			var home_width := get_homebase_width(avatar)
+			var dist_to_home: float = abs(global_position.x - home_x)
+			if dist_to_home > home_width:
+				avatar.flight_state = FlightState.CRASHED
+				crashed.emit()
 
 	if avatar.is_player and SoundManager:
 		SoundManager.play_engine(avatar.throttle)

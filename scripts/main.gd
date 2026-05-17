@@ -232,10 +232,10 @@ func _spawn_enemies_and_targets() -> void:
 	enemy_home_positions.clear()
 
 	var enemy_base_x := [
-		4200.0,
-		5800.0,
-		8200.0,
-		12000.0
+		2458.0,
+		4916.0,
+		10374.0,
+		14832.0
 	]
 
 	for i in range(4):
@@ -286,7 +286,7 @@ func _spawn_enemies_and_targets() -> void:
 		cow.position = Vector2(cow_x, 650)
 		add_child(cow)
 
-	for i in range(3):
+	for i in range(1):
 		var flock = BIRD_FLOCK_SCENE.instantiate()
 		flock.position = Vector2(200 + randf() * 16000, 150 + randf() * 200)
 		add_child(flock)
@@ -299,6 +299,7 @@ const RUNWAY_END := 6800.0
 
 const PLAYER_SPAWN_X := 6520.0
 const SAFE_ZONE_RADIUS := 1500.0
+const MIN_ENEMY_DISTANCE := 2458.0
 
 func _create_home_base() -> void:
 	var ground_y := 650.0

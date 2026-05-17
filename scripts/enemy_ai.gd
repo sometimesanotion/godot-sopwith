@@ -19,6 +19,7 @@ const PATROL_ALTITUDE := 250.0
 const MIN_ALTITUDE_ABOVE_GROUND := 60.0
 const DANGER_ALTITUDE_ABOVE_GROUND := 40.0
 const CRITICAL_ALTITUDE_ABOVE_GROUND := 20.0
+const PULL_UP_ALTITUDE := 200.0
 const DETECTION_RANGE := 2000.0
 const ENGAGEMENT_RANGE := 1500.0
 const MAX_FIRE_RANGE := 400.0
@@ -30,16 +31,23 @@ const ALTITUDE_OSCILLATION_SPEED := 1.5
 const ALTITUDE_OSCILLATION_AMP := 30.0
 const HOME_PROXIMITY := 100.0
 const PITCH_SENSITIVITY := 1.2
-const PITCH_DAMPING := 0.4
+const PITCH_DAMPING := 0.8
+const MAX_STEERING_ANGLE := 0.15
 const EVADE_DURATION_MIN := 0.5
 const EVADE_DURATION_MAX := 2.0
 const TERRAIN_LOOK_DISTANCES := [50.0, 100.0, 200.0]
 const TERRAIN_RISE_THRESHOLD := 0.3
 const TAKEOFF_ROTATE_SPEED := 120.0
-const TAKEOFF_PITCH := -0.15
-const TAKEOFF_CLIMB_PITCH := -0.25
+const TAKEOFF_BUILD_SPEED := 90.0
+const TAKEOFF_PITCH := -0.05
+const TAKEOFF_CLIMB_PITCH := -0.08
 const RETURN_REENGAGE_RANGE := 300.0
 const MAX_ALTITUDE := 800.0
+const GROUND_ATTACK_ALTITUDE := 300.0
+const BOMB_DROP_ADVANCE := 400.0
+const BOMB_OVERHEAD_X_THRESHOLD := 200.0
+const BOMB_OVERHEAD_Y_MAX := 100.0
+const BOMB_ANGLE_TOLERANCE := 0.175
 
 @export var target: Node2D
 @export var biplane: CharacterBody2D
@@ -66,6 +74,7 @@ var takeoff_timer: float = 0.0
 var last_pitch_input: float = 0.0
 var last_throttle: float = 0.0
 var desired_heading: float = 0.0
+var bomb_cooldown_timer: float = 0.0
 
 var patrol_time: float = 0.0
 var territory_left: float = 0.0
@@ -135,6 +144,7 @@ func _physics_process(delta: float) -> void:
 			return
 
 	incoming_bullet_timer = max(0.0, incoming_bullet_timer - delta)
+	bomb_cooldown_timer = max(0.0, bomb_cooldown_timer - delta)
 	roll_timer = max(0.0, roll_timer - delta)
 	if roll_timer <= 0.0 and is_rolling:
 		is_rolling = false
@@ -182,9 +192,17 @@ func _make_decision() -> void:
 			pitch = _compute_patrol_pitch()
 			throttle = _compute_patrol_throttle(avatar)
 		AIState.ENGAGING:
-			pitch = _compute_engage_pitch()
-			throttle = _compute_engage_throttle(avatar)
-			_try_fire_weapon()
+			if _should_bomb_instead_of_strafe():
+				pitch = _compute_bomb_pitch()
+				throttle = _compute_engage_throttle(avatar)
+				_try_drop_bomb()
+			elif _is_target_on_ground() and not _is_overhead_target():
+				pitch = _compute_bomb_pitch()
+				throttle = _compute_patrol_throttle(avatar)
+			else:
+				pitch = _compute_engage_pitch()
+				throttle = _compute_engage_throttle(avatar)
+				_try_fire_weapon()
 		AIState.EVADING:
 			pitch = _compute_evade_pitch()
 			throttle = _compute_evade_throttle()
@@ -240,6 +258,10 @@ func _update_state_machine() -> void:
 			elif wrapped_dist > ENGAGEMENT_RANGE * 1.2:
 				ai_state = AIState.PATROLLING
 				patrol_time = 0.0
+			elif _is_target_on_ground() and alt > MIN_ALTITUDE_ABOVE_GROUND:
+				previous_state = ai_state
+				ai_state = AIState.RETURNING
+				patrol_time = 0.0
 
 		AIState.EVADING:
 			evade_timer -= decision_interval
@@ -268,20 +290,80 @@ func _is_player_in_territory() -> bool:
 	var px = target.global_position.x
 	return px >= territory_left and px <= territory_right
 
+func _is_target_on_ground() -> bool:
+	if not target or not biplane:
+		return false
+	if target.has_method("is_grounded"):
+		var avatar = target.get_avatar_data(0) if target.has_method("get_avatar_data") else null
+		if avatar:
+			return target.is_grounded(avatar)
+	var target_alt = _get_altitude_above_ground_for(target)
+	return target_alt < 30.0
+
+func _is_overhead_target() -> bool:
+	if not biplane or not target:
+		return false
+	var x_dist = _get_wrapped_distance(biplane.global_position.x, target.global_position.x)
+	return x_dist < BOMB_OVERHEAD_X_THRESHOLD
+
+func _can_bomb_ground_target() -> bool:
+	if not target or not biplane:
+		return false
+	if bomb_cooldown_timer > 0.0:
+		return false
+	var avatar = _get_avatar()
+	if not avatar or avatar.bombs <= 0:
+		return false
+	if not _is_target_on_ground():
+		return false
+	if not _is_overhead_target():
+		return false
+	var alt = _get_altitude_above_ground()
+	if alt < 100.0:
+		return false
+	var my_pos = biplane.global_position
+	var target_pos = target.global_position
+	var to_target = target_pos - my_pos
+	var angle_from_vertical = abs(atan2(to_target.x, -to_target.y))
+	if angle_from_vertical > BOMB_ANGLE_TOLERANCE:
+		return false
+	return true
+
 func _decision_takeoff() -> void:
+	var speed = biplane.velocity.length()
+	var stall_speed: float = 10.0
+	if biplane and "stall_speed_ms" in biplane:
+		stall_speed = biplane.stall_speed_ms
+
+	var throttle = 1.0
+	if not _is_grounded():
+		if speed < stall_speed * 1.5:
+			throttle = 0.3
+		elif biplane.rotation < -0.3:
+			throttle = 0.5
+		elif biplane.rotation < 0.0:
+			throttle = 0.7
+	last_throttle = throttle
+
 	if _is_grounded():
-		var speed = biplane.velocity.length()
-		if speed < TAKEOFF_ROTATE_SPEED:
+		if speed < TAKEOFF_BUILD_SPEED:
+			last_pitch_input = 0.0
+		elif speed < TAKEOFF_ROTATE_SPEED:
+			last_pitch_input = 0.0
+		elif speed < stall_speed * 2.0:
 			last_pitch_input = 0.0
 		else:
 			last_pitch_input = TAKEOFF_PITCH
 	else:
 		var alt = _get_altitude_above_ground()
-		if alt < 150.0:
-			last_pitch_input = TAKEOFF_CLIMB_PITCH
+		if speed < stall_speed * 2.0:
+			last_pitch_input = clampf(-0.03 * (speed / (stall_speed * 2.0)), -0.03, 0.0)
+		elif alt < 100.0:
+			last_pitch_input = -0.05
+		elif alt < 200.0:
+			last_pitch_input = -0.08
 		else:
-			last_pitch_input = -0.2
-	last_throttle = 1.0
+			last_pitch_input = -0.12
 
 func _compute_patrol_pitch() -> float:
 	if not biplane:
@@ -367,6 +449,42 @@ func _compute_engage_throttle(avatar) -> float:
 	else:
 		return 1.0 * damage_mod
 
+func _should_bomb_instead_of_strafe() -> bool:
+	return _can_bomb_ground_target()
+
+func _compute_bomb_pitch() -> float:
+	if not biplane or not target:
+		return 0.0
+
+	var my_pos = biplane.global_position
+	var target_pos = target.global_position
+	var x_dist = _get_wrapped_distance(my_pos.x, target_pos.x)
+
+	var approach_dir = sign(target_pos.x - my_pos.x)
+
+	if x_dist < BOMB_OVERHEAD_X_THRESHOLD * 0.5:
+		var desired_y = my_pos.y - 20.0
+		var aim_point = Vector2(my_pos.x + approach_dir * 100, desired_y)
+		_steer_toward(aim_point)
+		return _compute_pitch_from_heading()
+
+	var overhead_x = target_pos.x - approach_dir * BOMB_OVERHEAD_X_THRESHOLD * 2.0
+	var approach_y = my_pos.y
+	var aim_point = Vector2(overhead_x, approach_y)
+
+	_steer_toward(aim_point)
+	return _compute_pitch_from_heading()
+
+func _try_drop_bomb() -> void:
+	if bomb_cooldown_timer > 0.0:
+		return
+	var avatar = _get_avatar()
+	if not avatar or avatar.bombs <= 0:
+		return
+	if biplane.has_method("drop_bomb"):
+		biplane.drop_bomb(avatar)
+		bomb_cooldown_timer = 2.5
+
 func _lead_pursuit_point(target_pos: Vector2, lead_factor: float) -> Vector2:
 	if not biplane or not target:
 		return target_pos
@@ -431,17 +549,21 @@ func _compute_pitch_from_heading() -> float:
 	if avatar:
 		angular_vel = avatar.angular_velocity
 
-	var speed_sign = 1.0
-	if biplane.velocity.x < 0:
-		speed_sign = -1.0
+	var abs_angle = abs(angle_diff)
+	if abs_angle < 0.05:
+		return 0.0
 
-	var damping = angular_vel * PITCH_DAMPING * speed_sign
-	var pitch = clampf(angle_diff * PITCH_SENSITIVITY - damping, -1.0, 1.0)
+	var base_pitch = angle_diff * PITCH_SENSITIVITY
+
+	var damping = angular_vel * PITCH_DAMPING * 0.5
+	base_pitch -= damping
+
+	base_pitch = clampf(base_pitch, -1.0, 1.0)
 
 	if is_rolling:
-		pitch = 0.0
+		base_pitch = 0.0
 
-	return pitch
+	return base_pitch
 
 func _compute_evade_pitch() -> float:
 	if not biplane:
@@ -565,7 +687,24 @@ func _apply_reflexes(pitch: float, throttle: float) -> Array:
 	if terrain_correction != 0.0:
 		pitch = minf(pitch, terrain_correction)
 
+	var pull_up_correction = _pull_up_reflex()
+	if pull_up_correction != 0.0:
+		pitch = pull_up_correction
+
 	return [pitch, throttle]
+
+func _pull_up_reflex() -> float:
+	if not biplane:
+		return 0.0
+
+	var altitude = _get_altitude_above_ground()
+	if altitude > PULL_UP_ALTITUDE:
+		return 0.0
+
+	if biplane.rotation > 0.1:
+		return -0.5
+
+	return 0.0
 
 func _stall_reflex() -> bool:
 	var avatar = _get_avatar()
@@ -753,28 +892,23 @@ func _show_explosion_and_hide() -> void:
 	explosion.global_position = biplane.global_position
 	get_parent().add_child(explosion)
 
-	if GameManager:
-		GameManager.request_screen_shake(20.0)
-
 	if biplane.has_node("Visual"):
+		var plane_poly := PackedVector2Array([
+			Vector2(20, 0),
+			Vector2(10, -4),
+			Vector2(-15, -4),
+			Vector2(-20, 0),
+			Vector2(-15, 4),
+			Vector2(10, 4)
+		])
 		var shatter: Node = load("res://scenes/shatter_effect.tscn").instantiate()
-		shatter.setup(_get_plane_polygon(), Color(0.2, 0.3, 0.2), biplane.global_position)
+		shatter.setup(plane_poly, Color(0.5, 0.55, 0.5), biplane.global_position)
 		get_parent().add_child(shatter)
 
 	biplane.visible = false
 	if biplane.has_method("set_game_active"):
 		biplane.set_game_active(false)
 	respawn_timer = respawn_delay
-
-func _get_plane_polygon() -> PackedVector2Array:
-	return PackedVector2Array([
-		Vector2(20, 0),
-		Vector2(10, -4),
-		Vector2(-15, -4),
-		Vector2(-20, 0),
-		Vector2(-15, 4),
-		Vector2(10, 4)
-	])
 
 func get_biplane() -> CharacterBody2D:
 	return biplane
