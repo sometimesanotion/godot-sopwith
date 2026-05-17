@@ -6,21 +6,22 @@ extends CharacterBody2D
 ## Arcade feel achieved via gravity multiplier and tuned propeller curve
 
 @export_group("Flight Parameters (SI Units)")
+@export var arcade_multiplier: float = 2.0
+
 @export var mass: float = 447.0
-@export var engine_power_watts: float = 96941.0 # 96941.0
-@export var wing_area: float = 30.0 # 21.46
+@export var engine_power_watts: float = 96941.0 * arcade_multiplier # 96941.0
+@export var wing_area: float = 21.46
 @export var gravity: float = 9.81
 
 @export_group("Scale & Arcade Tuning")
 @export var pixels_per_meter: float = 10.0
-@export var arcade_gravity_multiplier: float = 3.0
 
 @export_group("Aerodynamics")
 @export var zero_lift_drag_area: float = 0.811
 @export var ar_efficiency: float = 11.0
 @export var max_lift_coeff: float = 1.4
-@export var air_density: float = 5.225
-@export var ground_drag_coeff = 30.0
+@export var air_density: float = 2.225 * arcade_multiplier
+@export var ground_drag_coeff = 50.0
 @export var stall_aoa: float = 0.244
 @export var stall_speed_ms: float = 10.0 # 21.4
 
@@ -68,6 +69,46 @@ const ENGINE_CUTOFF_ALTITUDE := 800.0
 
 const BULLET_SCENE := preload("res://scenes/bullet.tscn")
 const BOMB_SCENE := preload("res://scenes/bomb.tscn")
+
+static var _white_smoke_material: ParticleProcessMaterial
+static var _black_smoke_material: ParticleProcessMaterial
+static var _fire_material: ParticleProcessMaterial
+
+static func _init_particle_materials() -> void:
+	if _white_smoke_material:
+		return
+	_white_smoke_material = ParticleProcessMaterial.new()
+	_white_smoke_material.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	_white_smoke_material.emission_sphere_radius = 8.0
+	_white_smoke_material.gravity = Vector3(0, 30, 0)
+	_white_smoke_material.spread = 30.0
+	_white_smoke_material.initial_velocity_min = 30.0
+	_white_smoke_material.initial_velocity_max = 60.0
+	_white_smoke_material.scale_min = 4.0
+	_white_smoke_material.scale_max = 10.0
+	_white_smoke_material.color = Color(0.8, 0.8, 0.8, 0.5)
+
+	_black_smoke_material = ParticleProcessMaterial.new()
+	_black_smoke_material.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	_black_smoke_material.emission_sphere_radius = 8.0
+	_black_smoke_material.gravity = Vector3(0, 30, 0)
+	_black_smoke_material.spread = 30.0
+	_black_smoke_material.initial_velocity_min = 30.0
+	_black_smoke_material.initial_velocity_max = 60.0
+	_black_smoke_material.scale_min = 4.0
+	_black_smoke_material.scale_max = 10.0
+	_black_smoke_material.color = Color(0.05, 0.05, 0.05, 0.75)
+
+	_fire_material = ParticleProcessMaterial.new()
+	_fire_material.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	_fire_material.emission_sphere_radius = 5.0
+	_fire_material.gravity = Vector3(0, 30, 0)
+	_fire_material.spread = 30.0
+	_fire_material.initial_velocity_min = 60.0
+	_fire_material.initial_velocity_max = 90.0
+	_fire_material.scale_min = 4.0
+	_fire_material.scale_max = 10.0
+	_fire_material.color = Color(0.95, 0.35, 0.05, 0.15)
 
 signal fired_bullet(position: Vector2, direction: Vector2, speed: float, owner: Node, range_percent: float)
 signal dropped_bomb(position: Vector2, velocity: Vector2, owner: Node)
@@ -136,8 +177,8 @@ class AvatarData:
 	var last_shot_range: float = 0.0
 
 	var smoke_particles: GPUParticles2D = null
-	var black_smoke_particles: GPUParticles2D = null
 	var fire_particles: GPUParticles2D = null
+	var current_smoke_type: int = 0 # 0=none, 1=white, 2=black
 	var is_losing_control: bool = false
 
 	var engine_cutoff: bool = false
@@ -188,14 +229,11 @@ class AvatarData:
 			smoke_particles.emitting = false
 			smoke_particles.queue_free()
 			smoke_particles = null
-		if black_smoke_particles:
-			black_smoke_particles.emitting = false
-			black_smoke_particles.queue_free()
-			black_smoke_particles = null
 		if fire_particles:
 			fire_particles.emitting = false
 			fire_particles.queue_free()
 			fire_particles = null
+		current_smoke_type = 0
 
 var _avatars: Dictionary[int, AvatarData] = {}
 
@@ -242,6 +280,7 @@ func get_homebase_width(avatar: AvatarData) -> float:
 func _ready() -> void:
 	motion_mode = MotionMode.MOTION_MODE_FLOATING
 	PhysicsServer2D.body_set_param(get_rid(), PhysicsServer2D.BODY_PARAM_MASS, mass)
+	_init_particle_materials()
 
 func _physics_process(delta: float) -> void:
 	if not game_active:
@@ -253,6 +292,7 @@ func _physics_process(delta: float) -> void:
 		avatar = _avatars[avatar_id]
 		if avatar.flight_state == FlightState.CRASHED:
 			_apply_crash_physics(avatar, delta)
+			_check_obstacle_collision(avatar)
 			continue
 
 		if avatar.is_losing_control:
@@ -643,7 +683,7 @@ func _check_ground_collision(avatar: AvatarData) -> void:
 				GameManager.destroy_player(avatar.id)
 
 func _check_obstacle_collision(avatar: AvatarData) -> void:
-	if avatar.flight_state == FlightState.CRASHED or avatar.flight_state == FlightState.DAMAGED:
+	if avatar.flight_state == FlightState.DAMAGED:
 		return
 
 	var speed := get_avatar_speed(avatar)
@@ -665,14 +705,15 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 			if dist < hit_radius:
 				if child.is_in_group("ground_target") and child.has_method("take_damage") and not child.is_destroyed:
 					child.take_damage(100.0, self)
-				avatar.flight_state = FlightState.CRASHED
-				crashed.emit()
-				if avatar.is_player and GameManager:
-					GameManager.destroy_player(avatar.id)
+				if avatar.flight_state != FlightState.CRASHED:
+					avatar.flight_state = FlightState.CRASHED
+					crashed.emit()
+					if avatar.is_player and GameManager:
+						GameManager.destroy_player(avatar.id)
 				return
 
 func _apply_crash_physics(avatar: AvatarData, delta: float) -> void:
-	velocity.y += gravity * pixels_per_meter * arcade_gravity_multiplier * delta
+	velocity.y += gravity * pixels_per_meter * delta
 	rotation += velocity.x * 0.01 * delta
 	move_and_slide()
 	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
@@ -973,105 +1014,67 @@ func take_damage(avatar: AvatarData, amount: float, attacker: Node) -> void:
 	if avatar.flight_state == FlightState.CRASHED:
 		return
 
+	_init_particle_materials()
 	avatar.damage_percent = min(1.0, avatar.damage_percent + amount / 100.0)
-
-	print_rich("[color=yellow]  take_damage: CALLED amount=", amount, "avatar.damage_percent", avatar.damage_percent, "[/color]")
 
 	if avatar.damage_percent >= 0.8:
 		avatar.reliability = 0.0
-		if avatar.fire_particles:
-			avatar.fire_particles.emitting = true
-			avatar.fire_particles.amount = 10
-		if avatar.black_smoke_particles:
-			avatar.black_smoke_particles.emitting = true
-			avatar.black_smoke_particles.amount = 10
-		if avatar.smoke_particles:
-			avatar.smoke_particles.emitting = false
+		_ensure_fire(avatar, int(30.0 * avatar.damage_percent))
+		_ensure_smoke(avatar, 2, int(30.0 * avatar.damage_percent)) # black smoke
 	elif avatar.damage_percent >= 0.5:
 		avatar.reliability = 0.5
-		if avatar.fire_particles:
-			avatar.fire_particles.emitting = false
-		if avatar.black_smoke_particles:
-			avatar.black_smoke_particles.emitting = true
-			avatar.black_smoke_particles.amount = 10
-		if avatar.smoke_particles:
-			avatar.smoke_particles.emitting = false
+		_disable_fire(avatar)
+		_ensure_smoke(avatar, 2, int(30.0 * avatar.damage_percent)) # black smoke
 	elif avatar.damage_percent >= 0.25:
 		avatar.reliability = 0.75
-		if avatar.fire_particles:
-			avatar.fire_particles.emitting = false
-		if avatar.black_smoke_particles:
-			avatar.black_smoke_particles.emitting = false
-		if avatar.smoke_particles:
-			avatar.smoke_particles.emitting = true
-			avatar.smoke_particles.amount = 10
+		_disable_fire(avatar)
+		_disable_smoke(avatar)
+		_ensure_smoke(avatar, 1, int(20.0 * avatar.damage_percent)) # white smoke
 
 	if avatar.damage_percent >= 1.0:
 		avatar.flight_state = FlightState.CRASHED
 		crashed.emit()
 		damaged.emit(1.0, 0.0)
 
-func _ensure_smoke(avatar: AvatarData, material: ParticleProcessMaterial, amount: int, lifetime: float) -> void:
-	if avatar.smoke_particles:
-		avatar.smoke_particles.process_material = material
-		avatar.smoke_particles.amount = amount
-		return
-
-	avatar.smoke_particles = GPUParticles2D.new()
-	avatar.smoke_particles.name = "SmokeParticles"
-	avatar.smoke_particles.emitting = true
-	avatar.smoke_particles.lifetime = lifetime
-	avatar.smoke_particles.speed_scale = 1.0
-	avatar.smoke_particles.process_material = material
+func _ensure_smoke(avatar: AvatarData, smoke_type: int, amount: int) -> void:
+	if not avatar.smoke_particles:
+		avatar.smoke_particles = GPUParticles2D.new()
+		avatar.smoke_particles.name = "SmokeParticles"
+		avatar.smoke_particles.emitting = true
+		avatar.smoke_particles.lifetime = 1.5
+		avatar.smoke_particles.speed_scale = 1.0
+		add_child(avatar.smoke_particles)
+	
+	if avatar.current_smoke_type != smoke_type:
+		avatar.current_smoke_type = smoke_type
+		if smoke_type == 1:
+			avatar.smoke_particles.process_material = _white_smoke_material
+		elif smoke_type == 2:
+			avatar.smoke_particles.process_material = _black_smoke_material
+	
 	avatar.smoke_particles.amount = amount
+	avatar.smoke_particles.emitting = true
 
-	add_child(avatar.smoke_particles)
+func _disable_smoke(avatar: AvatarData) -> void:
+	if avatar.smoke_particles:
+		avatar.smoke_particles.emitting = false
+		avatar.current_smoke_type = 0
 
-func _ensure_black_smoke(avatar: AvatarData) -> void:
-	if has_node("BlackSmokeParticles"):
-		return
-	var black_smoke := GPUParticles2D.new()
-	black_smoke.name = "BlackSmokeParticles"
-	black_smoke.emitting = true
-	black_smoke.amount = 30
-	black_smoke.lifetime = 1.0
-	black_smoke.speed_scale = 1.5
+func _ensure_fire(avatar: AvatarData, amount: int) -> void:
+	if not avatar.fire_particles:
+		avatar.fire_particles = GPUParticles2D.new()
+		avatar.fire_particles.name = "FireParticles"
+		avatar.fire_particles.emitting = true
+		avatar.fire_particles.lifetime = 0.5
+		avatar.fire_particles.speed_scale = 2.0
+		avatar.fire_particles.process_material = _fire_material
+		add_child(avatar.fire_particles)
+	avatar.fire_particles.amount = amount
+	avatar.fire_particles.emitting = true
 
-	var material = ParticleProcessMaterial.new()
-	material.emission_shape = 1
-	material.emission_sphere_radius = 8.0
-	material.gravity = Vector3(0, 30, 0)
-	material.spread = 30.0
-	material.initial_velocity_min = 30.0
-	material.initial_velocity_max = 60.0
-	material.scale_min = 4.0
-	material.scale_max = 10.0
-	material.color = Color(0.05, 0.05, 0.05, 0.75)
-	black_smoke.process_material = material
-
-	add_child(black_smoke)
-
-func _ensure_fire(avatar: AvatarData) -> void:
-	if has_node("FireParticles"):
-		return
-	var flames := GPUParticles2D.new()
-	flames.name = "FireParticles"
-	flames.emitting = true
-	flames.amount = 30
-	flames.lifetime = 0.5
-	flames.speed_scale = 2.0
-
-	var material = ParticleProcessMaterial.new()
-	material.emission_shape = 1
-	material.emission_sphere_radius = 5.0
-	material.gravity = Vector3(0, 30, 0)
-	material.spread = 30.0
-	material.initial_velocity_min = 60.0
-	material.initial_velocity_max = 90.0
-	material.scale_min = 4.0
-	material.scale_max = 10.0
-	material.color = Color(0.95, 0.35, 0.05, 0.15)
-	flames.process_material = material
+func _disable_fire(avatar: AvatarData) -> void:
+	if avatar.fire_particles:
+		avatar.fire_particles.emitting = false
 
 func reset_flight_state() -> void:
 	var avatar = get_avatar_data(0)
