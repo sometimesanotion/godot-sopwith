@@ -35,8 +35,9 @@ const EVADE_DURATION_MIN := 0.5
 const EVADE_DURATION_MAX := 2.0
 const TERRAIN_LOOK_DISTANCES := [50.0, 100.0, 200.0]
 const TERRAIN_RISE_THRESHOLD := 0.3
-const TAKEOFF_ROTATE_SPEED := 80.0
-const TAKEOFF_PITCH := -0.4
+const TAKEOFF_ROTATE_SPEED := 120.0
+const TAKEOFF_PITCH := -0.15
+const TAKEOFF_CLIMB_PITCH := -0.25
 const RETURN_REENGAGE_RANGE := 300.0
 const MAX_ALTITUDE := 800.0
 
@@ -276,10 +277,10 @@ func _decision_takeoff() -> void:
 			last_pitch_input = TAKEOFF_PITCH
 	else:
 		var alt = _get_altitude_above_ground()
-		if alt < 80.0:
-			last_pitch_input = TAKEOFF_PITCH
+		if alt < 150.0:
+			last_pitch_input = TAKEOFF_CLIMB_PITCH
 		else:
-			last_pitch_input = -0.3
+			last_pitch_input = -0.2
 	last_throttle = 1.0
 
 func _compute_patrol_pitch() -> float:

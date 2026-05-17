@@ -731,6 +731,20 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 					if avatar.is_player and GameManager:
 						GameManager.destroy_player(avatar.id)
 				return
+		elif child is CharacterBody2D and child.has_method("is_enemy") and speed > 30:
+			var hit_radius: float = 20.0
+			var dist := global_position.distance_to(child.global_position)
+			if dist < hit_radius:
+				if avatar.flight_state != FlightState.CRASHED:
+					avatar.flight_state = FlightState.CRASHED
+					crashed.emit()
+					if avatar.is_player and GameManager:
+						GameManager.destroy_player(avatar.id)
+				if child.has_method("get_avatar_data") and child.has_method("force_crash"):
+					child.force_crash()
+				elif child.has_method("take_damage"):
+					child.take_damage(100.0, self)
+				return
 
 func _apply_crash_physics(avatar: AvatarData, delta: float) -> void:
 	if avatar.flight_state != FlightState.CRASHED:
@@ -1113,3 +1127,10 @@ func reset_flight_state() -> void:
 	var avatar = get_avatar_data(0)
 	if avatar:
 		avatar.reset()
+
+func force_crash() -> void:
+	for avatar_id in _avatars:
+		var avatar = _avatars[avatar_id]
+		if avatar.flight_state != FlightState.CRASHED:
+			avatar.flight_state = FlightState.CRASHED
+			crashed.emit()
