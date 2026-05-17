@@ -106,7 +106,7 @@ func _abort_game() -> void:
 		biplane.velocity = Vector2.ZERO
 		var avatar = biplane.get_avatar_data(0)
 		if avatar:
-			avatar.autopilot_enabled = false
+			avatar.is_ai_controlled = false
 	if pause_menu:
 		pause_menu.queue_free()
 		pause_menu = null
@@ -268,10 +268,22 @@ func _spawn_enemies_and_targets() -> void:
 				enemy.get_node("EnemyAI").enemy_state = "GROUNDED"
 		add_child(enemy)
 		enemies.append(enemy)
+		if terrain and terrain.has_method("add_runway"):
+			terrain.add_runway(enemy_base_x[i] + 50)
 
 	for i in range(6):
+		var cow_x: float
+		var attempts := 0
+		while attempts < 20:
+			cow_x = 200 + randf() * 16000
+			var on_runway := false
+			if terrain and terrain.has_method("is_on_runway"):
+				on_runway = terrain.is_on_runway(cow_x)
+			if not on_runway:
+				break
+			attempts += 1
 		var cow = COW_SCENE.instantiate()
-		cow.position = Vector2(200 + randf() * 16000, 650)
+		cow.position = Vector2(cow_x, 650)
 		add_child(cow)
 
 	for i in range(3):
@@ -339,7 +351,7 @@ func _create_enemy_bases() -> void:
 		for i in range(3):
 			var target := GROUND_TARGET_SCENE.instantiate()
 			target.target_type = ["building", "hangar", "tank"].pick_random()
-			target.position = Vector2(home_x + 100 + i * 500, 650)
+			target.position = Vector2(home_x - 150 - i * 150, 650)
 			if target.target_type == "building":
 				target.has_aa = false
 			else:

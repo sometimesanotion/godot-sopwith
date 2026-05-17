@@ -6,7 +6,7 @@ extends CharacterBody2D
 ## Arcade feel achieved via gravity multiplier and tuned propeller curve
 
 @export_group("Flight Parameters (SI Units)")
-@export var arcade_multiplier: float = 1.5
+@export var arcade_multiplier: float = 3.0
 
 @export var mass: float = 447.0
 @export var engine_power_watts: float = 96941.0 * arcade_multiplier # 96941.0
@@ -142,9 +142,8 @@ class AvatarData:
 	var id: int = 0
 	var unlimited_fuel_ammo: bool = false
 	var bombs_disabled: bool = false
-	var is_ai_controlled: bool = false
+	var is_ai_controlled: bool = true
 	var is_player: bool = false
-	var autopilot_enabled: bool = false
 	var homebase_id: int = 0
 
 	var ammo: int = 100
@@ -350,6 +349,9 @@ func _check_altitude_engine_cutoff(avatar: AvatarData, delta: float) -> void:
 				avatar.engine_restart_hold_time = 0.0
 
 func _handle_input(avatar: AvatarData, delta: float) -> void:
+	if not avatar.is_player:
+		return
+
 	var pitch_authority: float = 1.0
 	if avatar.flight_state == FlightState.STALLED:
 		pitch_authority = 0.4
@@ -397,6 +399,24 @@ func _handle_input(avatar: AvatarData, delta: float) -> void:
 		var target_angular_velocity := pitch_input * effective_rotation_speed
 		avatar.angular_velocity = move_toward(avatar.angular_velocity, target_angular_velocity, rotation_inertia * delta)
 		avatar.pitch_angle += avatar.angular_velocity * delta
+		rotation = avatar.pitch_angle + avatar.bank_angle
+
+func set_ai_input(pitch: float, throttle_amount: float) -> void:
+	for avatar_id in _avatars:
+		var avatar = _avatars[avatar_id]
+		if avatar.flight_state == FlightState.CRASHED:
+			continue
+		avatar.throttle_target = clampf(throttle_amount, min_throttle, max_throttle)
+		avatar.throttle = move_toward(avatar.throttle, avatar.throttle_target, THROTTLE_RAMP_SPEED * 0.016)
+
+		var pitch_authority: float = 1.0
+		if avatar.flight_state == FlightState.STALLED:
+			pitch_authority = 0.4
+
+		var effective_rotation_speed: float = rotation_speed * (1.0 - avatar.damage_percent * 0.4)
+		var target_angular_velocity := pitch * pitch_authority * effective_rotation_speed
+		avatar.angular_velocity = move_toward(avatar.angular_velocity, target_angular_velocity, rotation_inertia * 0.016)
+		avatar.pitch_angle += avatar.angular_velocity * 0.016
 		rotation = avatar.pitch_angle + avatar.bank_angle
 
 func _start_roll(avatar: AvatarData) -> void:
@@ -747,10 +767,10 @@ func _handle_weapons(avatar: AvatarData, delta: float) -> void:
 		avatar.ammo = avatar.ammo
 		avatar.bombs = avatar.bombs
 
-	if Input.is_action_pressed("fire") and avatar.gun_timer <= 0:
+	if avatar.is_player and Input.is_action_pressed("fire") and avatar.gun_timer <= 0:
 		_fire_gun(avatar)
 
-	if Input.is_action_just_pressed("bomb") and avatar.bomb_timer <= 0:
+	if avatar.is_player and Input.is_action_just_pressed("bomb") and avatar.bomb_timer <= 0:
 		_drop_bomb(avatar)
 
 func _fire_gun(avatar: AvatarData) -> void:
@@ -806,7 +826,7 @@ func _find_nearest_enemy(avatar: AvatarData) -> Node:
 			if dist < min_dist:
 				min_dist = dist
 				nearest = child
-		elif not avatar.is_player and child == GameManager.player:
+		elif not avatar.is_player and child.is_in_group("player"):
 			var dist := global_position.distance_to(child.global_position)
 			if dist < min_dist:
 				min_dist = dist

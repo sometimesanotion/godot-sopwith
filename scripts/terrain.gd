@@ -4,20 +4,30 @@ const TERRAIN_LENGTH := 16384.0
 const SEGMENT_WIDTH := 32.0
 const RUNWAY_START := 6300.0
 const RUNWAY_END := 6800.0
+const RUNWAY_WIDTH := 500.0
 const BASE_Y := 650.0
 
 var noise: FastNoiseLite
 var ground_points: PackedVector2Array = []
 var terrain_body: StaticBody2D
 var terrain_polygon: Polygon2D
+var runways: Array[Vector2] = []
 
 @export var ground_color: Color = Color(0.12, 0.35, 0.12)
 @export var runway_color: Color = Color(0.35, 0.35, 0.4)
 
 func _ready() -> void:
+	runways.append(Vector2(RUNWAY_START, RUNWAY_END))
 	_initialize_noise()
 	_generate_terrain()
 	_create_terrain()
+
+func add_runway(x: float) -> void:
+	var runway_start := x
+	var runway_end := x + RUNWAY_WIDTH
+	runways.append(Vector2(runway_start, runway_end))
+	_generate_terrain()
+	_create_runway_visual(runway_start, runway_end)
 
 func _create_terrain() -> void:
 	terrain_body = StaticBody2D.new()
@@ -37,12 +47,16 @@ func _create_terrain() -> void:
 	terrain_polygon.color = ground_color
 	add_child(terrain_polygon)
 	
+	for runway in runways:
+		_create_runway_visual(runway.x, runway.y)
+
+func _create_runway_visual(start: float, end: float) -> void:
 	var runway := Polygon2D.new()
 	runway.polygon = PackedVector2Array([
-		Vector2(RUNWAY_START, BASE_Y),
-		Vector2(RUNWAY_END, BASE_Y),
-		Vector2(RUNWAY_END, BASE_Y + 30),
-		Vector2(RUNWAY_START, BASE_Y + 30)
+		Vector2(start, BASE_Y),
+		Vector2(end, BASE_Y),
+		Vector2(end, BASE_Y + 30),
+		Vector2(start, BASE_Y + 30)
 	])
 	runway.color = runway_color
 	add_child(runway)
@@ -61,7 +75,12 @@ func _generate_terrain() -> void:
 	for i in range(num_segments + 1):
 		var x := i * SEGMENT_WIDTH
 		var y: float
-		if x >= RUNWAY_START and x <= RUNWAY_END:
+		var on_runway := false
+		for runway in runways:
+			if x >= runway.x and x <= runway.y:
+				on_runway = true
+				break
+		if on_runway:
 			y = BASE_Y
 		else:
 			var noise_val := noise.get_noise_2d(float(x), 0.0)
@@ -77,7 +96,10 @@ func get_ground_height_at(x: float) -> float:
 	return lerp(p1.y, p2.y, t)
 
 func is_on_runway(x: float) -> bool:
-	return x >= RUNWAY_START and x <= RUNWAY_END
+	for runway in runways:
+		if x >= runway.x and x <= runway.y:
+			return true
+	return false
 
 func get_ground_points() -> PackedVector2Array:
 	return ground_points
