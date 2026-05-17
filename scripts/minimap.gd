@@ -1,10 +1,10 @@
 extends Control
 
 const TERRAIN_LENGTH := 16384.0
-const MINIMAP_WIDTH := 400.0
-const MINIMAP_HEIGHT := 80.0
-const GROUND_Y := 650.0
-const MAX_ALTITUDE := 600.0
+const MINIMAP_WIDTH := 820.0
+const MINIMAP_HEIGHT := 50.0
+const GROUND_Y := 800.0
+const MAX_ALTITUDE := 1000.0
 
 var terrain_points: PackedVector2Array = []
 var player_dot: ColorRect
@@ -53,7 +53,7 @@ func _create_terrain_fill() -> void:
 
 func _create_player_marker() -> void:
 	player_dot = ColorRect.new()
-	player_dot.custom_minimum_size = Vector2(6, 6)
+	player_dot.custom_minimum_size = Vector2(8, 8)
 	player_dot.color = Color(0.2, 0.8, 0.2)
 	add_child(player_dot)
 
@@ -145,7 +145,7 @@ func update_targets(targets: Array) -> void:
 			var world_pos: Vector2 = target.global_position
 			var map_x: float = wrapf(world_pos.x, 0.0, TERRAIN_LENGTH) * scale
 			var map_y: float = _altitude_to_map_y(world_pos.y)
-			target_dots[i].position = Vector2(map_x - 1.5, map_y - 1.5)
+			target_dots[i].position = Vector2(map_x - 1.0, map_y - 1.0)
 			target_dots[i].visible = true
 		else:
 			target_dots[i].visible = false

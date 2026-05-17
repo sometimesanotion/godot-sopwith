@@ -64,8 +64,8 @@ enum FlightState {
 	CRASHED
 }
 
-const ENGINE_EFFICIENCY_START_ALTITUDE := 500.0
-const ENGINE_CUTOFF_ALTITUDE := 800.0
+const ENGINE_EFFICIENCY_START_ALTITUDE := 700.0
+const ENGINE_CUTOFF_ALTITUDE := 1000.0
 
 const BULLET_SCENE := preload("res://scenes/bullet.tscn")
 const BOMB_SCENE := preload("res://scenes/bomb.tscn")
@@ -133,7 +133,7 @@ class HomebaseData:
 	var home_base_x: float = 6554.0
 	var home_base_width: float = 200.0
 	var landing_threshold: float = 1000.0
-	var spawn_position: Vector2 = Vector2(6620, 500)
+	var spawn_position: Vector2 = Vector2(7000, 500)
 	var spawn_rotation: float = 0.0
 
 var _homebases: Dictionary[int, HomebaseData] = {}
@@ -1024,7 +1024,7 @@ func get_homebase_spawn_position(avatar: AvatarData) -> Vector2:
 	var homebase: HomebaseData = _homebases.get(avatar.homebase_id)
 	if homebase:
 		return homebase.spawn_position
-	return Vector2(6554.0, 500.0)
+	return Vector2(7000.0, 500.0)
 
 func get_homebase_spawn_rotation(avatar: AvatarData) -> float:
 	var homebase: HomebaseData = _homebases.get(avatar.homebase_id)

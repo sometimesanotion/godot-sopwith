@@ -43,7 +43,7 @@ func _draw() -> void:
 	_draw_clouds()
 
 func _draw_sky() -> void:
-	draw_rect(Rect2(-1000, -1000, TERRAIN_LENGTH + 2000, 2000), Color(0.15, 0.2, 0.35))
+	draw_rect(Rect2(-1000, -1000, TERRAIN_LENGTH + 2000, 2000), Color(0.1, 0.25, 0.35))
 
 func _draw_mountains() -> void:
 	for pos in mountain_positions:
