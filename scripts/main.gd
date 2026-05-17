@@ -265,7 +265,7 @@ func _spawn_enemies_and_targets() -> void:
 			var takeoff_delay := i * 1.5
 			if enemy.has_node("EnemyAI"):
 				enemy.get_node("EnemyAI").takeoff_delay = takeoff_delay
-				enemy.get_node("EnemyAI").enemy_state = "GROUNDED"
+				enemy.get_node("EnemyAI").ai_state = enemy.get_node("EnemyAI").AIState.GROUNDED
 		add_child(enemy)
 		enemies.append(enemy)
 		if terrain and terrain.has_method("add_runway"):
