@@ -8,5 +8,5 @@ func _ready() -> void:
 	for i in range(num_birds):
 		var bird = BIRD_SCENE.instantiate()
 		bird.global_position = global_position + Vector2(i * 20, randf() * 30 - 15)
-		add_child(bird)
+		get_parent().add_child(bird)
 	queue_free()

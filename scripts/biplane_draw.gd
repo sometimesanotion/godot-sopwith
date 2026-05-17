@@ -5,7 +5,7 @@ extends Node2D
 
 func _process(_delta: float) -> void:
 	var biplane = get_parent()
-	if biplane and biplane.has_method("get_visual_roll"):
+	if biplane and biplane.has_method("get_visual_roll") and biplane.has_method("get_avatar_data"):
 		var avatar = biplane.get_avatar_data(0)
 		if avatar:
 			rotation = biplane.get_visual_roll(avatar)

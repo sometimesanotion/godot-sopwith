@@ -1,8 +1,9 @@
-[gd_scene load_steps=6 format=3 uid="uid://enemy_biplane_scene"]
+[gd_scene load_steps=7 format=3 uid="uid://enemy_biplane_scene"]
 
 [ext_resource type="PackedScene" uid="uid://biplane_scene" path="res://scenes/biplane.tscn" id="1_biplane"]
 [ext_resource type="Script" path="res://scripts/enemy_ai.gd" id="2_ai"]
 [ext_resource type="Script" path="res://biplane.gd" id="3_biplane"]
+[ext_resource type="Script" path="res://scripts/biplane_draw.gd" id="4_draw"]
 
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_enemy"]
 radius = 8.0
@@ -17,6 +18,7 @@ rotation = 1.5708
 shape = SubResource("CapsuleShape2D_enemy")
 
 [node name="Visual" type="Node2D" parent="."]
+script = ExtResource("4_draw")
 
 [node name="GPUParticles2D" type="GPUParticles2D" parent="."]
 emitting = true

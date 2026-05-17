@@ -253,6 +253,14 @@ func _spawn_enemies_and_targets() -> void:
 			ai.biplane = enemy
 			ai.home_base_x = enemy_base_x[i]
 			ai.unlimited_fuel_ammo = is_vs_computer
+		if enemy.has_method("get_avatar_data"):
+			enemy.get_avatar_data(0).is_player = false
+		if enemy.has_method("setup_homebase"):
+			enemy.setup_homebase(i, enemy_base_x[i], 200.0, Vector2(enemy_base_x[i] + 60, 650 - 12), 0.0)
+		if enemy.has_method("set_home_base") and enemy.has_method("get_avatar_data"):
+			enemy.set_home_base(enemy.get_avatar_data(0), i)
+		if enemy.has_method("set_game_active"):
+			enemy.set_game_active(true)
 		if is_vs_computer:
 			var takeoff_delay := i * 1.5
 			if enemy.has_node("EnemyAI"):
