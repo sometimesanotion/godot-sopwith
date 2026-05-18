@@ -27,17 +27,19 @@ init:
 build:
 	$(GODOT) --headless --script-check $(PROJECT_DIR)
 
-run:
+.godot/imported:
+	rm -f .godot/imported/*.svg*.ctex .godot/imported/*.svg*.md5
+	$(GODOT) --headless --path . --import
+
+.PHONY: assets
+assets: .godot/imported
+
+run: .godot/imported
 	$(GODOT) $(PROJECT_DIR)
 
 clean:
 	rm -rf $(PROJECT_DIR)/.godot
 	rm -rf $(PROJECT_DIR)/export_presets.cfg
-
-.PHONY: assets
-assets:
-	rm -f .godot/imported/*.svg*.ctex .godot/imported/*.svg*.md5
-	$(GODOT) --headless --path . --import
 
 test:
 	$(GODOT) --headless --test $(PROJECT_DIR)
