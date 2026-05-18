@@ -11,7 +11,7 @@ extends CharacterBody2D
 @export var camel_mass_kg: float = 447.0
 @export var engine_power_watts: float = 96941.0 * arcade_multiplier
 @export var wing_area: float = 21.46
-@export var gravity: float = 9.81 * 0.7
+@export var gravity: float = 9.81 * 0.6
 
 @export_group("Scale & Arcade Tuning")
 @export var pixels_per_meter: float = 10.0
@@ -20,7 +20,7 @@ extends CharacterBody2D
 @export var zero_lift_drag_area: float = 0.811
 @export var ar_efficiency: float = 11.0
 @export var max_lift_coeff: float = 1.4
-@export var air_density: float = 2.225 * arcade_multiplier * 1.0
+@export var air_density: float = 1.225 * arcade_multiplier
 @export var ground_drag_coeff = 200.0
 @export var stall_aoa: float = 0.244
 @export var stall_speed_ms: float = 21.4 / 2.2
@@ -35,9 +35,9 @@ const THROTTLE_REPEAT_DELAY := 0.1
 const THROTTLE_RAMP_SPEED := 4.0
 
 @export_group("Weapons")
-@export var gun_cooldown: float = 0.15
+@export var gun_cooldown: float = 0.12
 @export var bomb_cooldown: float = 0.5
-@export var bullet_speed: float = 1500.0
+@export var bullet_speed: float = 1600.0
 @export var max_ammo: int = 250
 @export var max_bombs: int = 5
 
