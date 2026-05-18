@@ -1128,6 +1128,13 @@ func _ensure_smoke(avatar: AvatarData, smoke_type: int, amount: int) -> void:
 		avatar.smoke_particles.speed_scale = 1.0
 		add_child(avatar.smoke_particles)
 
+	if smoke_type == 1:
+		avatar.smoke_particles.process_material = _white_smoke_material
+	elif smoke_type == 2:
+		avatar.smoke_particles.process_material = _black_smoke_material
+	avatar.smoke_particles.amount = amount
+	avatar.current_smoke_type = smoke_type
+
 func create_explosion() -> void:
 	var explosion_scene := load("res://scenes/explosion.tscn")
 	if explosion_scene:
