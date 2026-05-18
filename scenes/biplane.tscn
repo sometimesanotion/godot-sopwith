@@ -5,7 +5,7 @@
 
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_1"]
 radius = 30.0
-height = 40 .0
+height = 40.0
 
 [node name="Biplane" type="CharacterBody2D"]
 motion_mode = 1

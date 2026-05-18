@@ -37,8 +37,8 @@ const THROTTLE_RAMP_SPEED := 4.0
 @export_group("Weapons")
 @export var gun_cooldown: float = 0.15
 @export var bomb_cooldown: float = 0.5
-@export var bullet_speed: float = 1400.0
-@export var max_ammo: int = 100
+@export var bullet_speed: float = 1500.0
+@export var max_ammo: int = 500
 @export var max_bombs: int = 5
 
 @export_group("Roll")
@@ -827,7 +827,7 @@ func _fire_gun(avatar: AvatarData) -> void:
 			GameManager.ammo_changed.emit(avatar.id, avatar.ammo)
 
 	var heading_dir := Vector2(cos(avatar.pitch_angle), sin(avatar.pitch_angle))
-	var spawn_pos := global_position + heading_dir * 30
+	var spawn_pos := global_position + heading_dir * 34 + Vector2(0, -15).rotated(avatar.pitch_angle)
 	var direction := heading_dir
 
 	var target_enemy: Node = _find_nearest_enemy(avatar)
@@ -1013,7 +1013,7 @@ func fire_gun(avatar: AvatarData) -> void:
 	avatar.gun_timer = gun_cooldown
 
 	var heading_dir := Vector2(cos(avatar.pitch_angle), sin(avatar.pitch_angle))
-	var spawn_pos := global_position + heading_dir * 30
+	var spawn_pos := global_position + heading_dir * 30 - Vector2(0, 4)
 	var target_enemy: Node = _find_nearest_enemy(avatar)
 	var range_percent: float = 0.5
 	if target_enemy:
