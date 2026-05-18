@@ -15,7 +15,7 @@ A modern tribute to the 1984 classic Sopwith, built with Godot 4.x using vector 
 | Z | Throttle Down |
 | SPACE | Fire Machine Gun |
 | B | Drop Bomb |
-| . | Flip/Flip (also Pause) |
+| . | Flip |
 | P | Pause |
 | A | Toggle Autopilot (Return Home) |
 
