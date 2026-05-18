@@ -17,15 +17,17 @@ A modern tribute to the 1984 classic Sopwith, built with Godot 4.x using vector 
 | B | Drop Bomb |
 | . | Flip |
 | P | Pause |
-| A | Toggle Autopilot (Return Home) |
 
 ## Gameplay
+
+The features of the original Sopwith, with touches of physics simulation.
 
 - Fly a biplane through a large procedural world
 - Destroy ground targets (buildings, fuel tanks hangars, tanks)
 - Avoid stalling at low speeds - watch for the warning!
 - Land on the runway to refuel and rearm
 - You have 5 lives - don't crash!
+- There's no autopilot.  Can you safely land at your airbase?
 
 ## Features
 
@@ -33,18 +35,14 @@ A modern tribute to the 1984 classic Sopwith, built with Godot 4.x using vector 
 - Stall mechanic based on speed threshold
 - Weapon systems: machine gun and bombs
 - Enemy AI biplanes and ground targets with AA fire
-- Destructible environments with shatter effects
 - Screen shake on explosions
 - Pause menu (press P)
-
-## Bugs
-
-- Many.  There are many.  This is brand new.
 
 ## Test Run
 
 To take it for a spin:
 ```bash
+make clean
 make run
 ```
 
