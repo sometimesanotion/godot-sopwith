@@ -86,10 +86,10 @@ func _deselect_control(ctrl):
 			ctrl.button_pressed = false
 
 func _adjust_slider(delta):
-	if selected_control is HSlider:
-		var s = selected_control as HSlider
-		s.value = clampf(s.value + (delta * s.step), s.min_value, s.max_value)
-		_on_thrust_changed(s.value)
+	pass
+
+func _on_thrust_changed(value):
+	pass
 
 func _activate_selected():
 	if selected_control is Button:
