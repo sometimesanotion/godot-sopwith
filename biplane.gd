@@ -6,12 +6,12 @@ extends CharacterBody2D
 ## Arcade feel achieved via gravity multiplier and tuned propeller curve
 
 @export_group("Flight Parameters (SI Units)")
-@export var arcade_multiplier: float = 1.8
+@export var arcade_multiplier: float = 1.6
 
 @export var mass: float = 447.0
 @export var engine_power_watts: float = 96941.0 * arcade_multiplier
 @export var wing_area: float = 21.46
-@export var gravity: float = 9.81
+@export var gravity: float = 9.81 * 1.2
 
 @export_group("Scale & Arcade Tuning")
 @export var pixels_per_meter: float = 10.0
@@ -35,9 +35,9 @@ const THROTTLE_REPEAT_DELAY := 0.1
 const THROTTLE_RAMP_SPEED := 4.0
 
 @export_group("Weapons")
-@export var gun_cooldown: float = 0.1
+@export var gun_cooldown: float = 0.15
 @export var bomb_cooldown: float = 0.5
-@export var bullet_speed: float = 1600.0
+@export var bullet_speed: float = 1400.0
 @export var max_ammo: int = 100
 @export var max_bombs: int = 5
 
@@ -46,7 +46,7 @@ const THROTTLE_RAMP_SPEED := 4.0
 @export var max_roll_angle: float = PI
 
 @export_group("Handling")
-@export var rotation_speed: float = 7.0
+@export var rotation_speed: float = 6.0
 @export var rotation_inertia: float = 3.5
 
 @export_group("Impact Physics (Sopwith Camel)")
@@ -879,7 +879,7 @@ func _drop_bomb(avatar: AvatarData) -> void:
 
 	var bomb := BOMB_SCENE.instantiate()
 
-	var spawn_offset := Vector2(0, 15).rotated(avatar.pitch_angle)
+	var spawn_offset := Vector2(0, 24).rotated(avatar.pitch_angle)
 
 	var spawn_pos := global_position + spawn_offset
 	bomb.global_position = spawn_pos

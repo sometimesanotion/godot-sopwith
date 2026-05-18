@@ -1,8 +1,8 @@
 extends CharacterBody2D
 
 var speed: float = 800.0
-var lifetime: float = 1.5
-var damage: float = 20.0
+var lifetime: float = 1.0
+var damage: float = 30.0
 
 var _bullet_owner: Node = null
 var _range_percent: float = 0.5

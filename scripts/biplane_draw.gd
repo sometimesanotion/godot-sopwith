@@ -4,8 +4,8 @@ extends Node2D
 @export var wing_color: Color = Color(0.1, 0.1, 0.2)
 
 var _svg_sprite_name: String = "biplane"
-var _svg_size: Vector2 = Vector2(48, 28)
-# var _draw_offset: Vector2 = Vector2(0, 0)
+var _svg_size: Vector2 = Vector2(60, 35)
+var _draw_offset: Vector2 = Vector2(0, 2)
 
 func _ready() -> void:
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
@@ -19,7 +19,7 @@ func _process(_delta: float) -> void:
 		if avatar:
 			if _svg_sprite_name == "biplane" and avatar.is_player:
 				_svg_sprite_name = "sopwith"
-				_svg_size = Vector2(48, 28)
+				_svg_size = Vector2(60, 35)
 				if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
 					texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 			rotation = biplane.get_visual_roll(avatar)
