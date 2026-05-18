@@ -34,12 +34,13 @@ const THROTTLE_STEP := 0.1
 const THROTTLE_REPEAT_DELAY := 0.1
 const THROTTLE_RAMP_SPEED := 4.0
 
+const MAX_AMMO := 250
+const MAX_BOMBS := 5
+
 @export_group("Weapons")
 @export var gun_cooldown: float = 0.1
 @export var bomb_cooldown: float = 0.5
 @export var bullet_speed: float = 1600.0
-@export var max_ammo: int = 250
-@export var max_bombs: int = 5
 
 @export_group("Roll")
 @export var roll_speed: float = 4.0
@@ -923,9 +924,9 @@ func _check_fuel_consumption(avatar: AvatarData, delta: float) -> void:
 			_ensure_smoke(avatar, 1, 10) # white smoke
 
 		elif avatar.throttle > 0 or avatar.damage_percent >= 0.8:
-			var fuel_loss = avatar.throttle * delta * 1.0
+			var fuel_loss = avatar.throttle * delta * 0.7
 			if avatar.damage_percent >= 0.8:
-				fuel_loss *= 10.0
+				fuel_loss *= 8.0
 			elif avatar.damage_percent >= 0.5:
 				fuel_loss *= 2.0
 			avatar.fuel = maxf(0.0, avatar.fuel - fuel_loss)
@@ -969,9 +970,6 @@ func _check_home_refuel(player_id: int, delta: float) -> void:
 			avatar.fire_particles.emitting = false
 			avatar.fire_particles.queue_free()
 			avatar.fire_particles = null
-
-	const MAX_AMMO := 100
-	const MAX_BOMBS := 5
 
 	var old_ammo: int = avatar.ammo
 	var old_bombs: int = avatar.bombs
