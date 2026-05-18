@@ -35,7 +35,7 @@ const THROTTLE_REPEAT_DELAY := 0.1
 const THROTTLE_RAMP_SPEED := 4.0
 
 @export_group("Weapons")
-@export var gun_cooldown: float = 0.12
+@export var gun_cooldown: float = 0.1
 @export var bomb_cooldown: float = 0.5
 @export var bullet_speed: float = 1600.0
 @export var max_ammo: int = 250

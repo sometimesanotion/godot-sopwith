@@ -22,10 +22,10 @@ func _generate_background() -> void:
 		var cloud := {
 			"pos": Vector2(cx, cy),
 			"puffs": [],
-			"width": 120 + randf() * 200,
-			"height": 30 + randf() * 40
+			"width": 240 + randf() * 200,
+			"height": 120 + randf() * 80
 		}
-		var num_puffs := 5 + randi() % 6
+		var num_puffs := 20 + randi() % 20
 		for j in range(num_puffs):
 			var px: float = (randf() - 0.5) * cloud["width"]
 			var py: float = (randf() - 0.5) * cloud["height"]

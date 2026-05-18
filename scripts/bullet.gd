@@ -9,7 +9,7 @@ var _range_percent: float = 0.5
 var _max_range: float = 600.0
 
 func _ready() -> void:
-	lifetime = 1.5
+	lifetime = 0.7
 	set_meta("bullet", true)
 
 func _physics_process(delta: float) -> void:
@@ -54,16 +54,6 @@ func _handle_collision(collision: KinematicCollision2D) -> void:
 			queue_free()
 			return
 		
-		var reliability: float = 1.0
-		if collider.has_method("get_avatar_data") and collider.has_method("get_reliability"):
-			var avatar = collider.get_avatar_data(0)
-			if avatar:
-				reliability = collider.get_reliability(avatar)
-		
-		if randf() > reliability:
-			queue_free()
-			return
-
 		if not is_instance_valid(_bullet_owner):
 			queue_free()
 			return

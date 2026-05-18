@@ -1,7 +1,7 @@
 extends StaticBody2D
 
 var _svg_sprite_name: String = "cow"
-var _svg_size: Vector2 = Vector2(32, 36)
+var _svg_size: Vector2 = Vector2(64, 72)
 
 func _ready() -> void:
 	add_to_group("obstacle")
