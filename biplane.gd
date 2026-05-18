@@ -6,12 +6,12 @@ extends CharacterBody2D
 ## Arcade feel achieved via gravity multiplier and tuned propeller curve
 
 @export_group("Flight Parameters (SI Units)")
-@export var arcade_multiplier: float = 1.6
+@export var arcade_multiplier: float = 1.7
 
 @export var mass: float = 447.0
 @export var engine_power_watts: float = 96941.0 * arcade_multiplier
 @export var wing_area: float = 21.46
-@export var gravity: float = 9.81 * 1.2
+@export var gravity: float = 9.81
 
 @export_group("Scale & Arcade Tuning")
 @export var pixels_per_meter: float = 10.0
@@ -20,7 +20,7 @@ extends CharacterBody2D
 @export var zero_lift_drag_area: float = 0.811
 @export var ar_efficiency: float = 11.0
 @export var max_lift_coeff: float = 1.4
-@export var air_density: float = 2.225 * arcade_multiplier * 1.4
+@export var air_density: float = 2.225 * arcade_multiplier * 1.2
 @export var ground_drag_coeff = 50.0
 @export var stall_aoa: float = 0.244
 @export var stall_speed_ms: float = 21.4 / 2.2
@@ -28,7 +28,7 @@ extends CharacterBody2D
 @export_group("Throttle")
 @export var min_throttle: float = 0.0
 @export var max_throttle: float = 1.0
-@export var max_speed: float = 50.5
+@export var max_speed: float = 60.0
 
 const THROTTLE_STEP := 0.1
 const THROTTLE_REPEAT_DELAY := 0.1
@@ -613,12 +613,24 @@ func _apply_ground_forces(avatar: AvatarData, delta: float) -> void:
 	var can_lift_off: bool = tilt_angle < deg_to_rad(max_landing_tilt_deg) and avatar.throttle >= THROTTLE_STEP and speed_si >= stall_speed_ms
 
 	if global_position.y >= ground_y - 12:
+		if tilt_angle >= deg_to_rad(max_landing_tilt_deg):
+			avatar.flight_state = FlightState.CRASHED
+			crashed.emit()
+			if avatar.is_player and GameManager:
+				GameManager.destroy_player(avatar.id)
+			return
 		if can_lift_off:
 			global_position.y -= 1
 		else:
 			global_position.y = ground_y - 12
 			velocity.y = 0
 	elif global_position.y > ground_y - 12:
+		if tilt_angle >= deg_to_rad(max_landing_tilt_deg):
+			avatar.flight_state = FlightState.CRASHED
+			crashed.emit()
+			if avatar.is_player and GameManager:
+				GameManager.destroy_player(avatar.id)
+			return
 		if not can_lift_off:
 			global_position.y = ground_y - 12
 
@@ -704,9 +716,9 @@ func _check_ground_collision(avatar: AvatarData) -> void:
 			avatar.damage_percent += 0.2 # * impact_force / hard_landing_vperp
 			# print_rich("[color=orange]  _check_gc: HARD LANDING damage: avatar.damage_percent=", avatar.damage_percent, " avatar.damage_percent=", avatar.damage_percent, "[/color]")
 			avatar.reliability = 0.75
-			# _ensure_smoke(avatar, 15)
-			# if avatar.damage_percent > 0.5:
-			# 	_ensure_black_smoke(avatar)
+			_ensure_smoke(avatar, 2, 15)
+			if avatar.damage_percent > 0.5:
+				_ensure_smoke(avatar, 2, 30)
 			damaged.emit(impact_force, v_perp)
 		else:
 			# print_rich("[color=red]  _check_gc: DESTROYED (v_perp too high)[/color]")
