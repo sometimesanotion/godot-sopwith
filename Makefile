@@ -34,6 +34,11 @@ clean:
 	rm -rf $(PROJECT_DIR)/.godot
 	rm -rf $(PROJECT_DIR)/export_presets.cfg
 
+.PHONY: assets
+assets:
+	rm -f .godot/imported/*.svg*.ctex .godot/imported/*.svg*.md5
+	$(GODOT) --headless --path . --import
+
 test:
 	$(GODOT) --headless --test $(PROJECT_DIR)
 
