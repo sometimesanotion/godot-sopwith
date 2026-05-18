@@ -5,6 +5,7 @@ extends Node2D
 
 var _svg_sprite_name: String = "biplane"
 var _svg_size: Vector2 = Vector2(48, 28)
+# var _draw_offset: Vector2 = Vector2(0, 0)
 
 func _ready() -> void:
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
@@ -18,7 +19,7 @@ func _process(_delta: float) -> void:
 		if avatar:
 			if _svg_sprite_name == "biplane" and avatar.is_player:
 				_svg_sprite_name = "sopwith"
-				_svg_size = Vector2(67, 39)
+				_svg_size = Vector2(48, 28)
 				if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
 					texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 			rotation = biplane.get_visual_roll(avatar)
@@ -26,7 +27,7 @@ func _process(_delta: float) -> void:
 
 func _draw() -> void:
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
-		SvgManager.draw_sprite_centered(self, _svg_sprite_name, Vector2.ZERO, _svg_size)
+		SvgManager.draw_sprite_centered(self, _svg_sprite_name, _draw_offset, _svg_size)
 		return
 
 	var body_points: PackedVector2Array = [

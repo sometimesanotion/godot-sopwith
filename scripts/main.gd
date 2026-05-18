@@ -456,7 +456,7 @@ func _respawn_biplane() -> void:
 		if terrain and terrain.has_method("get_ground_height_at"):
 			ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
 		biplane.visible = true
-		biplane.position = Vector2(PLAYER_SPAWN_X, ground_y)
+		biplane.position = Vector2(PLAYER_SPAWN_X, ground_y - 12)
 		biplane.rotation = 0
 		biplane.velocity = Vector2.ZERO
 		if biplane.has_method("reset_flight_state"):

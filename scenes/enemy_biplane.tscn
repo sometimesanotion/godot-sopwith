@@ -6,8 +6,8 @@
 [ext_resource type="Script" path="res://scripts/biplane_draw.gd" id="4_draw"]
 
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_enemy"]
-radius = 8.0
-height = 32.0
+radius = 12.0
+height = 28.0
 
 [node name="EnemyBiplane" type="CharacterBody2D"]
 motion_mode = 1
