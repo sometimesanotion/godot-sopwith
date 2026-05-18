@@ -6,7 +6,7 @@ extends CharacterBody2D
 ## Arcade feel achieved via gravity multiplier and tuned propeller curve
 
 @export_group("Flight Parameters (SI Units)")
-@export var arcade_multiplier: float = 1.6
+@export var arcade_multiplier: float = 1.8
 
 @export var camel_mass_kg: float = 447.0
 @export var engine_power_watts: float = 96941.0 * arcade_multiplier
@@ -20,7 +20,7 @@ extends CharacterBody2D
 @export var zero_lift_drag_area: float = 0.811
 @export var ar_efficiency: float = 11.0
 @export var max_lift_coeff: float = 1.4
-@export var air_density: float = 2.225 * arcade_multiplier * 1.2
+@export var air_density: float = 2.225 * arcade_multiplier * 1.0
 @export var ground_drag_coeff = 100.0
 @export var stall_aoa: float = 0.244
 @export var stall_speed_ms: float = 21.4 / 2.2
@@ -28,7 +28,7 @@ extends CharacterBody2D
 @export_group("Throttle")
 @export var min_throttle: float = 0.0
 @export var max_throttle: float = 1.0
-@export var max_speed: float = 60.0
+@export var max_speed: float = 100.0
 
 const THROTTLE_STEP := 0.1
 const THROTTLE_REPEAT_DELAY := 0.1
@@ -890,7 +890,7 @@ func _drop_bomb(avatar: AvatarData) -> void:
 
 	var bomb := BOMB_SCENE.instantiate()
 
-	var spawn_offset := Vector2(0, 24).rotated(avatar.pitch_angle)
+	var spawn_offset := Vector2(0, 26).rotated(avatar.pitch_angle)
 
 	var spawn_pos := global_position + spawn_offset
 	bomb.global_position = spawn_pos
