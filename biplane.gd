@@ -21,14 +21,14 @@ extends CharacterBody2D
 @export var ar_efficiency: float = 11.0
 @export var max_lift_coeff: float = 1.4
 @export var air_density: float = 2.225 * arcade_multiplier * 1.0
-@export var ground_drag_coeff = 100.0
+@export var ground_drag_coeff = 200.0
 @export var stall_aoa: float = 0.244
 @export var stall_speed_ms: float = 21.4 / 2.2
 
 @export_group("Throttle")
 @export var min_throttle: float = 0.0
 @export var max_throttle: float = 1.0
-@export var max_speed: float = 100.0
+@export var max_speed: float = 400.0
 
 const THROTTLE_STEP := 0.1
 const THROTTLE_REPEAT_DELAY := 0.1
@@ -38,7 +38,7 @@ const THROTTLE_RAMP_SPEED := 4.0
 @export var gun_cooldown: float = 0.15
 @export var bomb_cooldown: float = 0.5
 @export var bullet_speed: float = 1500.0
-@export var max_ammo: int = 500
+@export var max_ammo: int = 250
 @export var max_bombs: int = 5
 
 @export_group("Roll")
@@ -46,8 +46,8 @@ const THROTTLE_RAMP_SPEED := 4.0
 @export var max_roll_angle: float = PI
 
 @export_group("Handling")
-@export var rotation_speed: float = 7.0
-@export var rotation_inertia: float = 2.0
+@export var rotation_speed: float = 9.0
+@export var rotation_inertia: float = 3.0
 
 @export_group("Impact Physics (Sopwith Camel)")
 @export var bungee_compression_time: float = 0.15
@@ -1013,7 +1013,7 @@ func fire_gun(avatar: AvatarData) -> void:
 	avatar.gun_timer = gun_cooldown
 
 	var heading_dir := Vector2(cos(avatar.pitch_angle), sin(avatar.pitch_angle))
-	var spawn_pos := global_position + heading_dir * 30 - Vector2(0, 4)
+	var spawn_pos := global_position + heading_dir * 34 + Vector2(0, -15).rotated(avatar.pitch_angle)
 	var target_enemy: Node = _find_nearest_enemy(avatar)
 	var range_percent: float = 0.5
 	if target_enemy:

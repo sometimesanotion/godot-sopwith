@@ -1,14 +1,14 @@
 extends CharacterBody2D
 
 var gravity: float = 147.15
-var explosion_radius: float = 80.0
-var explosion_damage: float = 50.0
+var explosion_radius: float = 120.0
+var explosion_damage: float = 80.0
 
 var _bomb_owner: Node = null
 var has_exploded: bool = false
 
 var _svg_sprite_name: String = "bomb"
-var _svg_size: Vector2 = Vector2(16, 20)
+var _svg_size: Vector2 = Vector2(20, 25)
 
 signal exploded(position: Vector2, radius: float, damage: float)
 
