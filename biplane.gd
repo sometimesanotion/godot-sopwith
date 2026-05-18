@@ -6,12 +6,12 @@ extends CharacterBody2D
 ## Arcade feel achieved via gravity multiplier and tuned propeller curve
 
 @export_group("Flight Parameters (SI Units)")
-@export var arcade_multiplier: float = 1.7
+@export var arcade_multiplier: float = 1.6
 
-@export var mass: float = 447.0
+@export var camel_mass_kg: float = 447.0
 @export var engine_power_watts: float = 96941.0 * arcade_multiplier
 @export var wing_area: float = 21.46
-@export var gravity: float = 9.81
+@export var gravity: float = 9.81 * 0.7
 
 @export_group("Scale & Arcade Tuning")
 @export var pixels_per_meter: float = 10.0
@@ -21,7 +21,7 @@ extends CharacterBody2D
 @export var ar_efficiency: float = 11.0
 @export var max_lift_coeff: float = 1.4
 @export var air_density: float = 2.225 * arcade_multiplier * 1.2
-@export var ground_drag_coeff = 50.0
+@export var ground_drag_coeff = 100.0
 @export var stall_aoa: float = 0.244
 @export var stall_speed_ms: float = 21.4 / 2.2
 
@@ -46,11 +46,10 @@ const THROTTLE_RAMP_SPEED := 4.0
 @export var max_roll_angle: float = PI
 
 @export_group("Handling")
-@export var rotation_speed: float = 6.0
-@export var rotation_inertia: float = 3.5
+@export var rotation_speed: float = 7.0
+@export var rotation_inertia: float = 2.0
 
 @export_group("Impact Physics (Sopwith Camel)")
-@export var camel_mass_kg: float = 659.0
 @export var bungee_compression_time: float = 0.15
 @export var soft_landing_vperp: float = 40.0
 @export var hard_landing_vperp: float = 100.0
@@ -278,7 +277,7 @@ func get_homebase_width(avatar: AvatarData) -> float:
 
 func _ready() -> void:
 	motion_mode = MotionMode.MOTION_MODE_FLOATING
-	PhysicsServer2D.body_set_param(get_rid(), PhysicsServer2D.BODY_PARAM_MASS, mass)
+	PhysicsServer2D.body_set_param(get_rid(), PhysicsServer2D.BODY_PARAM_MASS, camel_mass_kg)
 	_init_particle_materials()
 
 func _physics_process(delta: float) -> void:
@@ -481,7 +480,7 @@ func _apply_aerodynamics(avatar: AvatarData, delta: float) -> void:
 
 	if on_ground and speed_si < 0.5:
 		var thrust_si := _calc_thrust(avatar, 0.0, avatar.throttle)
-		velocity.x += thrust_si * avatar.throttle * 0.85 * delta * pixels_per_meter / mass
+		velocity.x += thrust_si * avatar.throttle * 0.85 * delta * pixels_per_meter / camel_mass_kg
 		var drag_si: float = speed_si * 0.5 * 0.05
 
 		var tilt_angle: float = 0.0
@@ -516,7 +515,7 @@ func _apply_aerodynamics(avatar: AvatarData, delta: float) -> void:
 			drag_si += effective_ground_drag
 
 		if speed_si > 0.01:
-			velocity += (-vel_si.normalized()) * drag_si * delta * pixels_per_meter / mass
+			velocity += (-vel_si.normalized()) * drag_si * delta * pixels_per_meter / camel_mass_kg
 
 		if not can_lift_off:
 			return
@@ -582,11 +581,11 @@ func _apply_aerodynamics(avatar: AvatarData, delta: float) -> void:
 	if speed_si > 0.01:
 		drag_vec = -vel_si.normalized() * total_drag_si
 
-	var weight_vec := Vector2(0, mass * gravity)
+	var weight_vec := Vector2(0, camel_mass_kg * gravity)
 
 	var net_force_si := thrust_vec + lift_vec + drag_vec + weight_vec
 
-	var accel_si := net_force_si / mass
+	var accel_si := net_force_si / camel_mass_kg
 	var accel_px := accel_si * pixels_per_meter
 
 	velocity += accel_px * delta
