@@ -2,9 +2,9 @@ extends Control
 
 const TERRAIN_LENGTH := 16384.0
 const MINIMAP_WIDTH := 820.0
-const MINIMAP_HEIGHT := 50.0
+const MINIMAP_HEIGHT := 100.0
 const GROUND_Y := 800.0
-const MAX_ALTITUDE := 1000.0
+const MAX_ALTITUDE := 2000.0
 
 var terrain_points: PackedVector2Array = []
 var player_dot: ColorRect

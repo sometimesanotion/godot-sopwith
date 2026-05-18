@@ -495,6 +495,12 @@ func _update_camera(delta: float) -> void:
 	if not biplane:
 		return
 
+	var is_crashed: bool = false
+	if biplane.has_method("get_avatar_data"):
+		var avatar = biplane.get_avatar_data(0)
+		if avatar:
+			is_crashed = avatar.flight_state == biplane.FlightState.CRASHED
+
 	var speed_coeff: float = 1.0
 	var stall_speed_ms: float = 21.4 / 2.2
 	if biplane.has_method("get_avatar_speed"):
@@ -502,12 +508,19 @@ func _update_camera(delta: float) -> void:
 		if speed_si > stall_speed_ms:
 			speed_coeff = clampf(speed_si / stall_speed_ms, 1.0, 4.0)
 
-	var look_ahead_dist: float = 200.0 * speed_coeff
-	var look_ahead := Vector2(look_ahead_dist, 0)
-	if biplane.velocity.x < 0:
-		look_ahead = Vector2(-look_ahead_dist, 0)
+	var target_pos: Vector2
 
-	var target_pos: Vector2 = biplane.position + look_ahead
+	if is_crashed:
+		target_pos = biplane.position
+	else:
+		var look_ahead_dist: float = 200.0 * speed_coeff
+		var look_ahead := Vector2(look_ahead_dist, 0)
+		if biplane.velocity.x < 0:
+			look_ahead.x = -look_ahead_dist
+		if biplane.velocity.y > 0:
+			look_ahead.y = biplane.velocity.y * 1.4
+
+		target_pos = biplane.position + look_ahead
 
 	if screen_shake_intensity > 0:
 		target_pos += Vector2(randf_range(-1, 1), randf_range(-1, 1)) * screen_shake_intensity

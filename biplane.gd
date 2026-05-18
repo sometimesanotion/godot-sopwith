@@ -65,7 +65,7 @@ enum FlightState {
 }
 
 const ENGINE_EFFICIENCY_START_ALTITUDE := 700.0
-const ENGINE_CUTOFF_ALTITUDE := 1000.0
+const ENGINE_CUTOFF_ALTITUDE := 2000.0
 
 const BULLET_SCENE := preload("res://scenes/bullet.tscn")
 const BOMB_SCENE := preload("res://scenes/bomb.tscn")
