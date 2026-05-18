@@ -495,9 +495,17 @@ func _update_camera(delta: float) -> void:
 	if not biplane:
 		return
 
-	var look_ahead := Vector2(50, 0)
+	var speed_coeff: float = 1.0
+	var stall_speed_ms: float = 21.4 / 2.2
+	if biplane.has_method("get_avatar_speed"):
+		var speed_si: float = biplane.get_avatar_speed(null) / biplane.pixels_per_meter
+		if speed_si > stall_speed_ms:
+			speed_coeff = clampf(speed_si / stall_speed_ms, 1.0, 4.0)
+
+	var look_ahead_dist: float = 200.0 * speed_coeff
+	var look_ahead := Vector2(look_ahead_dist, 0)
 	if biplane.velocity.x < 0:
-		look_ahead = Vector2(-50, 0)
+		look_ahead = Vector2(-look_ahead_dist, 0)
 
 	var target_pos: Vector2 = biplane.position + look_ahead
 
@@ -505,7 +513,8 @@ func _update_camera(delta: float) -> void:
 		target_pos += Vector2(randf_range(-1, 1), randf_range(-1, 1)) * screen_shake_intensity
 		screen_shake_intensity = max(0, screen_shake_intensity - 5.0 * delta)
 
-	camera.position = camera.position.lerp(target_pos, delta * 2.0)
+	var lerp_rate: float = 0.4 * speed_coeff
+	camera.position = camera.position.lerp(target_pos, delta * lerp_rate)
 
 func _handle_wrap_around() -> void:
 	if not biplane:
