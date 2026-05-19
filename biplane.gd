@@ -184,6 +184,7 @@ class AvatarData:
 	var engine_restart_hold_time: float = 0.0
 	var engine_restart_required_time: float = 0.0
 	var flight_state: FlightState = FlightState.FLYING
+	var destroyed_this_crash: bool = false
 
 	func reset() -> void:
 		flight_state = FlightState.FLYING
@@ -223,6 +224,7 @@ class AvatarData:
 		engine_restart_hold_time = 0.0
 		engine_restart_required_time = 0.0
 		flight_state = FlightState.FLYING
+		destroyed_this_crash = false
 
 		if smoke_particles:
 			smoke_particles.emitting = false
@@ -320,7 +322,8 @@ func _check_crash_on_spin(avatar: AvatarData) -> void:
 	if global_position.y >= ground_y - 5:
 		avatar.flight_state = FlightState.CRASHED
 		crashed.emit()
-		if avatar.is_player and GameManager:
+		if avatar.is_player and GameManager and not avatar.destroyed_this_crash:
+			avatar.destroyed_this_crash = true
 			GameManager.destroy_player(avatar.id)
 
 func _check_altitude_engine_cutoff(avatar: AvatarData, delta: float) -> void:
@@ -616,7 +619,8 @@ func _apply_ground_forces(avatar: AvatarData, delta: float) -> void:
 		if tilt_angle >= deg_to_rad(max_landing_tilt_deg):
 			avatar.flight_state = FlightState.CRASHED
 			crashed.emit()
-			if avatar.is_player and GameManager:
+			if avatar.is_player and GameManager and not avatar.destroyed_this_crash:
+				avatar.destroyed_this_crash = true
 				GameManager.destroy_player(avatar.id)
 			return
 		if can_lift_off:
@@ -628,7 +632,8 @@ func _apply_ground_forces(avatar: AvatarData, delta: float) -> void:
 		if tilt_angle >= deg_to_rad(max_landing_tilt_deg):
 			avatar.flight_state = FlightState.CRASHED
 			crashed.emit()
-			if avatar.is_player and GameManager:
+			if avatar.is_player and GameManager and not avatar.destroyed_this_crash:
+				avatar.destroyed_this_crash = true
 				GameManager.destroy_player(avatar.id)
 			return
 		if not can_lift_off:
@@ -695,7 +700,8 @@ func _check_ground_collision(avatar: AvatarData) -> void:
 			# print_rich("[color=red]  _check_gc: CRASH condition met![/color]")
 			avatar.flight_state = FlightState.CRASHED
 			crashed.emit()
-			if avatar.is_player and GameManager:
+			if avatar.is_player and GameManager and not avatar.destroyed_this_crash:
+				avatar.destroyed_this_crash = true
 				GameManager.destroy_player(avatar.id)
 			return
 
@@ -724,7 +730,8 @@ func _check_ground_collision(avatar: AvatarData) -> void:
 			# print_rich("[color=red]  _check_gc: DESTROYED (v_perp too high)[/color]")
 			avatar.flight_state = FlightState.CRASHED
 			crashed.emit()
-			if avatar.is_player and GameManager:
+			if avatar.is_player and GameManager and not avatar.destroyed_this_crash:
+				avatar.destroyed_this_crash = true
 				GameManager.destroy_player(avatar.id)
 
 func _check_obstacle_collision(avatar: AvatarData) -> void:
@@ -755,7 +762,8 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 				if avatar.flight_state != FlightState.CRASHED:
 					avatar.flight_state = FlightState.CRASHED
 					crashed.emit()
-					if avatar.is_player and GameManager:
+					if avatar.is_player and GameManager and not avatar.destroyed_this_crash:
+						avatar.destroyed_this_crash = true
 						GameManager.destroy_player(avatar.id)
 				return
 		elif child is CharacterBody2D and child.has_method("is_enemy") and speed > 30:
@@ -765,7 +773,8 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 				if avatar.flight_state != FlightState.CRASHED:
 					avatar.flight_state = FlightState.CRASHED
 					crashed.emit()
-					if avatar.is_player and GameManager:
+					if avatar.is_player and GameManager and not avatar.destroyed_this_crash:
+						avatar.destroyed_this_crash = true
 						GameManager.destroy_player(avatar.id)
 				if child.has_method("get_avatar_data") and child.has_method("force_crash"):
 					child.force_crash()
@@ -786,9 +795,9 @@ func _apply_crash_physics(avatar: AvatarData, delta: float) -> void:
 	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
 	if ground_ray and ground_ray.is_colliding():
 		velocity = Vector2.ZERO
-		crashed.emit()
 		damaged.emit(1.0, 0.0)
-		if avatar.is_player and GameManager:
+		if avatar.is_player and GameManager and not avatar.destroyed_this_crash:
+			avatar.destroyed_this_crash = true
 			GameManager.destroy_player(avatar.id)
 
 func get_avatar_speed(avatar: AvatarData) -> float:
@@ -1181,6 +1190,7 @@ func reset_flight_state() -> void:
 	var avatar = get_avatar_data(0)
 	if avatar:
 		avatar.reset()
+		avatar.destroyed_this_crash = false
 
 func force_crash() -> void:
 	for avatar_id in _avatars:
