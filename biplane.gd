@@ -28,7 +28,7 @@ extends CharacterBody2D
 @export_group("Throttle")
 @export var min_throttle: float = 0.0
 @export var max_throttle: float = 1.0
-@export var max_speed: float = 400.0
+@export var max_speed: float = 300.0
 
 const THROTTLE_STEP := 0.1
 const THROTTLE_REPEAT_DELAY := 0.1
