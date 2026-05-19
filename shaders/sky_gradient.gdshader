@@ -17,7 +17,7 @@ void fragment() {
 	vec4 sky_color = mix(color_sky_hi, color_sky_lo, t);
 
 	float darken = altitude_factor;
-	vec4 dark_blue = vec4(0.0, 0.20, 0.5, 1.0);
+	vec4 dark_blue = vec4(0.0, 0.15, 0.5, 1.0);
 	sky_color = mix(sky_color, dark_blue, darken);
 
 	COLOR = sky_color;

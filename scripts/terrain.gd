@@ -1,6 +1,7 @@
 extends Node2D
 
 const TERRAIN_LENGTH := 16384.0
+const TERRAIN_LOW_BOUND := 3000.0
 const SEGMENT_WIDTH := 32.0
 const RUNWAY_START := 6300.0
 const RUNWAY_END := 6800.0
@@ -37,8 +38,8 @@ func _create_terrain() -> void:
 	
 	var collision_poly := CollisionPolygon2D.new()
 	var poly_points := ground_points.duplicate()
-	poly_points.append(Vector2(TERRAIN_LENGTH, 1050.0))
-	poly_points.append(Vector2(0, 1050.0))
+	poly_points.append(Vector2(TERRAIN_LENGTH, TERRAIN_LOW_BOUND))
+	poly_points.append(Vector2(0, TERRAIN_LOW_BOUND))
 	collision_poly.polygon = poly_points
 	terrain_body.add_child(collision_poly)
 	terrain_body.collision_layer = 1
