@@ -52,31 +52,7 @@ Layer 2: Player biplane, Enemy biplanes
 Layer 4: Bullets
 Layer 8: Bombs
 
-## Particle Systems (biplane.gd):
-
-_init_particle_materials() - white/black smoke, fire materials (static)
-_ensure_smoke(avatar, smoke_type, amount) - smoke_type: 1=white, 2=black
-_ensure_fire(avatar, amount) - fire particles
-
-Must set process_material after creating GPUParticles2D node
-
 ## Debug Commands
 
 make run    # launch game
 godot --help|--version
-
-## Important Constants
-
-max_landing_tilt_deg: 34.0 - max safe landing angle
-stall_speed_ms: 21.4 / 2.2 - stall threshold
-GROUND_Y: 800.0 - default ground level
-MAX_ALTITUDE: 2000.0 - max playable altitude
-RESPAWN_DELAY: 3.0 - seconds before respawn
-
-## Respawn Flow
-
-1. _on_biplane_crashed() → sets is_respawning = true
-2. _respawn_biplane() → calls biplane._perform_teleport_landing()
-3. avatar.reset() → resets state, then `_crash_processed.erase(0)` clears the crash-processed guard
-
-When adding new avatar fields, add them to AvatarData class and reset in reset().

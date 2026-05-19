@@ -511,7 +511,8 @@ func _apply_aerodynamics(avatar: AvatarData, delta: float) -> void:
 			var ground_ahead: float = terrain.get_ground_height_at(global_position.x + 10)
 			var ground_behind: float = terrain.get_ground_height_at(global_position.x - 10)
 			var slope_angle: float = atan2(ground_ahead - ground_behind, 30.0)
-			var relative_angle: float = avatar.pitch_angle - slope_angle
+			var effective_pitch: float = avatar.pitch_angle + (PI if avatar.is_inverted else 0.0) - slope_angle
+			var relative_angle: float = effective_pitch - slope_angle
 			while relative_angle > PI:
 				relative_angle -= TAU
 			while relative_angle < -PI:
@@ -629,7 +630,8 @@ func _apply_ground_forces(avatar: AvatarData, delta: float) -> void:
 		var ground_ahead: float = terrain.get_ground_height_at(global_position.x + 10)
 		var ground_behind: float = terrain.get_ground_height_at(global_position.x - 10)
 		var slope_angle: float = atan2(ground_ahead - ground_behind, 30.0)
-		var relative_angle: float = avatar.pitch_angle - slope_angle
+		var effective_pitch: float = avatar.pitch_angle + (PI if avatar.is_inverted else 0.0) - slope_angle
+		var relative_angle: float = effective_pitch - slope_angle
 		while relative_angle > PI:
 			relative_angle -= TAU
 		while relative_angle < -PI:
@@ -704,7 +706,8 @@ func _check_ground_collision(avatar: AvatarData) -> void:
 			var ground_behind: float = terrain.get_ground_height_at(global_position.x - 10)
 			slope_angle = atan2(ground_ahead - ground_behind, 30.0)
 
-		var relative_angle: float = normalized_rot - slope_angle
+		var effective_pitch: float = normalized_rot + (PI if avatar.is_inverted else 0.0) - slope_angle
+		var relative_angle: float = effective_pitch - slope_angle
 		while relative_angle > PI:
 			relative_angle -= TAU
 		while relative_angle < -PI:
