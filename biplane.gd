@@ -428,7 +428,12 @@ func _start_flip(avatar: AvatarData) -> void:
 func _release_flip(avatar: AvatarData) -> void:
 	if avatar.flip_progress < 0.5:
 		if _flip_tween and _flip_tween.is_valid():
-			_flip_tween.play_backwards()
+			var current_progress = avatar.flip_progress
+			_flip_tween.kill()
+			_flip_tween = create_tween()
+			_flip_tween.set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
+			_flip_tween.tween_method(_update_flip.bind(avatar), current_progress, 0.0, FLIP_DURATION * current_progress)
+			_flip_tween.finished.connect(_on_flip_completed.bind(avatar))
 	else:
 		_flip_tween.kill()
 		avatar.flip_progress = 1.0
@@ -441,12 +446,7 @@ func _update_flip(progress: float, avatar: AvatarData) -> void:
 
 func _apply_flip_transform(avatar: AvatarData, t: float) -> void:
 	var visual = $Visual
-	if not avatar.is_inverted:
-		visual.scale.y = lerp(1.0, -1.0, t)
-		visual.rotation = lerp(0.0, PI, t)
-	else:
-		visual.scale.y = lerp(-1.0, 1.0, t)
-		visual.rotation = lerp(PI, 0.0, t)
+	visual.scale.y = lerp(1.0, -1.0, t) if not avatar.is_inverted else lerp(-1.0, 1.0, t)
 	visual.position.y = -sin(t * PI) * FLIP_ARC_HEIGHT
 
 func _on_flip_completed(avatar: AvatarData) -> void:
