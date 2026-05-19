@@ -1,8 +1,8 @@
 extends CharacterBody2D
 
 var gravity: float = 147.15
-var explosion_radius: float = 120.0
-var explosion_damage: float = 80.0
+var explosion_radius: float = 100.0
+var explosion_damage: float = 300.0
 
 var _bomb_owner: Node = null
 var has_exploded: bool = false
@@ -81,22 +81,29 @@ func explode() -> void:
 	for body in bodies:
 		if body == self:
 			continue
-		if body is Node2D and body.global_position.distance_to(global_position) < explosion_radius:
-			if body.has_method("get_avatar_data") and body.has_method("take_damage"):
-				var avatar = body.get_avatar_data(0)
-				if avatar:
-					if body.has_method("is_player_plane") or body.has_method("is_enemy_plane"):
-						body.take_damage(avatar, 200.0, _bomb_owner)
-					else:
-						body.take_damage(avatar, explosion_damage, _bomb_owner)
-			elif body.has_method("take_damage"):
-				body.take_damage(explosion_damage, _bomb_owner)
+		if not (body is Node2D and body.has_method("take_damage")):
+			continue
+		var distance: float = body.global_position.distance_to(global_position)
+		if distance > explosion_radius:
+			continue
+		var damage: float = explosion_damage * (1.0 - distance / explosion_radius)
+		if body.has_method("get_avatar_data") and body.get_avatar_data(0):
+			body.take_damage(body.get_avatar_data(0), damage, _bomb_owner)
+		else:
+			body.take_damage(damage, _bomb_owner)
 
 	queue_free()
 
 func _spawn_explosion_effect() -> void:
 	var explosion: GPUParticles2D = EXPLOSION_SCENE.instantiate()
 	explosion.global_position = global_position
+
+	var scale_factor: float = explosion_radius / 150.0
+	explosion.amount = maxi(1, int(explosion.amount * scale_factor))
+	for child in explosion.get_children():
+		if child is GPUParticles2D:
+			child.amount = maxi(1, int(child.amount * scale_factor))
+
 	get_parent().add_child(explosion)
 
 	if GameManager:

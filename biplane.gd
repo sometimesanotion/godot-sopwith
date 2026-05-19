@@ -6,7 +6,7 @@ extends CharacterBody2D
 ## Arcade feel achieved via gravity multiplier and tuned propeller curve
 
 @export_group("Flight Parameters (SI Units)")
-@export var arcade_multiplier: float = 1.8
+@export var arcade_multiplier: float = 2.2
 
 @export var camel_mass_kg: float = 447.0
 @export var engine_power_watts: float = 96941.0 * arcade_multiplier
@@ -21,7 +21,7 @@ extends CharacterBody2D
 @export var ar_efficiency: float = 11.0
 @export var max_lift_coeff: float = 1.4
 @export var air_density: float = 1.225 * arcade_multiplier
-@export var ground_drag_coeff = 200.0
+@export var ground_drag_coeff = 200.0	# This seems to have no effect
 @export var stall_aoa: float = 0.244
 @export var stall_speed_ms: float = 21.4 / 2.2
 
@@ -32,13 +32,13 @@ extends CharacterBody2D
 
 const THROTTLE_STEP := 0.1
 const THROTTLE_REPEAT_DELAY := 0.1
-const THROTTLE_RAMP_SPEED := 4.0
+const THROTTLE_RAMP_SPEED := 5.0
 
-const MAX_AMMO := 250
+const MAX_AMMO := 500
 const MAX_BOMBS := 5
 
 @export_group("Weapons")
-@export var gun_cooldown: float = 0.1
+@export var gun_cooldown: float = 0.07
 @export var bomb_cooldown: float = 0.5
 @export var bullet_speed: float = 1600.0
 
@@ -131,7 +131,7 @@ var _crash_processed: Dictionary = {}
 class HomebaseData:
 	var id: int = 0
 	var home_base_x: float = 6554.0
-	var home_base_width: float = 200.0
+	var home_base_width: float = 700.0
 	var landing_threshold: float = 1000.0
 	var spawn_position: Vector2 = Vector2(7000, 500)
 	var spawn_rotation: float = 0.0
@@ -276,7 +276,7 @@ func get_homebase_width(avatar: AvatarData) -> float:
 	var homebase: HomebaseData = _homebases.get(avatar.homebase_id)
 	if homebase:
 		return homebase.home_base_width
-	return 200.0
+	return 700.0
 
 func _ready() -> void:
 	motion_mode = MotionMode.MOTION_MODE_FLOATING
@@ -360,8 +360,6 @@ func _handle_input(avatar: AvatarData, delta: float) -> void:
 	if avatar.is_inverted:
 		pitch_input = -pitch_input
 	pitch_input *= avatar.control_effectiveness
-
-	var new_throttle: float
 
 	var throttle_changed := false
 	if avatar.engine_cutoff:
@@ -462,6 +460,7 @@ func _on_flip_completed(avatar: AvatarData) -> void:
 	avatar.flip_progress = 0.0
 	avatar.is_inverted = (avatar.flip_direction == 1)
 	avatar.visual_roll = PI if avatar.is_inverted else 0.0
+	_update_ground_ray(avatar)
 	_flip_tween = null
 
 func _on_flip_cancelled(avatar: AvatarData) -> void:
@@ -569,7 +568,7 @@ func _apply_aerodynamics(avatar: AvatarData, delta: float) -> void:
 			avatar.flight_state = FlightState.FLYING
 
 	# Control effectiveness varying with speed relative to stall, for more accuracy and less fishtailing
-	var speed_ratio_sq := (speed_si * speed_si) / ((stall_speed_ms * stall_speed_ms) * 60)
+	var speed_ratio_sq := (speed_si * speed_si) / ((stall_speed_ms * stall_speed_ms) * 50)
 	avatar.control_effectiveness = clampf(speed_ratio_sq, 0.5, 2.0)
 
 	var cl: float = angle_of_attack * 2.0 * PI
@@ -873,7 +872,8 @@ func fire_gun(avatar: AvatarData) -> void:
 	bullet.assign_owner(self, range_percent)
 
 	get_parent().add_child(bullet)
-	fired_bullet.emit(spawn_pos, direction, bullet_speed, self, range_percent)
+	# fired_bullet.emit(spawn_pos, direction, bullet_speed, self, range_percent)
+	fired_bullet.emit(spawn_pos, direction, bullet_speed, self, 1.0)
 
 	if SoundManager:
 		SoundManager.play_machine_gun()
@@ -1075,6 +1075,11 @@ func is_player_plane(avatar: AvatarData) -> bool:
 func is_enemy_plane(avatar: AvatarData) -> bool:
 	return not avatar.is_player
 
+func _update_ground_ray(avatar: AvatarData) -> void:
+	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
+	if ground_ray:
+		ground_ray.target_position = Vector2(0, -26 if avatar.is_inverted else 26)
+
 func is_grounded(avatar: AvatarData) -> bool:
 	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
 	if ground_ray:
@@ -1188,6 +1193,8 @@ func reset_flight_state() -> void:
 		avatar.reset()
 		_crash_processed.erase(0)
 	reset_visual_transform()
+	if avatar:
+		_update_ground_ray(avatar)
 
 func force_crash() -> void:
 	for avatar_id in _avatars:
