@@ -769,7 +769,7 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 					avatar.flight_state = FlightState.CRASHED
 					_on_avatar_crashed(avatar)
 				return
-		elif child is CharacterBody2D and child.has_method("is_enemy") and speed > 30:
+		elif child is CharacterBody2D and child.has_method("get_avatar_data") and speed > 10:
 			var hit_radius: float = 20.0
 			var dist := global_position.distance_to(child.global_position)
 			if dist < hit_radius:
