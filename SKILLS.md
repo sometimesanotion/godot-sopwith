@@ -29,7 +29,7 @@ Terrain	terrain.gd	Ground generation, runway detection
 - Avatar System:
 - AvatarData stores per-player state; player ID 0 = human, 1+ = AI
 - Access via biplane.get_avatar_data(player_id)
-- destroyed_this_crash flag prevents double life loss per crash (NOTE: this is a kludge)
+- _on_avatar_crashed() in biplane.gd centralises all per-crash logic (lives, signal) with idempotent _crash_processed guard (replaces old destroyed_this_crash kludge)
 
 Flight Physics (biplane.gd):
 
@@ -60,13 +60,6 @@ _ensure_fire(avatar, amount) - fire particles
 
 Must set process_material after creating GPUParticles2D node
 
-## Common Fix Patterns
-
-Adding new crash trigger: Check avatar.flight_state != CRASHED before setting, emit crashed.emit(), guard with not avatar.destroyed_this_crash before calling GameManager.destroy_player().
-Smoke/fire not showing: Ensure process_material is assigned after creating particle node.
-Camera issues: All camera logic in _update_camera() - modify speed_coeff, look_ahead_dist, or lerp_rate.
-Sky gradient: shaders/sky_gradient.gdshader + background.gd:_create_sky_gradient() - uses camera_y uniform to darken sky with altitude.
-
 ## Debug Commands
 
 make run    # launch game
@@ -84,6 +77,6 @@ RESPAWN_DELAY: 3.0 - seconds before respawn
 
 1. _on_biplane_crashed() → sets is_respawning = true
 2. _respawn_biplane() → calls biplane._perform_teleport_landing()
-3. avatar.reset() → resets state, sets destroyed_this_crash = false
+3. avatar.reset() → resets state, then `_crash_processed.erase(0)` clears the crash-processed guard
 
 When adding new avatar fields, add them to AvatarData class and reset in reset().
