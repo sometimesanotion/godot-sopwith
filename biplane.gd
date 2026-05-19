@@ -930,9 +930,9 @@ func _check_fuel_consumption(avatar: AvatarData, delta: float) -> void:
 			_ensure_smoke(avatar, 1, 10) # white smoke
 
 		elif avatar.throttle > 0 or avatar.damage_percent >= 0.8:
-			var fuel_loss = avatar.throttle * delta * 0.7
+			var fuel_loss = avatar.throttle * delta * 0.8
 			if avatar.damage_percent >= 0.8:
-				fuel_loss *= 8.0
+				fuel_loss *= 6.0
 			elif avatar.damage_percent >= 0.5:
 				fuel_loss *= 2.0
 			avatar.fuel = maxf(0.0, avatar.fuel - fuel_loss)

@@ -69,21 +69,22 @@ func _process(_delta: float) -> void:
 			sky_material.set_shader_parameter("camera_y", main_camera.position.y)
 
 func _draw() -> void:
-	# _draw_sky() removed - sky gradient now rendered via shader
 	_draw_mountains()
 	_draw_clouds()
 
 func _draw_mountains() -> void:
 	for pos in mountain_positions:
 		var screen_pos = pos
-		var height = 80 + randf() * 60
+		var height = 80 + randf() * 150
 		var points = PackedVector2Array([
-			Vector2(screen_pos.x - 100, 750),
-			Vector2(screen_pos.x - 30, 750 - height),
-			Vector2(screen_pos.x + 40, 750 - height - 30),
-			Vector2(screen_pos.x + 100, 750)
+			Vector2(screen_pos.x - 400, 750),
+			Vector2(screen_pos.x - 240, 750 - height),
+			Vector2(screen_pos.x - 120, 550 - height),
+			Vector2(screen_pos.x + 120, 550 - height - 30),
+			Vector2(screen_pos.x + 240, 750 - height - 30),
+			Vector2(screen_pos.x + 400, 750)
 		])
-		draw_colored_polygon(points, Color(0.15, 0.18, 0.22))
+		draw_colored_polygon(points, Color(0.10, 0.20, 0.40))
 
 func _draw_clouds() -> void:
 	if SvgManager and SvgManager.has_sprite("cloud"):
