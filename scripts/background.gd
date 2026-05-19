@@ -37,14 +37,14 @@ func _generate_background() -> void:
 		mountain_positions.append(Vector2(randf() * TERRAIN_LENGTH, 500 + randf() * 150))
 	for i in range(20):
 		var cx := randf() * TERRAIN_LENGTH
-		var cy := 80 + randf() * 250
+		var cy := 120 + randf() * 400
 		var cloud := {
 			"pos": Vector2(cx, cy),
 			"puffs": [],
 			"width": 240 + randf() * 200,
 			"height": 120 + randf() * 80
 		}
-		var num_puffs := 20 + randi() % 20
+		var num_puffs := 30 + randi() % 30
 		for j in range(num_puffs):
 			var px: float = (randf() - 0.5) * cloud["width"]
 			var py: float = (randf() - 0.5) * cloud["height"]
@@ -58,8 +58,15 @@ func _generate_background() -> void:
 func _process(_delta: float) -> void:
 	if sky_rect and sky_rect.size != get_viewport_rect().size:
 		sky_rect.size = get_viewport_rect().size
-	if sky_material and camera:
-		sky_material.set_shader_parameter("camera_y", camera.position.y)
+	if sky_material:
+		sky_material.set_shader_parameter("ground_y", 800.0)
+		var main_camera = get_tree().get_first_node_in_group("camera")
+		if not main_camera:
+			var main_node = get_parent()
+			if main_node and main_node.has_node("Camera2D"):
+				main_camera = main_node.get_node("Camera2D")
+		if main_camera:
+			sky_material.set_shader_parameter("camera_y", main_camera.position.y)
 
 func _draw() -> void:
 	# _draw_sky() removed - sky gradient now rendered via shader
