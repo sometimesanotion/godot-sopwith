@@ -8,7 +8,6 @@ extends Node2D
 const TERRAIN_LENGTH := 16384.0
 const VIEWPORT_MIN_X := 0.0
 const VIEWPORT_MAX_X := 1280.0
-const GHOST_THRESHOLD := 300.0
 const HOME_BASE := Vector2(6454, 650)
 const RESPAWN_DELAY := 2.0
 
@@ -20,8 +19,6 @@ const GROUND_TARGET_SCENE := preload("res://scenes/ground_target.tscn")
 const MINIMAP_SCENE := preload("res://scenes/minimap.tscn")
 const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
 
-var ghost_biplane: Node2D
-var ghost_terrain: Node2D
 var game_state: String = "TITLE"
 var title_screen: CanvasLayer = null
 var pause_menu: CanvasLayer = null
@@ -117,7 +114,7 @@ func _abort_game() -> void:
 func _clear_game_objects() -> void:
 	var children = get_children()
 	for child in children:
-		if child != biplane and child != camera and child != terrain and child != ui and child.name != "Background" and child.name != "GhostBiplane" and child.name != "GhostTerrain":
+		if child != biplane and child != camera and child != terrain and child != ui and child.name != "Background":
 			if child.has_method("queue_free"):
 				child.queue_free()
 
@@ -213,7 +210,6 @@ func _start_playing(is_vs_computer: bool) -> void:
 	if SoundManager:
 		SoundManager.play_music()
 	_create_minimap()
-	_create_ghost_biplane()
 	_spawn_enemies_and_targets()
 	if GameManager and biplane and biplane.has_method("get_avatar_data"):
 		var avatar = biplane.get_avatar_data(0)
@@ -422,10 +418,8 @@ func _physics_process(delta: float) -> void:
 
 	if biplane:
 		_handle_wrap_around()
-		_update_ghost_biplane()
 		_update_camera(delta)
 		_check_runway_landing(delta, biplane)
-		_update_ghost_terrain()
 		_update_minimap()
 
 	if is_respawning:
@@ -537,8 +531,10 @@ func _handle_wrap_around() -> void:
 
 	if pos.x < VIEWPORT_MIN_X:
 		biplane.position.x = TERRAIN_LENGTH - 1
+		camera.position.x += TERRAIN_LENGTH
 	elif pos.x >= TERRAIN_LENGTH:
 		biplane.position.x = VIEWPORT_MIN_X + 1
+		camera.position.x -= TERRAIN_LENGTH
 
 func _check_runway_landing(delta: float, obj: Node2D) -> void:
 	if not obj or not terrain:
@@ -566,67 +562,6 @@ func _on_landed(delta: float) -> void:
 			if avatar.bombs < 5:
 				avatar.bombs = min(5, avatar.bombs + 1)
 				GameManager.bombs_changed.emit(0, avatar.bombs)
-
-func _create_ghost_biplane() -> void:
-	ghost_biplane = Node2D.new()
-	ghost_biplane.name = "GhostBiplane"
-	add_child(ghost_biplane)
-
-	if biplane and biplane.has_node("Visual"):
-		var original_visual = biplane.get_node("Visual")
-		if original_visual:
-			var ghost_visual = original_visual.duplicate()
-			ghost_biplane.add_child(ghost_visual)
-			ghost_visual.position = Vector2.ZERO
-			ghost_visual.modulate.a = 0.5
-
-func _update_ghost_biplane() -> void:
-	if not ghost_biplane or not biplane:
-		return
-
-	var pos: Vector2 = biplane.position
-	var wrapped_x: float = wrapf(pos.x, 0, TERRAIN_LENGTH)
-
-	if pos.x < GHOST_THRESHOLD:
-		ghost_biplane.visible = true
-		ghost_biplane.position = Vector2(wrapped_x + TERRAIN_LENGTH - pos.x, pos.y)
-		ghost_biplane.rotation = biplane.rotation
-	elif pos.x > TERRAIN_LENGTH - GHOST_THRESHOLD:
-		ghost_biplane.visible = true
-		ghost_biplane.position = Vector2(wrapped_x - TERRAIN_LENGTH + pos.x, pos.y)
-		ghost_biplane.rotation = biplane.rotation
-	else:
-		ghost_biplane.visible = false
-
-func _create_ghost_terrain() -> void:
-	ghost_terrain = Node2D.new()
-	ghost_terrain.name = "GhostTerrain"
-	if terrain and terrain.has_method("get_visual_line"):
-		var visual_line = terrain.get_visual_line()
-		if visual_line:
-			var ghost_line = visual_line.duplicate()
-			ghost_terrain.add_child(ghost_line)
-	add_child(ghost_terrain)
-
-func _update_ghost_terrain() -> void:
-	if not ghost_terrain:
-		_create_ghost_terrain()
-
-	if not biplane:
-		return
-
-	var pos: Vector2 = biplane.position
-
-	if pos.x < GHOST_THRESHOLD:
-		ghost_terrain.visible = true
-		ghost_terrain.position.x = TERRAIN_LENGTH
-		ghost_terrain.position.y = 0
-	elif pos.x > TERRAIN_LENGTH - GHOST_THRESHOLD:
-		ghost_terrain.visible = true
-		ghost_terrain.position.x = -TERRAIN_LENGTH
-		ghost_terrain.position.y = 0
-	else:
-		ghost_terrain.visible = false
 
 func _create_minimap() -> void:
 	minimap_instance = MINIMAP_SCENE.instantiate()

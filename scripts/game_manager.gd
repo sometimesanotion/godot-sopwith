@@ -100,8 +100,9 @@ func emit_signals_for_player(player_id: int) -> void:
 		ammo_changed.emit(player_id, avatar.ammo)
 		bombs_changed.emit(player_id, avatar.bombs)
 	else:
+		# TODO - these should look up a single constant
 		fuel_changed.emit(player_id, 100.0)
-		ammo_changed.emit(player_id, 100)
+		ammo_changed.emit(player_id, 250)
 		bombs_changed.emit(player_id, 5)
 
 func get_lives(player_id: int) -> int:
