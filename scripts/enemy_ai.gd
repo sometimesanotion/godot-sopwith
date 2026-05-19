@@ -56,10 +56,7 @@ var decision_timer: float = 0.0
 var decision_interval: float = 0.05
 
 var incoming_bullet_timer: float = 0.0
-var roll_timer: float = 0.0
-var is_rolling: bool = false
-var roll_direction: int = 1
-var roll_start_angle: float = 0.0
+var flip_cooldown: float = 0.0
 
 var home_base_x: float = 1400.0
 var patrol_range: float = 2000.0
@@ -145,13 +142,7 @@ func _physics_process(delta: float) -> void:
 
 	incoming_bullet_timer = max(0.0, incoming_bullet_timer - delta)
 	bomb_cooldown_timer = max(0.0, bomb_cooldown_timer - delta)
-	roll_timer = max(0.0, roll_timer - delta)
-	if roll_timer <= 0.0 and is_rolling:
-		is_rolling = false
-		_end_roll()
-
-	if is_rolling:
-		_do_roll(delta)
+	flip_cooldown = max(0.0, flip_cooldown - delta)
 
 	if crash_timer > 0:
 		crash_timer -= delta
@@ -562,9 +553,6 @@ func _compute_pitch_from_heading() -> float:
 
 	base_pitch = clampf(base_pitch, -1.0, 1.0)
 
-	if is_rolling:
-		base_pitch = 0.0
-
 	return base_pitch
 
 func _compute_evade_pitch() -> float:
@@ -578,8 +566,11 @@ func _compute_evade_pitch() -> float:
 	elif alt < DANGER_ALTITUDE_ABOVE_GROUND:
 		return -0.8
 	elif incoming_bullet_timer > 0.0:
-		if not is_rolling and randf() < 0.6:
-			_start_roll()
+		if flip_cooldown <= 0.0 and randf() < 0.6:
+			var avatar = _get_avatar()
+			if avatar:
+				biplane.do_flip(avatar)
+				flip_cooldown = 3.0
 		return -0.3
 	else:
 		return -0.5
@@ -759,70 +750,16 @@ func _terrain_projection_reflex() -> float:
 
 	return 0.0
 
-func _do_roll(delta: float) -> void:
-	if not biplane:
-		return
-
-	biplane.rotation += delta * biplane.roll_speed * roll_direction
-
-	var normalized_rot = fmod(biplane.rotation, TAU)
-	if normalized_rot < 0:
-		normalized_rot += TAU
-
-	var dist_to_target: float
-	if roll_direction > 0:
-		dist_to_target = minf(normalized_rot - roll_start_angle, TAU - (normalized_rot - roll_start_angle))
-	else:
-		dist_to_target = minf(roll_start_angle - normalized_rot, normalized_rot + TAU - roll_start_angle)
-
-	if dist_to_target >= PI - 0.1:
-		_end_roll()
-
-func _start_roll() -> void:
-	if not biplane:
-		return
-
-	is_rolling = true
-	roll_timer = 0.8
-
-	var normalized_rot = fmod(biplane.rotation, TAU)
-	if normalized_rot < 0:
-		normalized_rot += TAU
-
-	if normalized_rot < PI:
-		roll_direction = 1
-		roll_start_angle = normalized_rot
-	else:
-		roll_direction = -1
-		roll_start_angle = normalized_rot
-
-func _end_roll() -> void:
-	is_rolling = false
-	if not biplane:
-		return
-
-	var normalized_rot = fmod(biplane.rotation, TAU)
-	if normalized_rot < 0:
-		normalized_rot += TAU
-
-	var dist_to_upright = minf(normalized_rot, TAU - normalized_rot)
-	var dist_to_inverted = abs(normalized_rot - PI)
-
-	if dist_to_upright <= dist_to_inverted:
-		biplane.rotation = round(normalized_rot / PI) * PI
-	else:
-		biplane.rotation = round((normalized_rot - PI) / PI) * PI + PI
-
 func notify_incoming_fire() -> void:
 	incoming_bullet_timer = 0.5
 
-func is_doing_roll() -> bool:
-	return is_rolling
-
 func get_dodge_chance() -> float:
-	if not is_rolling:
+	var avatar = _get_avatar()
+	if not avatar:
 		return 0.0
-	return 0.5
+	if avatar.is_flipping:
+		return 0.5
+	return 0.0
 
 func _apply_input(pitch: float, throttle_amount: float) -> void:
 	if biplane.has_method("set_ai_input"):

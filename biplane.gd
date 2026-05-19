@@ -42,9 +42,8 @@ const MAX_BOMBS := 5
 @export var bomb_cooldown: float = 0.5
 @export var bullet_speed: float = 1600.0
 
-@export_group("Roll")
-@export var roll_speed: float = 4.0
-@export var max_roll_angle: float = PI
+const FLIP_DURATION := 0.35
+const FLIP_ARC_HEIGHT := 15.0
 
 @export_group("Handling")
 @export var rotation_speed: float = 9.0
@@ -163,12 +162,10 @@ class AvatarData:
 	var gun_timer: float = 0.0
 	var bomb_timer: float = 0.0
 
-	var is_rolling: bool = false
-	var roll_direction: int = 1
-	var roll_start_angle: float = 0.0
-	var target_roll_angle: float = 0.0
+	var is_flipping: bool = false
+	var flip_progress: float = 0.0
+	var is_inverted: bool = false
 
-	var bank_angle: float = 0.0
 	var pitch_angle: float = 0.0
 	var visual_roll: float = 0.0
 	var heading_angle: float = 0.0
@@ -205,12 +202,10 @@ class AvatarData:
 		gun_timer = 0.0
 		bomb_timer = 0.0
 
-		is_rolling = false
-		roll_direction = 1
-		roll_start_angle = 0.0
-		target_roll_angle = 0.0
+		is_flipping = false
+		flip_progress = 0.0
+		is_inverted = false
 
-		bank_angle = 0.0
 		pitch_angle = 0.0
 		visual_roll = 0.0
 		heading_angle = 0.0
@@ -281,6 +276,7 @@ func _ready() -> void:
 	motion_mode = MotionMode.MOTION_MODE_FLOATING
 	PhysicsServer2D.body_set_param(get_rid(), PhysicsServer2D.BODY_PARAM_MASS, camel_mass_kg)
 	_init_particle_materials()
+	reset_visual_transform()
 
 func _physics_process(delta: float) -> void:
 	if not game_active:
@@ -305,7 +301,6 @@ func _physics_process(delta: float) -> void:
 		_apply_aerodynamics(avatar, delta)
 		_check_ground_collision(avatar)
 		_apply_ground_forces(avatar, delta)
-		_handle_roll(avatar, delta)
 
 		global_position += velocity * delta
 		_check_obstacle_collision(avatar)
@@ -384,21 +379,19 @@ func _handle_input(avatar: AvatarData, delta: float) -> void:
 	if not throttle_changed and avatar.throttle_target < min_throttle and not avatar.engine_cutoff:
 		avatar.throttle_target = min_throttle
 
-	if Input.is_action_just_pressed("roll") and not avatar.is_rolling:
-		_start_roll(avatar)
-	elif Input.is_action_just_released("roll") and avatar.is_rolling:
-		_end_roll(avatar)
+	if Input.is_action_just_pressed("roll") and not avatar.is_flipping:
+		_start_flip(avatar)
+	elif Input.is_action_just_released("roll") and avatar.is_flipping:
+		_release_flip(avatar)
 
 	avatar.throttle = move_toward(avatar.throttle, avatar.throttle_target, THROTTLE_RAMP_SPEED * delta)
 
-	if avatar.is_rolling:
-		rotation = avatar.pitch_angle + avatar.bank_angle
-	else:
+	if not avatar.is_flipping:
 		var effective_rotation_speed: float = rotation_speed * (1.0 - avatar.damage_percent * 0.4)
 		var target_angular_velocity := pitch_input * effective_rotation_speed
 		avatar.angular_velocity = move_toward(avatar.angular_velocity, target_angular_velocity, rotation_inertia * delta)
 		avatar.pitch_angle += avatar.angular_velocity * delta
-		rotation = avatar.pitch_angle + avatar.bank_angle
+	rotation = avatar.pitch_angle
 
 func set_ai_input(pitch: float, throttle_amount: float) -> void:
 	for avatar_id in _avatars:
@@ -416,50 +409,66 @@ func set_ai_input(pitch: float, throttle_amount: float) -> void:
 		var target_angular_velocity := pitch * pitch_authority * effective_rotation_speed
 		avatar.angular_velocity = move_toward(avatar.angular_velocity, target_angular_velocity, rotation_inertia * 0.016)
 		avatar.pitch_angle += avatar.angular_velocity * 0.016
-		rotation = avatar.pitch_angle + avatar.bank_angle
+		rotation = avatar.pitch_angle
 
-func _start_roll(avatar: AvatarData) -> void:
-	avatar.is_rolling = true
-	var normalized_rot := fmod(avatar.visual_roll, TAU)
-	if normalized_rot < 0:
-		normalized_rot += TAU
+var _flip_tween: Tween = null
 
-	if normalized_rot < PI:
-		avatar.roll_direction = 1
+func _start_flip(avatar: AvatarData) -> void:
+	if _flip_tween and _flip_tween.is_valid():
+		_flip_tween.kill()
+
+	avatar.is_flipping = true
+	avatar.flip_progress = 0.0
+
+	_flip_tween = create_tween()
+	_flip_tween.set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
+	_flip_tween.tween_method(_update_flip.bind(avatar), 0.0, 1.0, FLIP_DURATION)
+	_flip_tween.finished.connect(_on_flip_completed.bind(avatar))
+
+func _release_flip(avatar: AvatarData) -> void:
+	if avatar.flip_progress < 0.5:
+		if _flip_tween and _flip_tween.is_valid():
+			_flip_tween.play_backwards()
 	else:
-		avatar.roll_direction = -1
+		_flip_tween.kill()
+		avatar.flip_progress = 1.0
+		_apply_flip_transform(avatar, 1.0)
+		_on_flip_completed(avatar)
 
-func _handle_roll(avatar: AvatarData, delta: float) -> void:
-	if avatar.is_rolling:
-		avatar.bank_angle += roll_speed * delta * avatar.roll_direction
-		var normalized_bank := fmod(avatar.bank_angle, TAU)
-		if normalized_bank < 0:
-			normalized_bank += TAU
-		if normalized_bank > PI:
-			avatar.visual_roll = normalized_bank - TAU
-		else:
-			avatar.visual_roll = normalized_bank
+func _update_flip(progress: float, avatar: AvatarData) -> void:
+	avatar.flip_progress = progress
+	_apply_flip_transform(avatar, progress)
+
+func _apply_flip_transform(avatar: AvatarData, t: float) -> void:
+	var visual = $Visual
+	if not avatar.is_inverted:
+		visual.scale.y = lerp(1.0, -1.0, t)
+		visual.rotation = lerp(0.0, PI, t)
 	else:
-		var target_bank: float = 0.0
-		var normalized_bank: float = fmod(avatar.bank_angle, TAU)
-		if normalized_bank < 0:
-			normalized_bank += TAU
-		var dist_to_upright: float = abs(normalized_bank)
-		var dist_to_inverted: float = abs(normalized_bank - PI)
-		if dist_to_inverted < dist_to_upright:
-			target_bank = PI
-		else:
-			target_bank = 0.0
-		var remaining: float = target_bank - avatar.bank_angle
-		while remaining > PI:
-			remaining -= TAU
-		while remaining < -PI:
-			remaining += TAU
-		avatar.bank_angle += remaining * 5.0 * delta
-		avatar.visual_roll = avatar.bank_angle
+		visual.scale.y = lerp(-1.0, 1.0, t)
+		visual.rotation = lerp(PI, 0.0, t)
+	visual.position.y = -sin(t * PI) * FLIP_ARC_HEIGHT
 
-func _end_roll(avatar: AvatarData) -> void:
-	avatar.is_rolling = false
+func _on_flip_completed(avatar: AvatarData) -> void:
+	avatar.is_flipping = false
+	avatar.flip_progress = 0.0
+	var visual = $Visual
+	avatar.is_inverted = visual.scale.y < 0.0
+	avatar.visual_roll = PI if avatar.is_inverted else 0.0
+	_flip_tween = null
+
+func reset_visual_transform() -> void:
+	var visual = $Visual
+	visual.scale = Vector2.ONE
+	visual.rotation = 0.0
+	visual.position = Vector2.ZERO
+
+func do_flip(avatar: AvatarData) -> void:
+	if avatar and not avatar.is_flipping:
+		_start_flip(avatar)
+
+func is_inverted(avatar: AvatarData) -> bool:
+	return avatar.is_inverted if avatar else false
 
 func _is_on_ground(avatar: AvatarData) -> bool:
 	var ground_y: float = 650.0
@@ -1075,7 +1084,6 @@ func get_visual_roll(avatar: AvatarData) -> float:
 func _start_spinning_out(avatar: AvatarData) -> void:
 	avatar.is_losing_control = true
 	avatar.throttle = 0.0
-	_start_roll(avatar)
 
 func take_damage(avatar: AvatarData, amount: float, attacker: Node) -> void:
 	if avatar.flight_state == FlightState.CRASHED:
@@ -1176,6 +1184,7 @@ func reset_flight_state() -> void:
 	if avatar:
 		avatar.reset()
 		_crash_processed.erase(0)
+	reset_visual_transform()
 
 func force_crash() -> void:
 	for avatar_id in _avatars:

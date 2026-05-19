@@ -14,15 +14,14 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	var biplane = get_parent()
-	if biplane and biplane.has_method("get_visual_roll") and biplane.has_method("get_avatar_data"):
+	if biplane and biplane.has_method("get_avatar_data"):
 		var avatar = biplane.get_avatar_data(0)
 		if avatar:
 			if _svg_sprite_name == "biplane" and avatar.is_player:
 				_svg_sprite_name = "sopwith"
 				if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
 					texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-			rotation = biplane.get_visual_roll(avatar)
-			queue_redraw()
+	queue_redraw()
 
 func _draw() -> void:
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
