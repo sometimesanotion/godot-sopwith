@@ -178,6 +178,7 @@ class AvatarData:
 	var fire_particles: GPUParticles2D = null
 	var current_smoke_type: int = 0 # 0=none, 1=white, 2=black
 	var is_losing_control: bool = false
+	var has_hit_ground: bool = false
 
 	var engine_cutoff: bool = false
 	var engine_restart_hold_time: float = 0.0
@@ -216,6 +217,7 @@ class AvatarData:
 		last_shot_range = 0.0
 
 		is_losing_control = false
+		has_hit_ground = false
 
 		engine_cutoff = false
 		engine_restart_hold_time = 0.0
@@ -775,6 +777,11 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 			if dist < hit_radius:
 				if avatar.flight_state != FlightState.CRASHED:
 					avatar.flight_state = FlightState.CRASHED
+					avatar.damage_percent = 1.0
+					avatar.reliability = 0.0
+					_init_particle_materials()
+					_ensure_fire(avatar, 30)
+					_ensure_smoke(avatar, 2, 30)
 					_on_avatar_crashed(avatar)
 				if child.has_method("get_avatar_data") and child.has_method("force_crash"):
 					child.force_crash()
@@ -795,6 +802,7 @@ func _apply_crash_physics(avatar: AvatarData, delta: float) -> void:
 	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
 	if ground_ray and ground_ray.is_colliding():
 		velocity = Vector2.ZERO
+		avatar.has_hit_ground = true
 		damaged.emit(1.0, 0.0)
 		_on_avatar_crashed(avatar)
 
@@ -1212,4 +1220,10 @@ func force_crash() -> void:
 		var avatar = _avatars[avatar_id]
 		if avatar.flight_state != FlightState.CRASHED:
 			avatar.flight_state = FlightState.CRASHED
+			avatar.damage_percent = 1.0
+			avatar.reliability = 0.0
+			_start_spinning_out(avatar)
+			_init_particle_materials()
+			_ensure_fire(avatar, 30)
+			_ensure_smoke(avatar, 2, 30)
 			_on_avatar_crashed(avatar)

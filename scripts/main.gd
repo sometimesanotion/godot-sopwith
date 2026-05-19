@@ -32,6 +32,7 @@ var pause_menu: CanvasLayer = null
 var is_paused: bool = false
 var respawn_timer: float = 0.0
 var is_respawning: bool = false
+var is_waiting_for_crash_land: bool = false
 var screen_shake_intensity: float = 0.0
 var enemies: Array = []
 var minimap_instance: Control = null
@@ -422,14 +423,21 @@ func _physics_process(delta: float) -> void:
 		_check_runway_landing(delta, biplane)
 		_update_minimap()
 
+	if is_waiting_for_crash_land:
+		if biplane and biplane.has_method("get_avatar_data"):
+			var avatar = biplane.get_avatar_data(0)
+			if avatar and avatar.has_hit_ground:
+				is_waiting_for_crash_land = false
+				is_respawning = true
+				respawn_timer = RESPAWN_DELAY
+
 	if is_respawning:
 		respawn_timer -= delta
 		if respawn_timer <= 0:
 			_respawn_biplane()
 
 func _on_biplane_crashed() -> void:
-	is_respawning = true
-	respawn_timer = RESPAWN_DELAY
+	is_waiting_for_crash_land = true
 
 	if biplane and biplane.has_method("create_explosion"):
 		biplane.create_explosion()

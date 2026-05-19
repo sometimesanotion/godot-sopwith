@@ -81,6 +81,7 @@ var crash_timer: float = 0.0
 var crash_delay: float = 2.0
 var respawn_timer: float = 0.0
 var respawn_delay: float = 3.0
+var is_waiting_for_crash_land: bool = false
 
 var terrain_cache: Node2D = null
 
@@ -147,6 +148,13 @@ func _physics_process(delta: float) -> void:
 	if crash_timer > 0:
 		crash_timer -= delta
 		return
+
+	if is_waiting_for_crash_land:
+		if biplane and biplane.has_method("get_avatar_data"):
+			var avatar = biplane.get_avatar_data(0)
+			if avatar and avatar.has_hit_ground:
+				is_waiting_for_crash_land = false
+				respawn_timer = respawn_delay
 
 	_apply_input(last_pitch_input, last_throttle)
 
@@ -803,7 +811,7 @@ func _on_enemy_crashed() -> void:
 	if crash_timer > 0:
 		return
 	crash_timer = crash_delay
-	respawn_timer = respawn_delay
+	is_waiting_for_crash_land = true
 	if biplane and biplane.has_method("create_explosion"):
 		biplane.create_explosion()
 
