@@ -46,7 +46,7 @@ const FLIP_DURATION := 0.35
 const FLIP_ARC_HEIGHT := 15.0
 
 @export_group("Handling")
-@export var rotation_speed: float = 9.0
+@export var rotation_speed: float = 4.0
 @export var rotation_inertia: float = 3.0
 
 @export_group("Impact Physics (Sopwith Camel)")
@@ -179,6 +179,7 @@ class AvatarData:
 	var current_smoke_type: int = 0 # 0=none, 1=white, 2=black
 	var is_losing_control: bool = false
 	var has_hit_ground: bool = false
+	var control_effectiveness: float = 1.0
 
 	var engine_cutoff: bool = false
 	var engine_restart_hold_time: float = 0.0
@@ -218,6 +219,7 @@ class AvatarData:
 
 		is_losing_control = false
 		has_hit_ground = false
+		control_effectiveness = 1.0
 
 		engine_cutoff = false
 		engine_restart_hold_time = 0.0
@@ -350,10 +352,6 @@ func _handle_input(avatar: AvatarData, delta: float) -> void:
 	if not avatar.is_player:
 		return
 
-	var pitch_authority: float = 1.0
-	if avatar.flight_state == FlightState.STALLED:
-		pitch_authority = 0.4
-
 	var pitch_input := 0.0
 	if Input.is_action_pressed("pull_up"):
 		pitch_input = -1.0
@@ -361,7 +359,7 @@ func _handle_input(avatar: AvatarData, delta: float) -> void:
 		pitch_input = 1.0
 	if avatar.is_inverted:
 		pitch_input = -pitch_input
-	pitch_input *= pitch_authority
+	pitch_input *= avatar.control_effectiveness
 
 	var new_throttle: float
 
@@ -407,15 +405,11 @@ func set_ai_input(pitch: float, throttle_amount: float) -> void:
 		avatar.throttle_target = clampf(throttle_amount, min_throttle, max_throttle)
 		avatar.throttle = move_toward(avatar.throttle, avatar.throttle_target, THROTTLE_RAMP_SPEED * 0.016)
 
-		var pitch_authority: float = 1.0
-		if avatar.flight_state == FlightState.STALLED:
-			pitch_authority = 0.4
-
 		var effective_rotation_speed: float = rotation_speed * (1.0 - avatar.damage_percent * 0.4)
-		var input_pitch := pitch * pitch_authority
+		var input_pitch: float = pitch * avatar.control_effectiveness
 		if avatar.is_inverted:
 			input_pitch = -input_pitch
-		var target_angular_velocity := input_pitch * effective_rotation_speed
+		var target_angular_velocity: float = input_pitch * effective_rotation_speed
 		avatar.angular_velocity = move_toward(avatar.angular_velocity, target_angular_velocity, rotation_inertia * 0.016)
 		avatar.pitch_angle += avatar.angular_velocity * 0.016
 		rotation = avatar.pitch_angle
@@ -573,6 +567,10 @@ func _apply_aerodynamics(avatar: AvatarData, delta: float) -> void:
 		if avatar.flight_state == FlightState.STALLED:
 			avatar.flight_state = FlightState.FLYING
 
+	# Control effectiveness varying with speed relative to stall, for more accuracy and less fishtailing
+	var speed_ratio_sq := (speed_si * speed_si) / ((stall_speed_ms * stall_speed_ms) * 60)
+	avatar.control_effectiveness = clampf(speed_ratio_sq, 0.5, 2.0)
+
 	var cl: float = angle_of_attack * 2.0 * PI
 	cl = clampf(cl, -max_lift_coeff, max_lift_coeff)
 	if avatar.is_stalled:
@@ -613,6 +611,11 @@ func _apply_aerodynamics(avatar: AvatarData, delta: float) -> void:
 	var accel_px := accel_si * pixels_per_meter
 
 	velocity += accel_px * delta
+
+	# Experiment with this if pitch damping becomes a concern
+	# if speed_si > 0.5 and avatar.angular_velocity != 0.0:
+	# 	var pitch_damping := rotation_inertia * (speed_si / 20.0)
+	# 	avatar.angular_velocity = lerpf(avatar.angular_velocity, 0.0, clampf(pitch_damping * delta, 0.0, 1.0))
 
 func _apply_ground_forces(avatar: AvatarData, delta: float) -> void:
 	var ground_y: float = 650.0
