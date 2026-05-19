@@ -164,6 +164,7 @@ class AvatarData:
 
 	var is_flipping: bool = false
 	var flip_progress: float = 0.0
+	var flip_direction: int = 0 # 0=none, 1=forward (upright→inverted), -1=reverse (inverted→upright)
 	var is_inverted: bool = false
 
 	var pitch_angle: float = 0.0
@@ -204,6 +205,7 @@ class AvatarData:
 
 		is_flipping = false
 		flip_progress = 0.0
+		flip_direction = 0
 		is_inverted = false
 
 		pitch_angle = 0.0
@@ -419,6 +421,7 @@ func _start_flip(avatar: AvatarData) -> void:
 
 	avatar.is_flipping = true
 	avatar.flip_progress = 0.0
+	avatar.flip_direction = 1 if not avatar.is_inverted else -1
 
 	_flip_tween = create_tween()
 	_flip_tween.set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
@@ -434,6 +437,7 @@ func _release_flip(avatar: AvatarData) -> void:
 			_flip_tween.set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
 			_flip_tween.tween_method(_update_flip.bind(avatar), current_progress, 0.0, FLIP_DURATION * current_progress)
 			_flip_tween.finished.connect(_on_flip_completed.bind(avatar))
+		avatar.flip_direction = -avatar.flip_direction
 	else:
 		_flip_tween.kill()
 		avatar.flip_progress = 1.0
@@ -446,14 +450,15 @@ func _update_flip(progress: float, avatar: AvatarData) -> void:
 
 func _apply_flip_transform(avatar: AvatarData, t: float) -> void:
 	var visual = $Visual
-	visual.scale.y = lerp(1.0, -1.0, t) if not avatar.is_inverted else lerp(-1.0, 1.0, t)
+	var start_scale := 1.0 if avatar.flip_direction == 1 else -1.0
+	var end_scale := -1.0 if avatar.flip_direction == 1 else 1.0
+	visual.scale.y = lerp(start_scale, end_scale, t)
 	visual.position.y = -sin(t * PI) * FLIP_ARC_HEIGHT
 
 func _on_flip_completed(avatar: AvatarData) -> void:
 	avatar.is_flipping = false
 	avatar.flip_progress = 0.0
-	var visual = $Visual
-	avatar.is_inverted = visual.scale.y < 0.0
+	avatar.is_inverted = (avatar.flip_direction == 1)
 	avatar.visual_roll = PI if avatar.is_inverted else 0.0
 	_flip_tween = null
 
@@ -822,7 +827,10 @@ func _fire_gun(avatar: AvatarData) -> void:
 			GameManager.ammo_changed.emit(avatar.id, avatar.ammo)
 
 	var heading_dir := Vector2(cos(avatar.pitch_angle), sin(avatar.pitch_angle))
-	var spawn_pos := global_position + heading_dir * 34 + Vector2(0, -15).rotated(avatar.pitch_angle)
+	var spawn_offset := Vector2(34, -15).rotated(avatar.pitch_angle)
+	if avatar.is_inverted:
+		spawn_offset = Vector2(34, 15).rotated(avatar.pitch_angle)
+	var spawn_pos := global_position + spawn_offset
 	var direction := heading_dir
 
 	var target_enemy: Node = _find_nearest_enemy(avatar)
@@ -886,6 +894,8 @@ func _drop_bomb(avatar: AvatarData) -> void:
 	var bomb := BOMB_SCENE.instantiate()
 
 	var spawn_offset := Vector2(0, 26).rotated(avatar.pitch_angle)
+	if avatar.is_inverted:
+		spawn_offset = Vector2(0, -26).rotated(avatar.pitch_angle)
 
 	var spawn_pos := global_position + spawn_offset
 	bomb.global_position = spawn_pos
@@ -1005,7 +1015,10 @@ func fire_gun(avatar: AvatarData) -> void:
 	avatar.gun_timer = gun_cooldown
 
 	var heading_dir := Vector2(cos(avatar.pitch_angle), sin(avatar.pitch_angle))
-	var spawn_pos := global_position + heading_dir * 34 + Vector2(0, -15).rotated(avatar.pitch_angle)
+	var spawn_offset := Vector2(34, -15).rotated(avatar.pitch_angle)
+	if avatar.is_inverted:
+		spawn_offset = Vector2(34, 15).rotated(avatar.pitch_angle)
+	var spawn_pos := global_position + spawn_offset
 	var target_enemy: Node = _find_nearest_enemy(avatar)
 	var range_percent: float = 0.5
 	if target_enemy:
