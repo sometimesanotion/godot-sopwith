@@ -6,7 +6,7 @@ var damage: float = 20.0
 
 var _bullet_owner: Node = null
 var _range_percent: float = 0.5
-var _max_range: float = 1000.0
+var _max_range: float = 2000.0
 
 func _ready() -> void:
 	lifetime = 0.7

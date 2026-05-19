@@ -171,7 +171,7 @@ class AvatarData:
 	var visual_roll: float = 0.0
 	var heading_angle: float = 0.0
 
-	var max_bullet_range: float = 600.0
+	var max_bullet_range: float = 1000.0
 	var last_shot_range: float = 0.0
 
 	var smoke_particles: GPUParticles2D = null
@@ -213,7 +213,7 @@ class AvatarData:
 		visual_roll = 0.0
 		heading_angle = 0.0
 
-		max_bullet_range = 600.0
+		max_bullet_range = 1000.0
 		last_shot_range = 0.0
 
 		is_losing_control = false
@@ -772,7 +772,7 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 					_on_avatar_crashed(avatar)
 				return
 		elif child is CharacterBody2D and child.has_method("get_avatar_data") and speed > 10:
-			var hit_radius: float = 20.0
+			var hit_radius: float = 40.0
 			var dist := global_position.distance_to(child.global_position)
 			if dist < hit_radius:
 				if avatar.flight_state != FlightState.CRASHED:
@@ -824,12 +824,12 @@ func _handle_weapons(avatar: AvatarData, delta: float) -> void:
 		avatar.bombs = avatar.bombs
 
 	if avatar.is_player and Input.is_action_pressed("fire") and avatar.gun_timer <= 0:
-		_fire_gun(avatar)
+		fire_gun(avatar)
 
 	if avatar.is_player and Input.is_action_just_pressed("bomb") and avatar.bomb_timer <= 0:
 		_drop_bomb(avatar)
 
-func _fire_gun(avatar: AvatarData) -> void:
+func fire_gun(avatar: AvatarData) -> void:
 	if avatar.ammo <= 0:
 		return
 
@@ -1021,38 +1021,6 @@ func get_ammo(avatar: AvatarData) -> int:
 
 func get_bombs(avatar: AvatarData) -> int:
 	return avatar.bombs
-
-func fire_gun(avatar: AvatarData) -> void:
-	if avatar.ammo <= 0:
-		return
-	if avatar.gun_timer > 0:
-		return
-
-	avatar.gun_timer = gun_cooldown
-
-	var heading_dir := Vector2(cos(avatar.pitch_angle), sin(avatar.pitch_angle))
-	var spawn_offset := Vector2(34, -15).rotated(avatar.pitch_angle)
-	if avatar.is_inverted:
-		spawn_offset = Vector2(34, 15).rotated(avatar.pitch_angle)
-	var spawn_pos := global_position + spawn_offset
-	var target_enemy: Node = _find_nearest_enemy(avatar)
-	var range_percent: float = 0.5
-	if target_enemy:
-		var dist := spawn_pos.distance_to(target_enemy.global_position)
-		avatar.last_shot_range = min(dist, avatar.max_bullet_range)
-		range_percent = avatar.last_shot_range / avatar.max_bullet_range
-	else:
-		avatar.last_shot_range = avatar.max_bullet_range * 0.5
-
-	var bullet := BULLET_SCENE.instantiate()
-	bullet.speed = bullet_speed
-
-	bullet.global_position = spawn_pos
-	bullet.rotation = avatar.pitch_angle
-	bullet.assign_owner(self, range_percent)
-
-	get_parent().add_child(bullet)
-	fired_bullet.emit(spawn_pos, heading_dir, bullet_speed, self, range_percent)
 
 func set_home_base(avatar: AvatarData, id: int) -> void:
 	avatar.homebase_id = id

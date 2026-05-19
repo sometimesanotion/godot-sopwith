@@ -37,14 +37,14 @@ func _generate_background() -> void:
 		mountain_positions.append(Vector2(randf() * TERRAIN_LENGTH, 500 + randf() * 150))
 	for i in range(20):
 		var cx := randf() * TERRAIN_LENGTH
-		var cy := 400 - randf() * 800
+		var cy := 400 - randf() * 1500
 		var cloud := {
 			"pos": Vector2(cx, cy),
 			"puffs": [],
-			"width": 240 + randf() * 300,
+			"width": 200 + randf() * 300,
 			"height": 160 + randf() * 80
 		}
-		var num_puffs := 200 + randi() % 30
+		var num_puffs := 100 + randi() % 100
 		for j in range(num_puffs):
 			var px: float = (randf() - 0.5) * cloud["width"]
 			var py: float = (randf() - 0.5) * cloud["height"]
