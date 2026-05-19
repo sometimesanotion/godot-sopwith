@@ -1,12 +1,12 @@
 extends CharacterBody2D
 
 var speed: float = 800.0
-var lifetime: float = 1.0
-var damage: float = 30.0
+var lifetime: float = 2.0
+var damage: float = 20.0
 
 var _bullet_owner: Node = null
 var _range_percent: float = 0.5
-var _max_range: float = 600.0
+var _max_range: float = 1000.0
 
 func _ready() -> void:
 	lifetime = 0.7

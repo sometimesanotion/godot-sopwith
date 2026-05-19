@@ -1,8 +1,8 @@
 extends Control
 
 const TERRAIN_LENGTH := 16384.0
-const MINIMAP_WIDTH := 820.0
-const MINIMAP_HEIGHT := 100.0
+const MINIMAP_WIDTH := 574.0
+const MINIMAP_HEIGHT := 70.0
 const GROUND_Y := 800.0
 const MAX_ALTITUDE := 2000.0
 

@@ -6,11 +6,30 @@ var camera: Camera2D
 var mountain_positions: Array[Vector2] = []
 var cloud_positions: Array[Vector2] = []
 var cloud_data: Array[Dictionary] = []
+var sky_layer: CanvasLayer
+var sky_rect: ColorRect
+var sky_material: ShaderMaterial
 
 func _ready() -> void:
 	if SvgManager and SvgManager.has_sprite("cloud"):
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_generate_background()
+	_create_sky_gradient()
+
+func _create_sky_gradient() -> void:
+	var sky_shader := load("res://shaders/sky_gradient.gdshader")
+	sky_material = ShaderMaterial.new()
+	sky_material.shader = sky_shader
+
+	sky_layer = CanvasLayer.new()
+	sky_layer.layer = -20
+	add_child(sky_layer)
+
+	sky_rect = ColorRect.new()
+	sky_rect.material = sky_material
+	sky_rect.anchors_preset = Control.PRESET_FULL_RECT
+	sky_rect.size = get_viewport_rect().size
+	sky_layer.add_child(sky_rect)
 
 func _generate_background() -> void:
 	randomize()
@@ -37,15 +56,15 @@ func _generate_background() -> void:
 		cloud_data.append(cloud)
 
 func _process(_delta: float) -> void:
-	pass
+	if sky_rect and sky_rect.size != get_viewport_rect().size:
+		sky_rect.size = get_viewport_rect().size
+	if sky_material and camera:
+		sky_material.set_shader_parameter("camera_y", camera.position.y)
 
 func _draw() -> void:
-	_draw_sky()
+	# _draw_sky() removed - sky gradient now rendered via shader
 	_draw_mountains()
 	_draw_clouds()
-
-func _draw_sky() -> void:
-	draw_rect(Rect2(-1000, -1000, TERRAIN_LENGTH + 2000, 2000), Color(0.1, 0.25, 0.35))
 
 func _draw_mountains() -> void:
 	for pos in mountain_positions:

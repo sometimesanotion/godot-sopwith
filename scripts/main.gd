@@ -631,6 +631,8 @@ func _update_ghost_terrain() -> void:
 func _create_minimap() -> void:
 	minimap_instance = MINIMAP_SCENE.instantiate()
 	ui.add_child(minimap_instance)
+	# TODO - dynamic sizing and placement
+	minimap_instance.position = Vector2(600, 20)
 	minimap_instance.update_home(HOME_BASE.x)
 	if terrain and terrain.has_method("get_ground_points"):
 		minimap_instance.update_terrain(terrain.get_ground_points())
