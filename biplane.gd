@@ -493,10 +493,6 @@ func _apply_aerodynamics(avatar: AvatarData, delta: float) -> void:
 	var forward := Vector2(cos(avatar.heading_angle), sin(avatar.heading_angle))
 	var right := Vector2(forward.y, -forward.x)
 
-	if avatar.is_inverted:
-		forward = Vector2(forward.x, -forward.y)
-		right = -right
-
 	var vel_si := velocity / pixels_per_meter
 	var speed_si := vel_si.length()
 
@@ -550,10 +546,7 @@ func _apply_aerodynamics(avatar: AvatarData, delta: float) -> void:
 	var angle_of_attack: float = 0.0
 	if speed_si > 0.5:
 		var vel_dir := vel_si.normalized()
-		if avatar.is_inverted:
-			angle_of_attack = (-forward).angle_to(vel_dir)
-		else:
-			angle_of_attack = forward.angle_to(vel_dir)
+		angle_of_attack = forward.angle_to(vel_dir)
 	else:
 		angle_of_attack = 0.0
 
@@ -594,9 +587,6 @@ func _apply_aerodynamics(avatar: AvatarData, delta: float) -> void:
 	if speed_px > effective_max_speed:
 		var overspeed := speed_px - effective_max_speed
 		speed_limit_drag = overspeed * overspeed * 0.5
-	elif avatar.is_inverted and speed_px > effective_max_speed * 0.5:
-		var overspeed := speed_px - (effective_max_speed * 0.5)
-		speed_limit_drag = overspeed * overspeed * 0.3
 
 	var total_drag_si := parasitic_drag_si + induced_drag_si + speed_limit_drag / pixels_per_meter
 
