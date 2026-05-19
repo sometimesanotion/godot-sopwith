@@ -441,8 +441,7 @@ func _release_flip(avatar: AvatarData) -> void:
 			_flip_tween = create_tween()
 			_flip_tween.set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
 			_flip_tween.tween_method(_update_flip.bind(avatar), current_progress, 0.0, FLIP_DURATION * current_progress)
-			_flip_tween.finished.connect(_on_flip_completed.bind(avatar))
-		avatar.flip_direction = -avatar.flip_direction
+			_flip_tween.finished.connect(_on_flip_cancelled.bind(avatar))
 	else:
 		_flip_tween.kill()
 		avatar.flip_progress = 1.0
@@ -459,12 +458,19 @@ func _apply_flip_transform(avatar: AvatarData, t: float) -> void:
 	var end_scale := -1.0 if avatar.flip_direction == 1 else 1.0
 	visual.scale.y = lerp(start_scale, end_scale, t)
 	visual.position.y = -sin(t * PI) * FLIP_ARC_HEIGHT
+	if t >= 0.5:
+		avatar.is_inverted = (avatar.flip_direction == 1)
 
 func _on_flip_completed(avatar: AvatarData) -> void:
 	avatar.is_flipping = false
 	avatar.flip_progress = 0.0
 	avatar.is_inverted = (avatar.flip_direction == 1)
 	avatar.visual_roll = PI if avatar.is_inverted else 0.0
+	_flip_tween = null
+
+func _on_flip_cancelled(avatar: AvatarData) -> void:
+	avatar.is_flipping = false
+	avatar.flip_progress = 0.0
 	_flip_tween = null
 
 func reset_visual_transform() -> void:

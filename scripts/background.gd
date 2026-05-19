@@ -77,12 +77,12 @@ func _draw_mountains() -> void:
 		var screen_pos = pos
 		var height = 80 + randf() * 150
 		var points = PackedVector2Array([
-			Vector2(screen_pos.x - 400, 750),
-			Vector2(screen_pos.x - 240, 750 - height),
+			Vector2(screen_pos.x - 600, 750),
+			Vector2(screen_pos.x - 300, 750 - height),
 			Vector2(screen_pos.x - 120, 550 - height),
 			Vector2(screen_pos.x + 120, 550 - height - 30),
-			Vector2(screen_pos.x + 240, 750 - height - 30),
-			Vector2(screen_pos.x + 400, 750)
+			Vector2(screen_pos.x + 300, 750 - height - 30),
+			Vector2(screen_pos.x + 600, 750)
 		])
 		draw_colored_polygon(points, Color(0.10, 0.20, 0.40))
 
