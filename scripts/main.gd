@@ -8,8 +8,15 @@ extends Node2D
 const TERRAIN_LENGTH := 16384.0
 const VIEWPORT_MIN_X := 0.0
 const VIEWPORT_MAX_X := 1280.0
-const HOME_BASE := Vector2(6454, 650)
+const HOME_BASE := Vector2(6500, 650)
 const RESPAWN_DELAY := 2.0
+
+const RUNWAY_START := 6500.0
+const RUNWAY_END := 7100.0
+
+const PLAYER_SPAWN_X := 6530.0
+const SAFE_ZONE_RADIUS := 1500.0
+const MIN_ENEMY_DISTANCE := 2458.0
 
 const TITLE_SCENE := preload("res://scenes/title_screen.tscn")
 const GAME_OVER_SCENE := preload("res://scenes/game_over.tscn")
@@ -168,7 +175,7 @@ func _start_playing(is_vs_computer: bool) -> void:
 		biplane.set_game_active(true)
 	if camera:
 		camera.enabled = true
-		camera.position = Vector2(6520, 400)
+		camera.position = Vector2(PLAYER_SPAWN_X, 400)
 	if terrain:
 		terrain.visible = true
 	if ui:
@@ -181,10 +188,10 @@ func _start_playing(is_vs_computer: bool) -> void:
 
 	var ground_y := 650.0
 	if terrain and terrain.has_method("get_ground_height_at"):
-		ground_y = terrain.get_ground_height_at(6454.0)
+		ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
 
 	if biplane:
-		biplane.position = Vector2(6520, ground_y - 12)
+		biplane.position = Vector2(PLAYER_SPAWN_X, ground_y - 12)
 		biplane.rotation = 0
 		biplane.velocity = Vector2.ZERO
 		if biplane.has_method("reset_flight_state"):
@@ -192,7 +199,7 @@ func _start_playing(is_vs_computer: bool) -> void:
 		var avatar := biplane.get_avatar_data(0)
 		avatar.is_player = true
 		if biplane.has_method("setup_homebase"):
-			biplane.setup_homebase(0, 6554.0, 200.0, Vector2(6520, ground_y - 12), 0.0)
+			biplane.setup_homebase(0, PLAYER_SPAWN_X, 200.0, Vector2(PLAYER_SPAWN_X, ground_y - 12), 0.0)
 		if biplane.has_method("set_home_base"):
 			biplane.set_home_base(avatar, 0)
 		biplane.add_to_group("player")
@@ -206,7 +213,7 @@ func _start_playing(is_vs_computer: bool) -> void:
 				biplane.damaged.disconnect(_on_biplane_damaged)
 			biplane.damaged.connect(_on_biplane_damaged)
 	if camera:
-		camera.position = Vector2(6520, 400)
+		camera.position = Vector2(PLAYER_SPAWN_X, 400)
 	if SoundManager:
 		SoundManager.play_music()
 	_create_minimap()
@@ -241,7 +248,7 @@ func _spawn_enemies_and_targets() -> void:
 		var ground_y := 650.0
 		if terrain and terrain.has_method("get_ground_height_at"):
 			ground_y = terrain.get_ground_height_at(enemy_base_x[i])
-		enemy.position = Vector2(enemy_base_x[i] + 60, ground_y - 12)
+		enemy.position = Vector2(enemy_base_x[i] + 50, ground_y - 12)
 		enemy.rotation = 0
 		enemy.add_to_group("destructible")
 		if enemy.has_node("EnemyAI"):
@@ -253,7 +260,7 @@ func _spawn_enemies_and_targets() -> void:
 		if enemy.has_method("get_avatar_data"):
 			enemy.get_avatar_data(0).is_player = false
 		if enemy.has_method("setup_homebase"):
-			enemy.setup_homebase(i, enemy_base_x[i], 200.0, Vector2(enemy_base_x[i] + 60, 650 - 12), 0.0)
+			enemy.setup_homebase(i, enemy_base_x[i], 200.0, Vector2(enemy_base_x[i] + 50, 650 - 12), 0.0)
 		if enemy.has_method("set_home_base") and enemy.has_method("get_avatar_data"):
 			enemy.set_home_base(enemy.get_avatar_data(0), i)
 		if enemy.has_method("set_game_active"):
@@ -291,13 +298,6 @@ func _spawn_enemies_and_targets() -> void:
 	_create_home_base()
 	_create_enemy_bases()
 
-const RUNWAY_START := 6300.0
-const RUNWAY_END := 6800.0
-
-const PLAYER_SPAWN_X := 6520.0
-const SAFE_ZONE_RADIUS := 1500.0
-const MIN_ENEMY_DISTANCE := 2458.0
-
 func _get_target_half_width(target_type: String) -> float:
 	match target_type:
 		"building": return 35.0
@@ -320,7 +320,7 @@ func _mark_position_occupied(x: float, half_width: float) -> void:
 func _create_home_base() -> void:
 	var ground_y := 650.0
 	if terrain and terrain.has_method("get_ground_height_at"):
-		ground_y = terrain.get_ground_height_at(6454.0)
+		ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
 
 	var runway_left = RUNWAY_START
 	var building_hw = _get_target_half_width("building")

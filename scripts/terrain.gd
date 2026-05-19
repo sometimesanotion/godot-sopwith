@@ -3,9 +3,9 @@ extends Node2D
 const TERRAIN_LENGTH := 16384.0
 const TERRAIN_LOW_BOUND := 3000.0
 const SEGMENT_WIDTH := 32.0
-const RUNWAY_START := 6300.0
-const RUNWAY_END := 6800.0
-const RUNWAY_WIDTH := 500.0
+const RUNWAY_START := 6500.0
+const RUNWAY_END := 7300.0
+const RUNWAY_LENGTH := 500.0
 const BASE_Y := 650.0
 
 var noise: FastNoiseLite
@@ -27,7 +27,7 @@ func _ready() -> void:
 
 func add_runway(x: float) -> void:
 	var runway_start := x
-	var runway_end := x + RUNWAY_WIDTH
+	var runway_end := x + RUNWAY_LENGTH
 	runways.append(Vector2(runway_start, runway_end))
 	_generate_terrain()
 	_create_runway_visual(runway_start, runway_end)

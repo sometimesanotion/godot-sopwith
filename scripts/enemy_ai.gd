@@ -814,7 +814,7 @@ func _do_respawn() -> void:
 	if not biplane:
 		return
 	var ground_y = _get_ground_height(home_base_x)
-	biplane.position = Vector2(home_base_x + 60, ground_y - 12)
+	biplane.position = Vector2(home_base_x + 50, ground_y - 12)
 	biplane.rotation = 0
 	biplane.velocity = Vector2.ZERO
 	biplane.visible = true
