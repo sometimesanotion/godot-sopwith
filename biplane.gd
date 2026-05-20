@@ -11,7 +11,7 @@ extends CharacterBody2D
 @export var camel_mass_kg: float = 447.0
 @export var engine_power_watts: float = 96941.0 * arcade_multiplier
 @export var wing_area: float = 21.46
-@export var gravity: float = 9.81 * 0.6
+@export var gravity: float = 9.81 * 1.0
 
 @export_group("Scale & Arcade Tuning")
 @export var pixels_per_meter: float = 10.0
@@ -46,7 +46,7 @@ const FLIP_DURATION := 0.35
 const FLIP_ARC_HEIGHT := 15.0
 
 @export_group("Handling")
-@export var rotation_speed: float = 4.0
+@export var rotation_speed: float = 4.5
 @export var rotation_inertia: float = 3.0
 
 @export_group("Impact Physics (Sopwith Camel)")
@@ -569,7 +569,7 @@ func _apply_aerodynamics(avatar: AvatarData, delta: float) -> void:
 
 	# Control effectiveness varying with speed relative to stall, for more accuracy and less fishtailing
 	var speed_ratio_sq := (speed_si * speed_si) / ((stall_speed_ms * stall_speed_ms) * 50)
-	avatar.control_effectiveness = clampf(speed_ratio_sq, 0.5, 2.0)
+	avatar.control_effectiveness = clampf(speed_ratio_sq, 0.6, 1.8)
 
 	var cl: float = angle_of_attack * 2.0 * PI
 	cl = clampf(cl, -max_lift_coeff, max_lift_coeff)
