@@ -146,7 +146,7 @@ class AvatarData:
 	var is_player: bool = false
 	var homebase_id: int = 0
 
-	var ammo: int = 100
+	var ammo: int = 500
 	var bombs: int = 5
 	var fuel: float = 100.0
 	var damage_percent: float = 0.0
@@ -188,7 +188,7 @@ class AvatarData:
 
 	func reset() -> void:
 		flight_state = FlightState.FLYING
-		ammo = 100
+		ammo = 500
 		bombs = 5
 		fuel = 100.0
 		damage_percent = 0.0

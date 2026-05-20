@@ -49,8 +49,6 @@ func _ready() -> void:
 	if GameManager:
 		GameManager.terrain_seed = randi()
 	get_viewport().size_changed.connect(_rebuild_all)
-	await get_tree().process_frame
-	_rebuild_all()
 
 func _rebuild_all() -> void:
 	var vp := get_viewport()
@@ -67,8 +65,8 @@ func _update_layout_from_scratch() -> void:
 	_clear_all()
 
 	var vs: Vector2 = get_viewport().size
-	var hh: float = vs.y * 0.2
-	var mh: float = vs.y * 0.5
+	var hh: float = vs.y * 0.12
+	var mh: float = vs.y * 0.18
 	var mt: float = hh
 	var ct: float = mt + mh
 	var ch: float = max(vs.y - ct, 80.0)
@@ -87,7 +85,7 @@ func _update_layout_from_scratch() -> void:
 	title_label.text = "SOPWITH 2026"
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	title_label.add_theme_font_size_override("font_size", maxi(20, int(hh * 0.18)))
+	title_label.add_theme_font_size_override("font_size", maxi(16, int(hh * 0.35)))
 	title_label.add_theme_color_override("font_color", Color(1, 0.95, 0.8))
 	title_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 	title_label.add_theme_constant_override("outline_size", 3)
@@ -96,7 +94,7 @@ func _update_layout_from_scratch() -> void:
 	title_label.size = Vector2(vs.x, hh)
 	add_child(title_label)
 
-	var svg_h: float = hh * 0.35
+	var svg_h: float = hh * 0.40
 	var bip_path := "res://assets/svg/biplane.svg"
 	var sop_path := "res://assets/svg/sopwith.svg"
 
@@ -144,7 +142,7 @@ func _update_layout_from_scratch() -> void:
 	control_title = Label.new()
 	control_title.name = "ControlTitle"
 	control_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	control_title.add_theme_font_size_override("font_size", maxi(14, int(ch * 0.14)))
+	control_title.add_theme_font_size_override("font_size", maxi(12, int(ch * 0.035)))
 	control_title.add_theme_color_override("font_color", Color(1, 0.95, 0.85))
 	control_title.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	control_title.position = Vector2(0, ct + ch * 0.04)
@@ -153,10 +151,10 @@ func _update_layout_from_scratch() -> void:
 
 	control_content = Label.new()
 	control_content.name = "ControlContent"
-	control_content.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	control_content.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	control_content.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	control_content.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	control_content.autowrap_mode = TextServer.AUTOWRAP_WORD
-	control_content.add_theme_font_size_override("font_size", maxi(12, int(ch * 0.11)))
+	control_content.add_theme_font_size_override("font_size", maxi(10, int(ch * 0.025)))
 	control_content.add_theme_color_override("font_color", Color(1, 1, 1))
 	control_content.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	control_content.position = Vector2(vs.x * 0.06, ct + ch * 0.22)
@@ -191,6 +189,7 @@ func _create_map_viewport(vs: Vector2, mt: float, mh: float) -> void:
 	vpc.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	vpc.position = Vector2(0, mt)
 	vpc.size = Vector2(vs.x, mh)
+	vpc.stretch = true
 	vpc.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(vpc)
 
@@ -198,7 +197,7 @@ func _create_map_viewport(vs: Vector2, mt: float, mh: float) -> void:
 	sub_viewport.name = "MapViewport"
 	sub_viewport.size = Vector2i(maxi(1, ceil(vs.x)), maxi(1, ceil(mh)))
 	sub_viewport.transparent_bg = false
-	sub_viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
+	sub_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	sub_viewport.disable_3d = true
 	vpc.add_child(sub_viewport)
 
@@ -210,7 +209,7 @@ func _create_map_viewport(vs: Vector2, mt: float, mh: float) -> void:
 	sky_rect.name = "SkyGradient"
 	sky_rect.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	sky_rect.position = Vector2.ZERO
-	sky_rect.size = Vector2(vs.x, mh)
+	sky_rect.size = Vector2(ceil(vs.x), ceil(mh))
 	sky_rect.material = sky_mat
 	sub_viewport.add_child(sky_rect)
 
@@ -567,6 +566,12 @@ func _save_bindings() -> void:
 	cfg.save("user://keybindings.cfg")
 
 func _process(delta: float) -> void:
+	if _last_known_size == Vector2(-1, -1):
+		var vq := get_viewport()
+		if vq:
+			var vs: Vector2 = vq.size
+			if vs.x > 100 and vs.y > 100:
+				_rebuild_all()
 	_handle_mouse_panning(delta)
 	if preview_camera:
 		preview_camera.position.x = scroll_x

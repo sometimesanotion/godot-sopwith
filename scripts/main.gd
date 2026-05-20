@@ -497,7 +497,7 @@ func _respawn_biplane() -> void:
 			var avatar = biplane.get_avatar_data(0)
 			if avatar:
 				avatar.fuel = 100.0
-				avatar.ammo = 100
+				avatar.ammo = 500
 				avatar.bombs = 5
 				GameManager.fuel_changed.emit(0, avatar.fuel)
 				GameManager.ammo_changed.emit(0, avatar.ammo)
@@ -590,8 +590,8 @@ func _on_landed(delta: float) -> void:
 			if avatar.fuel < 100:
 				avatar.fuel = min(100.0, avatar.fuel + refuel_rate * delta)
 				GameManager.fuel_changed.emit(0, avatar.fuel)
-			if avatar.ammo < 100:
-				avatar.ammo = min(100, avatar.ammo + int(5.0 * delta))
+			if avatar.ammo < 500:
+				avatar.ammo = min(500, avatar.ammo + int(25.0 * delta))
 				GameManager.ammo_changed.emit(0, avatar.ammo)
 			if avatar.bombs < 5:
 				avatar.bombs = min(5, avatar.bombs + 1)
