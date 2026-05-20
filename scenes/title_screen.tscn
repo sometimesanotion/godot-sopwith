@@ -23,17 +23,6 @@ offset_bottom = 120.0
 text = "SOPWITH"
 horizontal_alignment = 1
 
-[node name="SubtitleLabel" type="Label" parent="."]
-anchors_preset = 5
-anchor_left = 0.5
-anchor_right = 0.5
-offset_left = -100.0
-offset_top = 115.0
-offset_right = 100.0
-offset_bottom = 135.0
-text = "A Modern Tribute"
-horizontal_alignment = 1
-
 [node name="MenuContainer" type="VBoxContainer" parent="."]
 anchors_preset = 8
 anchor_left = 0.5
