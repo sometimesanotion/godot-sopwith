@@ -24,6 +24,9 @@ func _ready() -> void:
 	add_to_group("destructible")
 	add_to_group("ground_target")
 	_svg_sprite_name = target_type
+	if is_enemy and GameManager:
+		health = max_health * GameManager.difficulty
+		original_health = health
 	_create_visuals()
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
@@ -219,7 +222,8 @@ func _get_player_id_from_attacker(attacker: Node) -> int:
 func _destroy(attacker: Node) -> void:
 	is_destroyed = true
 
-	if target_type == "fuel_depot":
+	var huge := GameManager.huge_explosions if GameManager else true
+	if target_type == "fuel_depot" and huge:
 		_create_fuel_depot_explosion()
 		if GameManager:
 			GameManager.request_screen_shake(50.0)

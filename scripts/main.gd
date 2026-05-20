@@ -46,6 +46,8 @@ func _ready() -> void:
 	print("Main _ready: hiding game elements and showing title")
 	_hide_game_elements()
 	_show_title_screen()
+	if OS.has_feature("editor"):
+		pass
 
 func _hide_game_elements() -> void:
 	if biplane:
@@ -70,7 +72,7 @@ func _load_keybindings() -> void:
 		for action_name in actions:
 			var keycode = config.get_value("input", action_name + "_keycode", 0)
 			var physical = config.get_value("input", action_name + "_physical", 0)
-			
+
 			if (keycode > 0 or physical > 0) and InputMap.has_action(action_name):
 				var event := InputEventKey.new()
 				event.keycode = keycode
@@ -96,7 +98,7 @@ func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("abort"):
 		if game_state == "PLAYING":
 			_abort_game()
-	
+
 	if event is InputEventKey:
 		var key_event := event as InputEventKey
 		if key_event.keycode == KEY_Q:
@@ -117,6 +119,9 @@ func _abort_game() -> void:
 		pause_menu = null
 	get_tree().paused = false
 	_clear_game_objects()
+	if terrain and terrain.has_method("generate"):
+		for c in terrain.get_children():
+			c.queue_free()
 	_show_title_screen()
 
 func _clear_game_objects() -> void:
@@ -149,39 +154,44 @@ func _show_title_screen() -> void:
 	print("_show_title_screen: creating title screen")
 	game_state = "TITLE"
 	title_screen = TITLE_SCENE.instantiate()
-	title_screen.start_game.connect(_on_start_game)
-	title_screen.start_vs_computer.connect(_on_start_vs_computer)
+	title_screen.start_single_player.connect(_on_start_game)
+	title_screen.start_network_game.connect(_on_start_network_game)
 	title_screen.back_to_menu.connect(_on_back_to_menu)
 	add_child(title_screen)
 	print("Title screen added to scene")
 
 func _on_back_to_menu() -> void:
-	biplane = null
 	_hide_game_elements()
+	_clear_game_objects()
+	if terrain and terrain.has_method("generate"):
+		for c in terrain.get_children():
+			c.queue_free()
 	_show_title_screen()
 
 func _on_start_game() -> void:
 	is_vs_computer = false
-	_start_playing(false)
+	_start_playing()
 
-func _on_start_vs_computer() -> void:
-	is_vs_computer = true
-	_start_playing(true)
+func _on_start_network_game() -> void:
+	is_vs_computer = false
+	_start_playing()
 
-func _start_playing(is_vs_computer: bool) -> void:
+func _start_playing() -> void:
 	game_state = "PLAYING"
-	
+
+	if terrain and terrain.has_method("generate"):
+		terrain.generate()
+		terrain.visible = true
+
 	if biplane:
 		biplane.visible = true
 		biplane.set_game_active(true)
 	if camera:
 		camera.enabled = true
 		camera.position = Vector2(PLAYER_SPAWN_X, 400)
-	if terrain:
-		terrain.visible = true
 	if ui:
 		ui.visible = true
-	
+
 	if GameManager:
 		GameManager.reset_game()
 		var player_data := GameManager.register_player(0)
@@ -236,32 +246,41 @@ func _spawn_enemies_and_targets() -> void:
 	enemy_home_positions.clear()
 	_occupied_positions.clear()
 
-	var enemy_base_x := [
+	var num_bases: int = GameManager.enemy_homebases if GameManager else 4
+	var possible_bases: Array[float] = [
 		2458.0,
 		4916.0,
+		7500.0,
 		10374.0,
+		12500.0,
 		14832.0
 	]
+	possible_bases = possible_bases.slice(0, num_bases)
 
-	for i in range(4):
-		enemy_home_positions.append(enemy_base_x[i])
+	var spawn_enemies: bool = GameManager.enemy_planes if GameManager else true
+
+	for i in range(possible_bases.size()):
+		var base_x: float = possible_bases[i]
+		enemy_home_positions.append(base_x)
+		if not spawn_enemies:
+			continue
 		var enemy: CharacterBody2D = ENEMY_SCENE.instantiate()
 		var ground_y := 650.0
 		if terrain and terrain.has_method("get_ground_height_at"):
-			ground_y = terrain.get_ground_height_at(enemy_base_x[i])
-		enemy.position = Vector2(enemy_base_x[i] + 50, ground_y - 12)
+			ground_y = terrain.get_ground_height_at(base_x)
+		enemy.position = Vector2(base_x + 50, ground_y - 12)
 		enemy.rotation = 0
 		enemy.add_to_group("destructible")
 		if enemy.has_node("EnemyAI"):
 			var ai := enemy.get_node("EnemyAI")
 			ai.target = biplane
 			ai.biplane = enemy
-			ai.home_base_x = enemy_base_x[i]
+			ai.home_base_x = base_x
 			ai.unlimited_fuel_ammo = is_vs_computer
 		if enemy.has_method("get_avatar_data"):
 			enemy.get_avatar_data(0).is_player = false
 		if enemy.has_method("setup_homebase"):
-			enemy.setup_homebase(i, enemy_base_x[i], 200.0, Vector2(enemy_base_x[i] + 50, 650 - 12), 0.0)
+			enemy.setup_homebase(i, base_x, 200.0, Vector2(base_x + 50, 650 - 12), 0.0)
 		if enemy.has_method("set_home_base") and enemy.has_method("get_avatar_data"):
 			enemy.set_home_base(enemy.get_avatar_data(0), i)
 		if enemy.has_method("set_game_active"):
@@ -274,9 +293,11 @@ func _spawn_enemies_and_targets() -> void:
 		add_child(enemy)
 		enemies.append(enemy)
 		if terrain and terrain.has_method("add_runway"):
-			terrain.add_runway(enemy_base_x[i] + 50)
+			terrain.add_runway(base_x + 50)
 
-	for i in range(6):
+	var cow_count_map: Dictionary = {"None": 0, "Few": 3, "Normal": 6, "Many": 12}
+	var num_cows: int = int(cow_count_map.get(GameManager.cow_count if GameManager else "Normal", 6))
+	for i in range(num_cows):
 		var cow_x: float
 		var attempts := 0
 		while attempts < 20:
@@ -287,14 +308,16 @@ func _spawn_enemies_and_targets() -> void:
 			if not on_runway:
 				break
 			attempts += 1
-		var cow = COW_SCENE.instantiate()
+		var cow: Node2D = COW_SCENE.instantiate()
 		cow.position = Vector2(cow_x, 650)
 		add_child(cow)
 
-	for i in range(1):
-		var flock = BIRD_FLOCK_SCENE.instantiate()
-		flock.position = Vector2(200 + randf() * 16000, 150 + randf() * 200)
-		add_child(flock)
+	var spawn_birds: bool = GameManager.bird_flocks if GameManager else true
+	if spawn_birds:
+		for i in range(1):
+			var flock: Node2D = BIRD_FLOCK_SCENE.instantiate()
+			flock.position = Vector2(200 + randf() * 16000, 150 + randf() * 200)
+			add_child(flock)
 
 	_create_home_base()
 	_create_enemy_bases()
@@ -386,10 +409,13 @@ func _create_enemy_bases() -> void:
 			add_child(fuel_depot)
 			_mark_position_occupied(depot_x, depot_hw)
 
-		for i in range(3):
-			var target_type = ["building", "hangar", "tank"].pick_random()
-			var target_hw = _get_target_half_width(target_type)
-			var target_x := home_x - 200 - i * 160
+		var tanks_setting: String = GameManager.enemy_tanks if GameManager else "Normal"
+		var num_extra: Dictionary = {"None": 0, "Few": 1, "Normal": 3, "Many": 6}
+		var extra_count: int = int(num_extra.get(tanks_setting, 3))
+		for i in range(extra_count):
+			var target_type: String = ["building", "hangar", "tank"].pick_random()
+			var target_hw: float = _get_target_half_width(target_type)
+			var target_x: float = home_x - 200 - i * 160
 			var attempts := 0
 			while attempts < 20:
 				if not _is_position_occupied(target_x, target_hw):
@@ -398,7 +424,7 @@ func _create_enemy_bases() -> void:
 				attempts += 1
 			if _is_position_occupied(target_x, target_hw):
 				continue
-			var target := GROUND_TARGET_SCENE.instantiate()
+			var target: Node2D = GROUND_TARGET_SCENE.instantiate()
 			target.target_type = target_type
 			if terrain and terrain.has_method("get_ground_height_at"):
 				target.position = Vector2(target_x, terrain.get_ground_height_at(target_x))

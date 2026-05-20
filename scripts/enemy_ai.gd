@@ -308,6 +308,8 @@ func _is_overhead_target() -> bool:
 	return x_dist < BOMB_OVERHEAD_X_THRESHOLD
 
 func _can_bomb_ground_target() -> bool:
+	if GameManager and not GameManager.enemy_bombs:
+		return false
 	if not target or not biplane:
 		return false
 	if bomb_cooldown_timer > 0.0:

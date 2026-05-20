@@ -21,6 +21,8 @@ func _ready() -> void:
 	runways.append(Vector2(RUNWAY_START, RUNWAY_END))
 	if SvgManager and SvgManager.has_sprite("runway"):
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+
+func generate() -> void:
 	_initialize_noise()
 	_generate_terrain()
 	_create_terrain()
@@ -29,7 +31,8 @@ func add_runway(x: float) -> void:
 	var runway_start := x
 	var runway_end := x + RUNWAY_LENGTH
 	runways.append(Vector2(runway_start, runway_end))
-	_generate_terrain()
+	if ground_points.size() > 0:
+		_generate_terrain()
 	_create_runway_visual(runway_start, runway_end)
 
 func _create_terrain() -> void:
@@ -77,9 +80,16 @@ func _create_runway_visual(start: float, end: float) -> void:
 	runway.color = runway_color
 	add_child(runway)
 
+func set_noise_seed(seed_value: int) -> void:
+	if noise:
+		noise.seed = seed_value
+
 func _initialize_noise() -> void:
 	noise = FastNoiseLite.new()
-	noise.seed = randi()
+	if GameManager and GameManager.terrain_seed != 0:
+		noise.seed = GameManager.terrain_seed
+	else:
+		noise.seed = randi()
 	noise.noise_type = FastNoiseLite.TYPE_PERLIN
 	noise.frequency = 0.008
 	noise.fractal_octaves = 4

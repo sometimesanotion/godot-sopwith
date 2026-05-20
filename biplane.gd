@@ -1098,6 +1098,8 @@ func take_damage(avatar: AvatarData, amount: float, attacker: Node) -> void:
 		return
 
 	_init_particle_materials()
+	if avatar and not avatar.is_player and GameManager:
+		amount *= 1.0 / GameManager.difficulty
 	avatar.damage_percent = min(1.0, avatar.damage_percent + amount / 100.0)
 
 	if avatar.damage_percent >= 0.8:

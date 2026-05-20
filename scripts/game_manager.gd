@@ -12,6 +12,19 @@ const MAX_LIVES := 5
 
 var game_state: String = "PLAYING"
 
+var terrain_seed: int = 0
+
+var difficulty: float = 1.0
+var enemy_planes: bool = true
+var enemy_bombs: bool = true
+var enemy_homebases: int = 4
+var enemy_tanks: String = "Normal"
+var huge_explosions: bool = true
+var bird_flocks: bool = true
+var cow_count: String = "Normal"
+var sound_fx_volume: float = 1.0
+var music_volume: float = 1.0
+
 class PlayerData:
 	var avatar_id: int = 0
 	var lives: int = MAX_LIVES
