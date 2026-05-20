@@ -6,27 +6,8 @@ signal back_to_menu
 
 enum Mode { MAIN, CONFIGURE, KEYS }
 
-const ENGINE_CUTOFF_ALTITUDE := 2000.0
-const TERRAIN_LENGTH := 16384.0
-const GROUND_Y := 650.0
-const PLAYER_SPAWN_X := 6530.0
-const SAFE_ZONE_RADIUS := 1500.0
-const MARGIN_EDGE := 20.0
-const PAN_SPEED := 400.0
-
-const GROUND_TARGET_SCENE := preload("res://scenes/ground_target.tscn")
-const COW_SCENE := preload("res://scenes/cow.tscn")
-const BIRD_FLOCK_SCENE := preload("res://scenes/bird_flock.tscn")
-
 var current_mode: int = Mode.MAIN
-var scroll_x: float = TERRAIN_LENGTH / 2.0
 
-var sub_viewport: SubViewport
-var preview_camera: Camera2D
-var sky_rect: ColorRect
-var sky_material: ShaderMaterial
-var world_container: Node2D
-var vpc: SubViewportContainer
 var control_title: Label
 var control_content: Label
 var header_bg: ColorRect
@@ -35,10 +16,6 @@ var title_label: Label
 var bip_sprite: Node2D
 var sop_sprite: Node2D
 
-var enemy_base_x_positions: Array[float] = [2458.0, 4916.0, 10374.0, 14832.0]
-var building_hw: float = 35.0
-var depot_hw: float = 20.0
-
 var selected_key_index: int = -1
 var waiting_for_key: bool = false
 var key_actions: Array[String] = []
@@ -46,8 +23,6 @@ var key_labels_arr: Array[String] = []
 var _last_known_size := Vector2(-1, -1)
 
 func _ready() -> void:
-	if GameManager:
-		GameManager.terrain_seed = randi()
 	get_viewport().size_changed.connect(_rebuild_all)
 
 func _rebuild_all() -> void:
@@ -66,11 +41,8 @@ func _update_layout_from_scratch() -> void:
 
 	var vs: Vector2 = get_viewport().size
 	var hh: float = vs.y * 0.12
-	var mh: float = vs.y * 0.18
-	var mt: float = hh
-	var ct: float = mt + mh
-	var ch: float = max(vs.y - ct, 80.0)
-	print("  layout: vs=", vs, " hh=", hh, " mh=", mh, " mt=", mt, " ct=", ct, " ch=", ch)
+	var cp_height: float = min(vs.y - hh - 40, 500.0)
+	var cp_y: float = hh + (vs.y - hh - cp_height) * 0.5
 
 	header_bg = ColorRect.new()
 	header_bg.name = "HeaderBg"
@@ -104,7 +76,7 @@ func _update_layout_from_scratch() -> void:
 		var sw: float = svg_h * asp
 		bip_sprite = Node2D.new()
 		bip_sprite.name = "BiplaneNode"
-		bip_sprite.position = Vector2(MARGIN_EDGE + sw * 0.5, hh * 0.5)
+		bip_sprite.position = Vector2(20.0 + sw * 0.5, hh * 0.5)
 		add_child(bip_sprite)
 		var sp := Sprite2D.new()
 		sp.texture = tex
@@ -120,7 +92,7 @@ func _update_layout_from_scratch() -> void:
 		var sw: float = svg_h * asp
 		sop_sprite = Node2D.new()
 		sop_sprite.name = "SopwithNode"
-		sop_sprite.position = Vector2(vs.x - MARGIN_EDGE - sw * 0.5, hh * 0.5)
+		sop_sprite.position = Vector2(vs.x - 20.0 - sw * 0.5, hh * 0.5)
 		add_child(sop_sprite)
 		var sp := Sprite2D.new()
 		sp.texture = tex
@@ -129,24 +101,22 @@ func _update_layout_from_scratch() -> void:
 		sp.flip_h = true
 		sop_sprite.add_child(sp)
 
-	_create_map_viewport(vs, mt, mh)
-
 	cp_bg = ColorRect.new()
 	cp_bg.name = "ControlBg"
 	cp_bg.color = Color(0.0, 0.0, 0.0, 0.80)
 	cp_bg.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	cp_bg.position = Vector2(0, ct)
-	cp_bg.size = Vector2(vs.x, ch)
+	cp_bg.position = Vector2(0, cp_y)
+	cp_bg.size = Vector2(vs.x, cp_height)
 	add_child(cp_bg)
 
 	control_title = Label.new()
 	control_title.name = "ControlTitle"
 	control_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	control_title.add_theme_font_size_override("font_size", maxi(12, int(ch * 0.035)))
+	control_title.add_theme_font_size_override("font_size", maxi(12, int(cp_height * 0.08)))
 	control_title.add_theme_color_override("font_color", Color(1, 0.95, 0.85))
 	control_title.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	control_title.position = Vector2(0, ct + ch * 0.04)
-	control_title.size = Vector2(vs.x, ch * 0.18)
+	control_title.position = Vector2(0, cp_y + cp_height * 0.04)
+	control_title.size = Vector2(vs.x, cp_height * 0.18)
 	add_child(control_title)
 
 	control_content = Label.new()
@@ -154,11 +124,11 @@ func _update_layout_from_scratch() -> void:
 	control_content.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	control_content.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	control_content.autowrap_mode = TextServer.AUTOWRAP_WORD
-	control_content.add_theme_font_size_override("font_size", maxi(10, int(ch * 0.025)))
+	control_content.add_theme_font_size_override("font_size", maxi(10, int(cp_height * 0.055)))
 	control_content.add_theme_color_override("font_color", Color(1, 1, 1))
 	control_content.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	control_content.position = Vector2(vs.x * 0.06, ct + ch * 0.22)
-	control_content.size = Vector2(vs.x * 0.88, ch * 0.74)
+	control_content.position = Vector2(vs.x * 0.06, cp_y + cp_height * 0.22)
+	control_content.size = Vector2(vs.x * 0.88, cp_height * 0.74)
 	add_child(control_content)
 
 	match current_mode:
@@ -169,12 +139,6 @@ func _update_layout_from_scratch() -> void:
 func _clear_all() -> void:
 	for c in get_children():
 		c.queue_free()
-	world_container = null
-	preview_camera = null
-	sky_rect = null
-	sky_material = null
-	sub_viewport = null
-	vpc = null
 	header_bg = null
 	title_label = null
 	bip_sprite = null
@@ -183,144 +147,14 @@ func _clear_all() -> void:
 	control_title = null
 	control_content = null
 
-func _create_map_viewport(vs: Vector2, mt: float, mh: float) -> void:
-	vpc = SubViewportContainer.new()
-	vpc.name = "MapViewportContainer"
-	vpc.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	vpc.position = Vector2(0, mt)
-	vpc.size = Vector2(vs.x, mh)
-	vpc.stretch = true
-	vpc.mouse_filter = Control.MOUSE_FILTER_STOP
-	add_child(vpc)
 
-	sub_viewport = SubViewport.new()
-	sub_viewport.name = "MapViewport"
-	sub_viewport.size = Vector2i(maxi(1, ceil(vs.x)), maxi(1, ceil(mh)))
-	sub_viewport.transparent_bg = false
-	sub_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	sub_viewport.disable_3d = true
-	vpc.add_child(sub_viewport)
-
-	var zoom: float = mh / ENGINE_CUTOFF_ALTITUDE
-	var sky_mat := ShaderMaterial.new()
-	sky_mat.shader = load("res://shaders/sky_gradient.gdshader")
-	sky_material = sky_mat
-	sky_rect = ColorRect.new()
-	sky_rect.name = "SkyGradient"
-	sky_rect.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	sky_rect.position = Vector2.ZERO
-	sky_rect.size = Vector2(ceil(vs.x), ceil(mh))
-	sky_rect.material = sky_mat
-	sub_viewport.add_child(sky_rect)
-
-	preview_camera = Camera2D.new()
-	preview_camera.name = "PreviewCamera"
-	preview_camera.zoom = Vector2(zoom, zoom)
-	preview_camera.position = Vector2(scroll_x, GROUND_Y - ENGINE_CUTOFF_ALTITUDE * 0.5)
-	sub_viewport.add_child(preview_camera)
-
-	world_container = Node2D.new()
-	world_container.name = "WorldContainer"
-	sub_viewport.add_child(world_container)
-
-	_initialize_world_terrain()
-	_spawn_clouds()
-	_spawn_preview_targets()
-
-func _initialize_world_terrain() -> void:
-	var mt := Node2D.new()
-	mt.name = "MapTerrain"
-	mt.set_script(load("res://scripts/terrain.gd"))
-	world_container.add_child(mt)
-	mt.call_deferred(&"generate")
-
-func _spawn_clouds() -> void:
-	var svg_path := "res://assets/svg/cloud.svg"
-	if not ResourceLoader.exists(svg_path):
-		return
-	var cloud_tex: Texture2D = load(svg_path)
-	var tw: float = cloud_tex.get_width()
-	var th: float = cloud_tex.get_height()
-	if tw <= 0 or th <= 0:
-		return
-	for _i in range(12):
-		var cloud := Sprite2D.new()
-		cloud.texture = cloud_tex
-		cloud.position = Vector2(randf() * TERRAIN_LENGTH, GROUND_Y - 100 - randf() * ENGINE_CUTOFF_ALTITUDE * 0.6)
-		var w: float = 100.0 + randf() * 200.0
-		var h: float = 60.0 + randf() * 100.0
-		cloud.scale = Vector2(w / tw, h / th)
-		cloud.z_index = -5
-		world_container.add_child(cloud)
-
-func _spawn_preview_targets() -> void:
-	var ground_y := GROUND_Y
-	var runway_left := 6500.0
-
-	for i in range(2):
-		var bx := runway_left - 10 - building_hw - i * (building_hw * 2 + 10)
-		var b := GROUND_TARGET_SCENE.instantiate()
-		b.target_type = "building"
-		b.position = Vector2(bx, ground_y)
-		b.has_aa = false
-		b.is_enemy = false
-		world_container.add_child(b)
-
-	var last_bx := runway_left - 10 - building_hw - 1 * (building_hw * 2 + 10)
-	for i in range(2):
-		var dx := last_bx - building_hw - 10 - depot_hw - i * (depot_hw * 2 + 10)
-		var d := GROUND_TARGET_SCENE.instantiate()
-		d.target_type = "fuel_depot"
-		d.position = Vector2(dx, ground_y)
-		d.has_aa = false
-		d.is_enemy = false
-		world_container.add_child(d)
-
-	for hx in enemy_base_x_positions:
-		var e_ground_y := GROUND_Y
-		for i in range(2):
-			var bx := hx + 50 - 10 - building_hw - i * (building_hw * 2 + 10)
-			var b := GROUND_TARGET_SCENE.instantiate()
-			b.target_type = "building"
-			b.position = Vector2(bx, e_ground_y)
-			b.has_aa = true
-			b.is_enemy = true
-			world_container.add_child(b)
-		var last_e_bx := hx + 50 - 10 - building_hw - 1 * (building_hw * 2 + 10)
-		for i in range(2):
-			var dx := last_e_bx - building_hw - 10 - depot_hw - i * (depot_hw * 2 + 10)
-			var d := GROUND_TARGET_SCENE.instantiate()
-			d.target_type = "fuel_depot"
-			d.position = Vector2(dx, e_ground_y)
-			d.has_aa = false
-			d.is_enemy = true
-			world_container.add_child(d)
-		for i in range(3):
-			var tx := hx - 200 - i * 160
-			var t := GROUND_TARGET_SCENE.instantiate()
-			t.target_type = ["building", "hangar", "tank"].pick_random()
-			t.position = Vector2(tx, e_ground_y)
-			t.has_aa = false
-			t.is_enemy = true
-			world_container.add_child(t)
-
-	for i in range(6):
-		var cx := 200 + randf() * 16000
-		var cow := COW_SCENE.instantiate()
-		cow.position = Vector2(cx, GROUND_Y)
-		world_container.add_child(cow)
-
-	for i in range(1):
-		var flock := BIRD_FLOCK_SCENE.instantiate()
-		flock.position = Vector2(200 + randf() * 16000, 150 + randf() * 200)
-		world_container.add_child(flock)
 
 func _show_main_menu() -> void:
 	current_mode = Mode.MAIN
 	if control_title:
 		control_title.text = ""
 	if control_content:
-		control_content.text = "    S  - Start Single Player\n    N  - Start Network Game\n    C  - Configure Gameplay\n    M  - Reset Map\n    K  - Key Layouts\n    Q  - Quit"
+		control_content.text = "    S  - Start Single Player\n    N  - Start Network Game\n    C  - Configure Gameplay\n    K  - Key Layouts\n    Q  - Quit"
 
 func _show_configure_menu() -> void:
 	current_mode = Mode.CONFIGURE
@@ -472,8 +306,6 @@ func _handle_main_input(ke: InputEventKey) -> void:
 			queue_free()
 		KEY_C:
 			_show_configure_menu()
-		KEY_M:
-			_reset_map()
 		KEY_K:
 			_show_keys_menu()
 		KEY_Q:
@@ -565,57 +397,10 @@ func _save_bindings() -> void:
 			cfg.set_value("input", action_name + "_physical", e.physical_keycode)
 	cfg.save("user://keybindings.cfg")
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	if _last_known_size == Vector2(-1, -1):
 		var vq := get_viewport()
 		if vq:
 			var vs: Vector2 = vq.size
 			if vs.x > 100 and vs.y > 100:
 				_rebuild_all()
-	_handle_mouse_panning(delta)
-	if preview_camera:
-		preview_camera.position.x = scroll_x
-	_update_sky_shader()
-
-func _handle_mouse_panning(delta: float) -> void:
-	if not preview_camera:
-		return
-	var vp := get_viewport()
-	if not vp:
-		return
-	var mp: Vector2 = vp.get_mouse_position()
-	var vs: Vector2 = vp.size
-	if vs.x < 200 or vs.y < 200:
-		return
-	var pan_zone: float = vs.x * 0.1
-	var zoom: float = preview_camera.zoom.x
-	var pan_speed: float = PAN_SPEED / zoom
-
-	if mp.x < pan_zone:
-		var factor: float = 1.0 - mp.x / pan_zone
-		scroll_x -= pan_speed * factor * delta
-	if mp.x > vs.x - pan_zone:
-		var factor: float = 1.0 - (vs.x - mp.x) / pan_zone
-		scroll_x += pan_speed * factor * delta
-
-	var half_w: float = ENGINE_CUTOFF_ALTITUDE * 0.5
-	scroll_x = clampf(scroll_x, half_w, TERRAIN_LENGTH - half_w)
-
-func _update_sky_shader() -> void:
-	if preview_camera and sky_material:
-		sky_material.set_shader_parameter("camera_y", preview_camera.position.y)
-		sky_material.set_shader_parameter("ground_y", GROUND_Y)
-		sky_material.set_shader_parameter("max_altitude", ENGINE_CUTOFF_ALTITUDE)
-
-func _reset_map() -> void:
-	if world_container:
-		for c in world_container.get_children():
-			c.queue_free()
-		if GameManager:
-			GameManager.terrain_seed = randi()
-		_initialize_world_terrain()
-		_spawn_clouds()
-		_spawn_preview_targets()
-	scroll_x = TERRAIN_LENGTH / 2.0
-	if preview_camera:
-		preview_camera.position.x = scroll_x

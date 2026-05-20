@@ -43,11 +43,8 @@ func _ready() -> void:
 	_load_keybindings()
 	if GameManager:
 		GameManager.screen_shake_requested.connect(_on_screen_shake)
-	print("Main _ready: hiding game elements and showing title")
-	_hide_game_elements()
-	_show_title_screen()
-	if OS.has_feature("editor"):
-		pass
+	print("Main _ready: showing world with title overlay")
+	_show_startup_world()
 
 func _hide_game_elements() -> void:
 	if biplane:
@@ -86,9 +83,7 @@ func _input(event: InputEvent) -> void:
 		return
 
 	if event.is_action_pressed("ui_accept"):
-		if game_state == "TITLE" and title_screen:
-			title_screen.queue_free()
-		elif game_state == "GAME_OVER":
+		if game_state == "GAME_OVER":
 			get_tree().reload_current_scene()
 
 	if event.is_action_pressed("ui_cancel") or (event is InputEventKey and (event as InputEventKey).keycode == KEY_P):
@@ -111,6 +106,8 @@ func _abort_game() -> void:
 	is_vs_computer = false
 	if biplane:
 		biplane.velocity = Vector2.ZERO
+		biplane.visible = false
+		biplane.set_game_active(false)
 		var avatar = biplane.get_avatar_data(0)
 		if avatar:
 			avatar.is_ai_controlled = false
@@ -119,9 +116,15 @@ func _abort_game() -> void:
 		pause_menu = null
 	get_tree().paused = false
 	_clear_game_objects()
-	if terrain and terrain.has_method("generate"):
-		for c in terrain.get_children():
-			c.queue_free()
+	if minimap_instance:
+		minimap_instance.queue_free()
+		minimap_instance = null
+	if ui:
+		ui.visible = false
+	if camera:
+		camera.position = Vector2(TERRAIN_LENGTH * 0.5, 400)
+		camera.zoom = Vector2(0.3, 0.3)
+		camera.reset_smoothing()
 	_show_title_screen()
 
 func _clear_game_objects() -> void:
@@ -150,7 +153,27 @@ func _toggle_pause() -> void:
 func _on_screen_shake(intensity: float) -> void:
 	screen_shake_intensity = intensity
 
+func _show_startup_world() -> void:
+	if title_screen and is_instance_valid(title_screen):
+		return
+	if terrain and terrain.has_method("generate"):
+		terrain.generate()
+		terrain.visible = true
+	if camera:
+		camera.enabled = true
+		camera.position = Vector2(TERRAIN_LENGTH * 0.5, 400)
+		camera.zoom = Vector2(0.3, 0.3)
+		camera.reset_smoothing()
+	if biplane:
+		biplane.visible = false
+		biplane.set_game_active(false)
+	if ui:
+		ui.visible = false
+	_show_title_screen()
+
 func _show_title_screen() -> void:
+	if title_screen and is_instance_valid(title_screen):
+		return
 	print("_show_title_screen: creating title screen")
 	game_state = "TITLE"
 	title_screen = TITLE_SCENE.instantiate()
@@ -161,12 +184,11 @@ func _show_title_screen() -> void:
 	print("Title screen added to scene")
 
 func _on_back_to_menu() -> void:
-	_hide_game_elements()
 	_clear_game_objects()
-	if terrain and terrain.has_method("generate"):
-		for c in terrain.get_children():
-			c.queue_free()
-	_show_title_screen()
+	if minimap_instance:
+		minimap_instance.queue_free()
+		minimap_instance = null
+	_show_startup_world()
 
 func _on_start_game() -> void:
 	is_vs_computer = false
@@ -180,7 +202,6 @@ func _start_playing() -> void:
 	game_state = "PLAYING"
 
 	if terrain and terrain.has_method("generate"):
-		terrain.generate()
 		terrain.visible = true
 
 	if biplane:
@@ -188,6 +209,7 @@ func _start_playing() -> void:
 		biplane.set_game_active(true)
 	if camera:
 		camera.enabled = true
+		camera.zoom = Vector2(1, 1)
 		camera.position = Vector2(PLAYER_SPAWN_X, 400)
 	if ui:
 		ui.visible = true
