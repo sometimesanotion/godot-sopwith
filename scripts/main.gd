@@ -247,8 +247,6 @@ func _start_playing() -> void:
 			biplane.damaged.connect(_on_biplane_damaged)
 	if camera:
 		camera.position = Vector2(PLAYER_SPAWN_X, 400)
-	if SoundManager:
-		SoundManager.play_music()
 	_create_minimap()
 	_spawn_enemies_and_targets()
 	if GameManager and biplane and biplane.has_method("get_avatar_data"):
@@ -317,7 +315,7 @@ func _spawn_enemies_and_targets() -> void:
 		if terrain and terrain.has_method("add_runway"):
 			terrain.add_runway(base_x + 50)
 
-	var cow_count_map: Dictionary = {"None": 0, "Few": 3, "Normal": 6, "Many": 12}
+	var cow_count_map: Dictionary = {"None": 0, "Few": 6, "Normal": 12, "Many": 24}
 	var num_cows: int = int(cow_count_map.get(GameManager.cow_count if GameManager else "Normal", 6))
 	for i in range(num_cows):
 		var cow_x: float
@@ -334,12 +332,12 @@ func _spawn_enemies_and_targets() -> void:
 		cow.position = Vector2(cow_x, 650)
 		add_child(cow)
 
-	var spawn_birds: bool = GameManager.bird_flocks if GameManager else true
-	if spawn_birds:
-		for i in range(1):
-			var flock: Node2D = BIRD_FLOCK_SCENE.instantiate()
-			flock.position = Vector2(200 + randf() * 16000, 150 + randf() * 200)
-			add_child(flock)
+	var bird_count_map: Dictionary = {"None": 0, "Few": 3, "Normal": 6, "Many": 12}
+	var num_birds: int = int(bird_count_map.get(GameManager.bird_count if GameManager else "Normal", 6))
+	for i in range(num_birds):
+		var flock: Node2D = BIRD_FLOCK_SCENE.instantiate()
+		flock.position = Vector2(200 + randf() * 16000, 150 + randf() * 200)
+		add_child(flock)
 
 	_create_home_base()
 	_create_enemy_bases()

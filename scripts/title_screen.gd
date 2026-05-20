@@ -151,6 +151,8 @@ func _clear_all() -> void:
 
 func _show_main_menu() -> void:
 	current_mode = Mode.MAIN
+	if SoundManager:
+		SoundManager.play_theme_music()
 	if control_title:
 		control_title.text = ""
 	if control_content:
@@ -168,21 +170,22 @@ func _update_config_text() -> void:
 	var diff_labels := {0.5: "EASY (0.5x)", 1.0: "NORMAL (1.0x)", 1.5: "HARD (1.5x)"}
 	var diff_str: String = diff_labels.get(GameManager.difficulty, "NORMAL")
 	var tanks_str: String = GameManager.enemy_tanks
+	var birds_str: String = GameManager.bird_count
 	var cows_str: String = GameManager.cow_count
 	var sfx_str: String = str(GameManager.sound_fx_volume) if GameManager.sound_fx_volume > 0 else "None"
 	var music_str: String = str(GameManager.music_volume) if GameManager.music_volume > 0 else "None"
 	control_content.text = ""
-	control_content.text += "    1  Difficulty:  " + diff_str + "\n"
-	control_content.text += "    2  Enemy Planes:  " + ("ON" if GameManager.enemy_planes else "OFF") + "\n"
-	control_content.text += "    3  Enemy Bombs:  " + ("ON" if GameManager.enemy_bombs else "OFF") + "\n"
-	control_content.text += "    4  Enemy Homebases:  " + str(GameManager.enemy_homebases) + "\n"
-	control_content.text += "    5  Enemy Tanks:  " + tanks_str + "\n"
-	control_content.text += "    6  Huge Explosions:  " + ("ON" if GameManager.huge_explosions else "OFF") + "\n"
-	control_content.text += "    7  Bird Flocks:  " + ("ON" if GameManager.bird_flocks else "OFF") + "\n"
-	control_content.text += "    8  Cows:  " + cows_str + "\n"
-	control_content.text += "    S  Sound FX Volume:  " + sfx_str + "\n"
-	control_content.text += "    M  Music Volume:  " + music_str + "\n"
-	control_content.text += "\n    Q  - Back to Menu"
+	control_content.text += "1 - Difficulty:  " + diff_str + "\n"
+	control_content.text += "2 - Enemy Planes:  " + ("ON" if GameManager.enemy_planes else "OFF") + "\n"
+	control_content.text += "3 - Enemy Bombs:  " + ("ON" if GameManager.enemy_bombs else "OFF") + "\n"
+	control_content.text += "4 - Huge Explosions:  " + ("ON" if GameManager.huge_explosions else "OFF") + "\n"
+	control_content.text += "5 - Enemy Homebases:  " + str(GameManager.enemy_homebases) + "\n"
+	control_content.text += "6 - Bird Flocks:  " + birds_str + "\n"
+	control_content.text += "7 - Cows:  " + cows_str + "\n"
+	control_content.text += "8 - Enemy Tanks:  " + tanks_str + "\n"
+	control_content.text += "S - Sound FX Volume:  " + sfx_str + "\n"
+	control_content.text += "M - Music Volume:  " + music_str + "\n\n"
+	control_content.text += "Q - Back to Menu"
 
 func _show_keys_menu() -> void:
 	current_mode = Mode.KEYS
@@ -206,7 +209,7 @@ func _show_keys_menu() -> void:
 			key_name = _get_key_name(input_events[0] as InputEventKey)
 		key_labels_arr.append(key_name)
 		var num: int = i + 1
-		control_content.text += "    " + str(num) + "  " + action_name.replace("_", " ").capitalize() + ":  " + key_name + "\n"
+		control_content.text += str(num) + " - " + action_name.replace("_", " ").capitalize() + ":  " + key_name + "\n"
 	control_content.text += "\nPress number key to rebind, Q to cancel, Enter to save"
 
 func _get_key_name(event: InputEventKey) -> String:
@@ -327,25 +330,27 @@ func _handle_configure_input(ke: InputEventKey) -> void:
 			GameManager.enemy_bombs = not GameManager.enemy_bombs
 			_update_config_text()
 		KEY_4:
+			GameManager.huge_explosions = not GameManager.huge_explosions
+			_update_config_text()
+		KEY_5:
 			var opts := [2, 3, 4, 5, 6]
 			var idx := opts.find(GameManager.enemy_homebases)
 			GameManager.enemy_homebases = opts[(idx + 1) % opts.size()]
 			_update_config_text()
-		KEY_5:
-			var opts := ["None", "Few", "Normal", "Many"]
-			var idx := opts.find(GameManager.enemy_tanks)
-			GameManager.enemy_tanks = opts[(idx + 1) % opts.size()]
-			_update_config_text()
 		KEY_6:
-			GameManager.huge_explosions = not GameManager.huge_explosions
+			var opts := ["None", "Few", "Normal", "Many"]
+			var idx := opts.find(GameManager.bird_count)
+			GameManager.bird_count = opts[(idx + 1) % opts.size()]
 			_update_config_text()
 		KEY_7:
-			GameManager.bird_flocks = not GameManager.bird_flocks
-			_update_config_text()
-		KEY_8:
 			var opts := ["None", "Few", "Normal", "Many"]
 			var idx := opts.find(GameManager.cow_count)
 			GameManager.cow_count = opts[(idx + 1) % opts.size()]
+			_update_config_text()
+		KEY_8:
+			var opts := ["None", "Few", "Normal", "Many"]
+			var idx := opts.find(GameManager.enemy_tanks)
+			GameManager.enemy_tanks = opts[(idx + 1) % opts.size()]
 			_update_config_text()
 		KEY_S:
 			var opts := [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]

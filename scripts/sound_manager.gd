@@ -100,7 +100,7 @@ func stop_stall_warning() -> void:
 	if stall_warning_sound:
 		stall_warning_sound.stop()
 
-func play_music() -> void:
+func play_theme_music() -> void:
 	if not music_player:
 		return
 	
