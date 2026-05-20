@@ -39,7 +39,7 @@ const MAX_BOMBS := 5
 
 @export_group("Weapons")
 @export var gun_cooldown: float = 0.07
-@export var bomb_cooldown: float = 0.5
+@export var bomb_cooldown: float = 0.3
 @export var bullet_speed: float = 1600.0
 
 const FLIP_DURATION := 0.35
@@ -51,9 +51,9 @@ const FLIP_ARC_HEIGHT := 15.0
 
 @export_group("Impact Physics (Sopwith Camel)")
 @export var bungee_compression_time: float = 0.15
-@export var soft_landing_vperp: float = 40.0
-@export var hard_landing_vperp: float = 100.0
-@export var max_landing_tilt_deg: float = 34.0
+@export var soft_landing_vperp: float = 80.0
+@export var hard_landing_vperp: float = 200.0
+@export var max_landing_tilt_deg: float = 40.0
 
 enum FlightState {
 	FLYING,
@@ -735,7 +735,7 @@ func _check_ground_collision(avatar: AvatarData) -> void:
 			velocity.y = 0
 			velocity.x *= 0.5
 			avatar.flight_state = FlightState.DAMAGED
-			avatar.damage_percent += 0.2 # * impact_force / hard_landing_vperp
+			avatar.damage_percent += impact_force / hard_landing_vperp
 			# print_rich("[color=orange]  _check_gc: HARD LANDING damage: avatar.damage_percent=", avatar.damage_percent, " avatar.damage_percent=", avatar.damage_percent, "[/color]")
 			avatar.reliability = 0.75
 			_ensure_smoke(avatar, 2, 15)
