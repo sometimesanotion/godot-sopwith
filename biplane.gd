@@ -6,7 +6,7 @@ extends CharacterBody2D
 ## Arcade feel achieved via gravity multiplier and tuned propeller curve
 
 @export_group("Flight Parameters (SI Units)")
-@export var arcade_multiplier: float = 2.2
+@export var arcade_multiplier: float = 3.0 # 2.2
 
 @export var camel_mass_kg: float = 447.0
 @export var engine_power_watts: float = 96941.0 * arcade_multiplier
@@ -46,8 +46,8 @@ const FLIP_DURATION := 0.35
 const FLIP_ARC_HEIGHT := 15.0
 
 @export_group("Handling")
-@export var rotation_speed: float = 4.5
-@export var rotation_inertia: float = 3.0
+@export var rotation_speed: float = 4.0
+@export var rotation_inertia: float = 4.0
 
 @export_group("Impact Physics (Sopwith Camel)")
 @export var bungee_compression_time: float = 0.15
