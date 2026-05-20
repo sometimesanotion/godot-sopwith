@@ -41,7 +41,7 @@ func _update_layout_from_scratch() -> void:
 
 	var vs: Vector2 = get_viewport().size
 	var hh: float = vs.y * 0.12
-	var cp_height: float = min(vs.y - hh - 40, 500.0)
+	var cp_height: float = min(vs.y - hh - 40, 700.0)
 	var cp_y: float = hh + (vs.y - hh - cp_height) * 0.5
 
 	header_bg = ColorRect.new()
@@ -82,8 +82,8 @@ func _update_layout_from_scratch() -> void:
 		sp.texture = tex
 		var sc: float = svg_h / max(tex.get_height(), 1)
 		sp.scale = Vector2(sc, sc)
-		sp.rotation_degrees = 180.0
-		sp.flip_v = true
+		sp.rotation_degrees = 0.0
+		sp.flip_v = false
 		bip_sprite.add_child(sp)
 
 	if ResourceLoader.exists(sop_path):
@@ -112,7 +112,7 @@ func _update_layout_from_scratch() -> void:
 	control_title = Label.new()
 	control_title.name = "ControlTitle"
 	control_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	control_title.add_theme_font_size_override("font_size", maxi(12, int(cp_height * 0.08)))
+	control_title.add_theme_font_size_override("font_size", maxi(12, int(cp_height * 0.07)))
 	control_title.add_theme_color_override("font_color", Color(1, 0.95, 0.85))
 	control_title.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	control_title.position = Vector2(0, cp_y + cp_height * 0.04)
@@ -124,11 +124,11 @@ func _update_layout_from_scratch() -> void:
 	control_content.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	control_content.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	control_content.autowrap_mode = TextServer.AUTOWRAP_WORD
-	control_content.add_theme_font_size_override("font_size", maxi(10, int(cp_height * 0.055)))
+	control_content.add_theme_font_size_override("font_size", maxi(10, int(cp_height * 0.04)))
 	control_content.add_theme_color_override("font_color", Color(1, 1, 1))
 	control_content.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	control_content.position = Vector2(vs.x * 0.06, cp_y + cp_height * 0.22)
-	control_content.size = Vector2(vs.x * 0.88, cp_height * 0.74)
+	control_content.position = Vector2(vs.x * 0.06, cp_y + cp_height * 0.2)
+	control_content.size = Vector2(vs.x * 0.88, cp_height * 0.5)
 	add_child(control_content)
 
 	match current_mode:
