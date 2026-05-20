@@ -19,7 +19,7 @@ func _ready() -> void:
 	_check_sound_files()
 
 func _check_sound_files() -> void:
-	_sound_files_loaded = _has_valid_sound(SOUND_DIR + "kakaist-ak47-machine-gun-burst-sfx-332103.mp3")
+	_sound_files_loaded = _has_valid_sound(SOUND_DIR + "machine_gun.mp3")
 
 func _has_valid_sound(path: String) -> bool:
 	if not FileAccess.file_exists(path):
@@ -74,14 +74,7 @@ func play_machine_gun() -> void:
 	if not machine_gun_sound or not _sound_files_loaded:
 		return
 
-	if _has_valid_sound(SOUND_DIR + "kakaist-ak47-machine-gun-burst-sfx-332103.mp3"):
-		machine_gun_sound.stream = load(SOUND_DIR + "kakaist-ak47-machine-gun-burst-sfx-332103.mp3")
-		machine_gun_sound.play()
-	elif _has_valid_sound(SOUND_DIR + "machine_gun.mp3"):
-		if not machine_gun_sound.playing:
-			machine_gun_sound.stream = load(SOUND_DIR + "machine_gun.mp3")
-			machine_gun_sound.play()
-	elif _has_valid_sound(SOUND_DIR + "machine_gun.mp3"):
+	if _has_valid_sound(SOUND_DIR + "machine_gun.mp3"):
 		if not machine_gun_sound.playing:
 			machine_gun_sound.stream = load(SOUND_DIR + "machine_gun.mp3")
 			machine_gun_sound.play()
@@ -91,9 +84,6 @@ func play_explosion() -> void:
 		return
 
 	if _has_valid_sound(SOUND_DIR + "explosion.mp3"):
-		explosion_sound.stream = load(SOUND_DIR + "explosion.mp3")
-		explosion_sound.play()
-	elif _has_valid_sound(SOUND_DIR + "explosion.mp3"):
 		explosion_sound.stream = load(SOUND_DIR + "explosion.mp3")
 		explosion_sound.play()
 
