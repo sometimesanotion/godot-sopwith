@@ -14,7 +14,6 @@ var game_state: String = "PLAYING"
 
 var terrain_seed: int = 0
 
-var difficulty: float = 1.0
 var enemy_planes: bool = true
 var enemy_bombs: bool = true
 var enemy_homebases: int = 4

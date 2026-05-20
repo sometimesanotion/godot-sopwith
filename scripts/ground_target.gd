@@ -24,9 +24,8 @@ func _ready() -> void:
 	add_to_group("destructible")
 	add_to_group("ground_target")
 	_svg_sprite_name = target_type
-	if is_enemy and GameManager:
-		health = max_health * GameManager.difficulty
-		original_health = health
+	health = max_health
+	original_health = health
 	_create_visuals()
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
