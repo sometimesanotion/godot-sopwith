@@ -43,14 +43,24 @@ var selected_key_index: int = -1
 var waiting_for_key: bool = false
 var key_actions: Array[String] = []
 var key_labels_arr: Array[String] = []
+var _last_known_size := Vector2(-1, -1)
 
 func _ready() -> void:
 	if GameManager:
 		GameManager.terrain_seed = randi()
-	_rebuild_all()
 	get_viewport().size_changed.connect(_rebuild_all)
+	await get_tree().process_frame
+	_rebuild_all()
 
 func _rebuild_all() -> void:
+	var vp := get_viewport()
+	if not vp:
+		return
+	var vs: Vector2 = vp.size
+	if vs == _last_known_size:
+		return
+	_last_known_size = vs
+	print("TitleScreen rebuild: ", vs)
 	_update_layout_from_scratch()
 
 func _update_layout_from_scratch() -> void:
@@ -62,12 +72,14 @@ func _update_layout_from_scratch() -> void:
 	var mt: float = hh
 	var ct: float = mt + mh
 	var ch: float = max(vs.y - ct, 80.0)
+	print("  layout: vs=", vs, " hh=", hh, " mh=", mh, " mt=", mt, " ct=", ct, " ch=", ch)
 
 	header_bg = ColorRect.new()
 	header_bg.name = "HeaderBg"
-	header_bg.color = Color(0.0, 0.0, 0.0, 0.7)
-	header_bg.size = Vector2(vs.x, hh)
+	header_bg.color = Color(0.0, 0.0, 0.0, 0.55)
+	header_bg.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	header_bg.position = Vector2.ZERO
+	header_bg.size = Vector2(vs.x, hh)
 	add_child(header_bg)
 
 	title_label = Label.new()
@@ -75,15 +87,16 @@ func _update_layout_from_scratch() -> void:
 	title_label.text = "SOPWITH 2026"
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	title_label.add_theme_font_size_override("font_size", maxi(24, int(hh * 0.4)))
+	title_label.add_theme_font_size_override("font_size", maxi(20, int(hh * 0.18)))
 	title_label.add_theme_color_override("font_color", Color(1, 0.95, 0.8))
 	title_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 	title_label.add_theme_constant_override("outline_size", 3)
-	title_label.size = Vector2(vs.x, hh)
+	title_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	title_label.position = Vector2.ZERO
+	title_label.size = Vector2(vs.x, hh)
 	add_child(title_label)
 
-	var svg_h: float = hh * 0.85
+	var svg_h: float = hh * 0.35
 	var bip_path := "res://assets/svg/biplane.svg"
 	var sop_path := "res://assets/svg/sopwith.svg"
 
@@ -98,7 +111,7 @@ func _update_layout_from_scratch() -> void:
 		var sp := Sprite2D.new()
 		sp.texture = tex
 		var sc: float = svg_h / max(tex.get_height(), 1)
-		sp.scale = Vector2(sc * asp, sc)
+		sp.scale = Vector2(sc, sc)
 		sp.rotation_degrees = 180.0
 		sp.flip_v = true
 		bip_sprite.add_child(sp)
@@ -114,7 +127,7 @@ func _update_layout_from_scratch() -> void:
 		var sp := Sprite2D.new()
 		sp.texture = tex
 		var sc: float = svg_h / max(tex.get_height(), 1)
-		sp.scale = Vector2(sc * asp, sc)
+		sp.scale = Vector2(sc, sc)
 		sp.flip_h = true
 		sop_sprite.add_child(sp)
 
@@ -122,29 +135,32 @@ func _update_layout_from_scratch() -> void:
 
 	cp_bg = ColorRect.new()
 	cp_bg.name = "ControlBg"
-	cp_bg.color = Color(0.0, 0.0, 0.0, 0.65)
-	cp_bg.size = Vector2(vs.x, ch)
+	cp_bg.color = Color(0.0, 0.0, 0.0, 0.80)
+	cp_bg.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	cp_bg.position = Vector2(0, ct)
+	cp_bg.size = Vector2(vs.x, ch)
 	add_child(cp_bg)
 
 	control_title = Label.new()
 	control_title.name = "ControlTitle"
 	control_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	control_title.add_theme_font_size_override("font_size", maxi(16, int(ch * 0.16)))
+	control_title.add_theme_font_size_override("font_size", maxi(14, int(ch * 0.14)))
 	control_title.add_theme_color_override("font_color", Color(1, 0.95, 0.85))
+	control_title.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	control_title.position = Vector2(0, ct + ch * 0.04)
 	control_title.size = Vector2(vs.x, ch * 0.18)
 	add_child(control_title)
 
 	control_content = Label.new()
 	control_content.name = "ControlContent"
-	control_content.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	control_content.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	control_content.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	control_content.autowrap_mode = TextServer.AUTOWRAP_WORD
-	control_content.add_theme_font_size_override("font_size", maxi(14, int(ch * 0.12)))
+	control_content.add_theme_font_size_override("font_size", maxi(12, int(ch * 0.11)))
 	control_content.add_theme_color_override("font_color", Color(1, 1, 1))
-	control_content.position = Vector2(vs.x * 0.08, ct + ch * 0.22)
-	control_content.size = Vector2(vs.x * 0.84, ch * 0.72)
+	control_content.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	control_content.position = Vector2(vs.x * 0.06, ct + ch * 0.22)
+	control_content.size = Vector2(vs.x * 0.88, ch * 0.74)
 	add_child(control_content)
 
 	match current_mode:
@@ -172,9 +188,9 @@ func _clear_all() -> void:
 func _create_map_viewport(vs: Vector2, mt: float, mh: float) -> void:
 	vpc = SubViewportContainer.new()
 	vpc.name = "MapViewportContainer"
+	vpc.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	vpc.position = Vector2(0, mt)
 	vpc.size = Vector2(vs.x, mh)
-	vpc.stretch = true
 	vpc.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(vpc)
 
@@ -192,6 +208,8 @@ func _create_map_viewport(vs: Vector2, mt: float, mh: float) -> void:
 	sky_material = sky_mat
 	sky_rect = ColorRect.new()
 	sky_rect.name = "SkyGradient"
+	sky_rect.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	sky_rect.position = Vector2.ZERO
 	sky_rect.size = Vector2(vs.x, mh)
 	sky_rect.material = sky_mat
 	sub_viewport.add_child(sky_rect)
@@ -557,16 +575,21 @@ func _process(delta: float) -> void:
 func _handle_mouse_panning(delta: float) -> void:
 	if not preview_camera:
 		return
-	var mp: Vector2 = get_viewport().get_mouse_position()
-	var vs: Vector2 = get_viewport().size
-	var pan_zone: float = vs.x * 0.08
+	var vp := get_viewport()
+	if not vp:
+		return
+	var mp: Vector2 = vp.get_mouse_position()
+	var vs: Vector2 = vp.size
+	if vs.x < 200 or vs.y < 200:
+		return
+	var pan_zone: float = vs.x * 0.1
 	var zoom: float = preview_camera.zoom.x
 	var pan_speed: float = PAN_SPEED / zoom
 
 	if mp.x < pan_zone:
 		var factor: float = 1.0 - mp.x / pan_zone
 		scroll_x -= pan_speed * factor * delta
-	elif mp.x > vs.x - pan_zone:
+	if mp.x > vs.x - pan_zone:
 		var factor: float = 1.0 - (vs.x - mp.x) / pan_zone
 		scroll_x += pan_speed * factor * delta
 
