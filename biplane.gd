@@ -47,7 +47,7 @@ const FLIP_ARC_HEIGHT := 15.0
 
 @export_group("Handling")
 @export var rotation_speed: float = 4.0
-@export var rotation_inertia: float = 4.0
+@export var rotation_inertia: float = 3.0
 
 @export_group("Impact Physics (Sopwith Camel)")
 @export var bungee_compression_time: float = 0.15

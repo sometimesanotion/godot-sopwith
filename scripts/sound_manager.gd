@@ -54,17 +54,28 @@ func _setup_players() -> void:
 	add_child(music_player)
 
 func play_engine(throttle: float) -> void:
-	if not engine_sound or not _sound_files_loaded:
+	# if not engine_sound or not _sound_files_loaded:
+	if not engine_sound:
 		return
 	
+	if not engine_sound.stream:
+		if _has_valid_sound(SOUND_DIR + "engine.wav"):
+			var stream := load(SOUND_DIR + "engine.wav") as AudioStreamWAV
+			if stream:
+				stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+				engine_sound.stream = stream
+		if not engine_sound.stream:
+			return
+
 	var pitch := 0.8 + throttle * 0.6
 	engine_sound.pitch_scale = pitch
 	engine_sound.volume_db = linear_to_db(0.3 + throttle * 0.4)
 	
 	if not engine_sound.playing:
-		if _has_valid_sound(SOUND_DIR + "engine.wav"):
-			engine_sound.stream = load(SOUND_DIR + "engine.wav")
-			engine_sound.play()
+		engine_sound.play()
+		# if _has_valid_sound(SOUND_DIR + "engine.wav"):
+		# 	engine_sound.stream = load(SOUND_DIR + "engine.wav")
+		# 	engine_sound.play()
 
 func stop_engine() -> void:
 	if engine_sound:

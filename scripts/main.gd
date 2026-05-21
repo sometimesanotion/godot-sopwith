@@ -37,6 +37,7 @@ var screen_shake_intensity: float = 0.0
 var enemies: Array = []
 var minimap_instance: Control = null
 var is_vs_computer: bool = false
+var _showing_title_screen: bool = false
 
 func _ready() -> void:
 	add_to_group("main")
@@ -101,6 +102,9 @@ func _input(event: InputEvent) -> void:
 				_abort_game()
 
 func _abort_game() -> void:
+	if game_state != "PLAYING":
+		return
+	_showing_title_screen = false
 	game_state = "TITLE"
 	is_paused = false
 	is_vs_computer = false
@@ -116,6 +120,9 @@ func _abort_game() -> void:
 		pause_menu = null
 	get_tree().paused = false
 	_clear_game_objects()
+	if title_screen:
+		title_screen.queue_free()
+		title_screen = null
 	if minimap_instance:
 		minimap_instance.queue_free()
 		minimap_instance = null
@@ -172,9 +179,10 @@ func _show_startup_world() -> void:
 	_show_title_screen()
 
 func _show_title_screen() -> void:
-	if title_screen and is_instance_valid(title_screen):
+	if _showing_title_screen:
+		print("_show_title_screen blocked (flag already true)")
 		return
-	print("_show_title_screen: creating title screen")
+	_showing_title_screen = true
 	game_state = "TITLE"
 	title_screen = TITLE_SCENE.instantiate()
 	title_screen.start_single_player.connect(_on_start_game)
@@ -184,6 +192,7 @@ func _show_title_screen() -> void:
 	print("Title screen added to scene")
 
 func _on_back_to_menu() -> void:
+	_showing_title_screen = false
 	_clear_game_objects()
 	if minimap_instance:
 		minimap_instance.queue_free()
@@ -200,6 +209,11 @@ func _on_start_network_game() -> void:
 
 func _start_playing() -> void:
 	game_state = "PLAYING"
+	_showing_title_screen = false
+
+	if title_screen:
+		title_screen.queue_free()
+		title_screen = null
 
 	if terrain and terrain.has_method("generate"):
 		terrain.visible = true
