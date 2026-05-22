@@ -8,7 +8,7 @@ var score_label: Label
 var speed_label: Label
 var altitude_label: Label
 
-var biplane: CharacterBody2D = null
+var avatar: CharacterBody2D = null
 var display_player_id: int = 0
 
 func _ready() -> void:
@@ -40,17 +40,17 @@ func _create_label(text: String, pos: Vector2) -> Label:
 	return label
 
 func _process(_delta: float) -> void:
-	if not biplane:
-		biplane = get_parent().get_node_or_null("Biplane")
+	if not avatar:
+		avatar = get_parent().get_node_or_null("Biplane")
 
-	if biplane and biplane.has_method("get_avatar_data"):
-		var avatar = biplane.get_avatar_data(0)
-		if avatar and biplane.has_method("get_avatar_speed"):
-			var speed := int(biplane.get_avatar_speed(avatar))
+	if avatar and avatar.has_method("get_avatar_data"):
+		var avatar = avatar.get_avatar_data(0)
+		if avatar and avatar.has_method("get_avatar_speed"):
+			var speed := int(avatar.get_avatar_speed(avatar))
 			speed_label.text = "SPEED: %d" % speed
 
-			var speed_ms: float = speed / biplane.pixels_per_meter
-			if speed_ms < biplane.stall_speed_ms:
+			var speed_ms: float = speed / avatar.pixels_per_meter
+			if speed_ms < (avatar.stall_speed / avatar.pixels_per_meter):
 				var pulse := sin(Time.get_ticks_msec() * 0.015)
 				var red := clampf(1.0 - pulse * 0.8, 0.2, 1.0)
 				speed_label.modulate = Color(1, red, red)
@@ -58,7 +58,7 @@ func _process(_delta: float) -> void:
 				speed_label.modulate = Color(1, 1, 1)
 
 			var ground_y := 650.0
-			var alt := int(ground_y - biplane.position.y)
+			var alt := int(ground_y - avatar.position.y)
 			alt = maxi(0, alt)
 			altitude_label.text = "ALT: %d" % alt
 	else:

@@ -114,7 +114,7 @@ func _abort_game() -> void:
 		biplane.set_game_active(false)
 		var avatar = biplane.get_avatar_data(0)
 		if avatar:
-			avatar.is_ai_controlled = false
+			avatar.is_player = true
 	if pause_menu:
 		pause_menu.queue_free()
 		pause_menu = null
