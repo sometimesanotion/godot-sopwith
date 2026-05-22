@@ -44,13 +44,14 @@ func _process(_delta: float) -> void:
 		avatar = get_parent().get_node_or_null("Biplane")
 
 	if avatar and avatar.has_method("get_avatar_data"):
-		var avatar = avatar.get_avatar_data(0)
-		if avatar and avatar.has_method("get_avatar_speed"):
-			var speed := int(avatar.get_avatar_speed(avatar))
+		var avatar_data = avatar.get_avatar_data(0)
+		if avatar_data and avatar.has_method("get_avatar_speed"):
+			var speed := int(avatar.get_avatar_speed(avatar_data))
 			speed_label.text = "SPEED: %d" % speed
 
+			var stall_speed_ms: float = avatar_data.model_params.get("stall_speed_ms", 21.4)
 			var speed_ms: float = speed / avatar.pixels_per_meter
-			if speed_ms < (avatar.stall_speed / avatar.pixels_per_meter):
+			if speed_ms < stall_speed_ms:
 				var pulse := sin(Time.get_ticks_msec() * 0.015)
 				var red := clampf(1.0 - pulse * 0.8, 0.2, 1.0)
 				speed_label.modulate = Color(1, red, red)

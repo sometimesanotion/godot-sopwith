@@ -49,8 +49,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"zero_lift_drag_area": 0.811,
 		"ar_efficiency": 11.0,
 		"max_lift_coeff": 1.4,
-		"max_speed": 50.6,
-		"stall_speed": 21.4,
+		"max_speed_ms": 50.6,
+		"stall_speed_ms": 21.4,
 		"rotation_speed": 5.0,
 		"rotation_inertia": 4.0,
 		"bullet_spawn_offset": Vector2(34, -15),
@@ -61,6 +61,26 @@ static var _PLANE_MODELS: Dictionary = {
 		"hard_landing_vperp": 200.0,
 		"svg_path": "res://assets/svg/sopwith.svg"
 	},
+	"spad": {
+		"name": "SPAD S.XIII",
+		"mass_kg": 602.0,
+		"engine_power_watts": 161800.0,
+		"wing_area": 21.11,
+		"zero_lift_drag_area": 0.9,	# ???
+		"ar_efficiency": 11.0,	# ???
+		"max_lift_coeff": 1.4, # ??
+		"max_speed_ms": 60.56,
+		"stall_speed_ms": 23.3,
+		"rotation_speed": 5.0,
+		"rotation_inertia": 4.0,
+		"bullet_spawn_offset": Vector2(34, -15),
+		"bomb_spawn_offset": Vector2(0, 26),
+		"visual_scale": Vector2.ONE,
+		"bungee_time": 0.15,
+		"soft_landing_vperp": 80.0,
+		"hard_landing_vperp": 200.0,
+		"svg_path": "res://assets/svg/spad.svg"
+	},
 	"fokker_d7": {
 		"name": "Fokker D.VII",
 		"mass_kg": 670.0,
@@ -69,8 +89,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"zero_lift_drag_area": 0.95,
 		"ar_efficiency": 9.5,
 		"max_lift_coeff": 1.3,
-		"max_speed": 52.5,
-		"stall_speed": 15.3,
+		"max_speed_ms": 52.5,
+		"stall_speed_ms": 15.3,
 		"rotation_speed": 4.5,
 		"rotation_inertia": 5.0,
 		"bullet_spawn_offset": Vector2(32, -14),
@@ -243,7 +263,6 @@ class AvatarData:
 	## Cached physics modifiers; recomputed by _refresh_damage_modifiers().
 	var drag_multiplier:   float = 1.0
 	var thrust_multiplier: float = 1.0
-	var speed_cap_factor:  float = 1.0
 
 	# Kinematics
 	var pitch_angle:         float = 0.0
@@ -288,6 +307,9 @@ class AvatarData:
 	var bungee_time: float = model_params.get("bungee_time", 0.15)
 	var mass_kg: float = model_params.get("mass_kg", 447.0)
 
+	var bullet_spawn_offset: Vector2 = model_params.get("bullet_spawn_offset", Vector2(34, -15))
+	var bomb_spawn_offset: Vector2 = model_params.get("bomb_spawn_offset", Vector2(0, 26))
+
 	func reset() -> void:
 		flight_state = FlightState.FLYING
 		damage_percent   = 0.0
@@ -295,7 +317,6 @@ class AvatarData:
 		reliability      = 1.0
 		drag_multiplier  = 1.0
 		thrust_multiplier = 1.0
-		speed_cap_factor = 1.0
 		refuel_timer     = 0.0
 		pitch_angle      = 0.0
 		angular_velocity  = 0.0
@@ -351,31 +372,26 @@ func _refresh_damage_modifiers(avatar: AvatarData) -> void:
 		avatar.reliability     = 0.0
 		avatar.drag_multiplier   = 2.0
 		avatar.thrust_multiplier = 0.0
-		avatar.speed_cap_factor  = 0.4
 	elif avatar.damage_percent >= 0.8:
 		avatar.damage_state    = DamageState.SEVERE
 		avatar.reliability     = 0.0
 		avatar.drag_multiplier   = 1.6
 		avatar.thrust_multiplier = 0.5
-		avatar.speed_cap_factor  = 0.6
 	elif avatar.damage_percent >= 0.5:
 		avatar.damage_state    = DamageState.MODERATE
 		avatar.reliability     = 0.5
 		avatar.drag_multiplier   = 1.25
 		avatar.thrust_multiplier = 0.7
-		avatar.speed_cap_factor  = 0.8
 	elif avatar.damage_percent >= 0.25:
 		avatar.damage_state    = DamageState.LIGHT
 		avatar.reliability     = 0.75
 		avatar.drag_multiplier   = 1.05
 		avatar.thrust_multiplier = 0.9
-		avatar.speed_cap_factor  = 1.0
 	else:
 		avatar.damage_state    = DamageState.INTACT
 		avatar.reliability     = 1.0
 		avatar.drag_multiplier   = 1.0
 		avatar.thrust_multiplier = 1.0
-		avatar.speed_cap_factor  = 1.0
 
 	# Sync particles whenever damage band changes.
 	if avatar.damage_state != prev_state:
@@ -657,12 +673,11 @@ func _physics_process(delta: float) -> void:
 				continue
 
 			FlightState.FALLING:
-				## Spinning out — rotate until ground contact.
-				rotation        += delta * 4.0
-				avatar.pitch_angle = rotation
-				var gc := _get_ground_contact(avatar)
-				if gc.is_grounded:
-					_on_avatar_crashed(avatar)
+				avatar.angular_velocity = 4.0
+				avatar.pitch_angle += avatar.angular_velocity * delta
+				rotation = avatar.pitch_angle
+				_apply_physics(avatar, delta)
+				_check_obstacle_collision(avatar)
 				continue
 
 		## All other states go through the normal pipeline.
@@ -716,7 +731,7 @@ func _apply_physics(avatar: AvatarData, delta: float) -> void:
 		aoa = forward.angle_to(vel_si.normalized())
 
 	## Planes cannot stall aerodynamically while on the ground.
-	stalled = (not gc.is_grounded) and (abs(aoa) > model_params.get("stall_aoa", 0.244) or speed_si < model_params.get("stall_speed_ms", 21.4 / 2.2))
+	stalled = (not gc.is_grounded) and (abs(aoa) > model_params.get("stall_aoa", 0.244) or speed_si < model_params.get("stall_speed_ms_ms", 21.4 / 2.2))
 
 	var cl: float = clampf(aoa * 2.0 * PI, -model_params.get("max_lift_coeff", 1.4), model_params.get("max_lift_coeff", 1.4))
 	if stalled:
@@ -734,11 +749,11 @@ func _apply_physics(avatar: AvatarData, delta: float) -> void:
 	var induced_drag: float = 0.5 * rho * speed_si * speed_si * model_params.get("wing_area", 21.46) * (cl * cl) / model_params.get("ar_efficiency", 11.0)
 
 	## Speed-cap drag: exponential penalty above the effective max speed.
-	var eff_max_speed: float = model_params.get("max_speed", 300.0) * avatar.speed_cap_factor
+	var eff_max_speed_ms: float = model_params.get("max_speed_ms", 300.0)
 	var speed_px: float = velocity.length()
 	var speed_lim_drag: float = 0.0
-	if speed_px > eff_max_speed:
-		var over: float = speed_px - eff_max_speed
+	if speed_px > eff_max_speed_ms:
+		var over: float = speed_px - eff_max_speed_ms
 		speed_lim_drag = over * over * 0.5
 
 	var total_drag: float = (para_drag + induced_drag + speed_lim_drag / pixels_per_meter) \
@@ -793,9 +808,9 @@ func _apply_physics(avatar: AvatarData, delta: float) -> void:
 
 	# 7. CONTROL EFFECTIVENESS (scales with dynamic pressure)
 	var sp_si := velocity.length() / pixels_per_meter
-	var stall_speed = model_params.get("stall_speed_ms", 21.4 / 2.2)
+	var stall_speed_ms = model_params.get("stall_speed_ms_ms", 21.4 / 2.2)
 	avatar.control_effectiveness = clampf(
-		(sp_si * sp_si) / (stall_speed * stall_speed * 50.0), 0.6, 1.8)
+		(sp_si * sp_si) / (stall_speed_ms * stall_speed_ms * 50.0), 0.6, 1.8)
 
 	# 8. FLIGHT STATE TRANSITIONS
 	if gc.is_grounded:
@@ -861,7 +876,7 @@ func _calc_thrust(avatar: AvatarData, speed_si: float, ground_y: float) -> float
 			(ENGINE_CUTOFF_ALTITUDE - ENGINE_EFFICIENCY_START_ALTITUDE),
 			0.0, 1.0)
 
-	var thr := avatar.throttle * avatar.thrust_multiplier
+	var thr := avatar.throttle * avatar.thrust_multiplier * arcade_multiplier
 	var model_params = avatar.model_params
 
 	## Below 0.5 m/s the P×η/v formula diverges; use a static thrust value.
@@ -1118,10 +1133,10 @@ func fire_gun(avatar: AvatarData) -> void:
 
 	var inv: bool = avatar.is_inverted
 	var model_params = avatar.model_params
-	var base_offset: Vector2 = model_params.get("bullet_spawn_offset", Vector2(34, -15))
-	var spawn_off: Vector2 = base_offset.rotated(avatar.pitch_angle)
+	var base_offset: Vector2 = avatar.bullet_spawn_offset
 	if inv:
-		spawn_off.y *= -1
+		base_offset.y *= -1
+	var spawn_off: Vector2 = base_offset.rotated(avatar.pitch_angle)
 	var spawn_pos: Vector2 = global_position + spawn_off
 	var direction: Vector2 = Vector2(cos(avatar.pitch_angle), sin(avatar.pitch_angle))
 
@@ -1152,10 +1167,10 @@ func drop_bomb(avatar: AvatarData) -> void:
 
 	var inv: bool = avatar.is_inverted
 	var model_params = avatar.model_params
-	var base_offset: Vector2 = model_params.get("bomb_spawn_offset", Vector2(0, 26))
-	var spawn_off: Vector2 = base_offset.rotated(avatar.pitch_angle)
+	var base_offset: Vector2 = avatar.bomb_spawn_offset
 	if inv:
-		spawn_off.y *= -1
+		base_offset.y *= -1
+	var spawn_off: Vector2 = base_offset.rotated(avatar.pitch_angle)
 	var spawn_pos: Vector2 = global_position + spawn_off
 
 	var bomb = BOMB_SCENE.instantiate()
@@ -1384,8 +1399,7 @@ func update_visual_representation(avatar: AvatarData) -> void:
 func _update_ground_ray(avatar: AvatarData) -> void:
 	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
 	if ground_ray:
-		var model_params = avatar.model_params
-		var base_offset = model_params.get("visual_scale", Vector2.ONE).y * 26
+		var base_offset: float = 26.0
 		ground_ray.target_position = Vector2(0, -base_offset if avatar.is_inverted else base_offset)
 
 func create_explosion() -> void:
