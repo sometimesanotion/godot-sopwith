@@ -19,13 +19,13 @@
 ##   SoundManager.set_engine_rpm(0.6)   # 0.0 = idle, 1.0 = full throttle
 ##   SoundManager.pause_all()
 ##   SoundManager.resume_all()
- 
+
 extends Node
- 
+
 # ---------------------------------------------------------------------------
 # Public API types
 # ---------------------------------------------------------------------------
- 
+
 ## Every distinct sound the game can request.
 ## Add new entries freely; matching audio files are discovered automatically.
 enum SoundEvent {
@@ -40,20 +40,20 @@ enum SoundEvent {
 	PICKUP,       ## Collect an item
 	PLAYER_HIT,   ## Player takes damage
 }
- 
+
 # ---------------------------------------------------------------------------
 # Configuration — tweak without touching the rest of the file
 # ---------------------------------------------------------------------------
- 
+
 ## Where one-shot / variant SFX files live.
 const SFX_DIR := "res://assets/sounds/"
 ## Where music files live (used only as a reminder; pass full paths to play_music).
 const MUSIC_DIR := "res://assets/music/"
- 
+
 ## Number of polyphony voices available for simultaneous SFX.
 ## 32 is comfortable for an arcade game; raise if you hear voice stealing.
 const SFX_POLYPHONY := 32
- 
+
 ## Stem names that map each SoundEvent to its file prefix.
 ## For events with variants, files must be <stem>_01.wav, <stem>_02.wav, …
 ## For the ENGINE loop, only a single file is expected: <stem>.wav / .ogg
@@ -69,7 +69,7 @@ const EVENT_STEMS: Dictionary = {
 	SoundEvent.PICKUP:       "pickup",
 	SoundEvent.PLAYER_HIT:   "player_hit",
 }
- 
+
 ## Per-event tuning.  All fields are optional; omit to use defaults.
 ## volume_db_min/max: random range in dB      (default 0.0 / 0.0)
 ## pitch_min/max:     random pitch-scale range (default 1.0 / 1.0)
@@ -118,24 +118,24 @@ const EVENT_CONFIG: Dictionary = {
 		"pitch_min": 0.95, "pitch_max": 1.05,
 	},
 }
- 
+
 ## Engine RPM → pitch mapping.  x = normalised RPM (0–1), y = pitch scale.
 const ENGINE_PITCH_IDLE    := 0.70
 const ENGINE_PITCH_FULL    := 1.30
 const ENGINE_VOLUME_IDLE   := -10.0  # dB
 const ENGINE_VOLUME_FULL   :=  -6.0  # dB
- 
+
 # ---------------------------------------------------------------------------
 # Internal state
 # ---------------------------------------------------------------------------
- 
+
 ## Loaded AudioStream arrays, keyed by SoundEvent.
 var _streams: Dictionary = {}
- 
+
 ## The single polyphonic SFX player.
 var _sfx_player: AudioStreamPlayer
 var _sfx_playback: AudioStreamPlaybackPolyphonic
- 
+
 ## Dedicated looping player for the engine sound.
 var _engine_player: AudioStreamPlayer
 var _engine_active := false
@@ -149,14 +149,14 @@ var _music_player_a: AudioStreamPlayer
 var _music_player_b: AudioStreamPlayer
 var _music_active_player: AudioStreamPlayer  # whichever is currently audible
 var _music_fade_tween: Tween
- 
+
 ## Master pause state.
 var _paused := false
- 
+
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
- 
+
 func _ready() -> void:
 	_build_sfx_player()
 	_build_engine_player()
@@ -173,15 +173,15 @@ func _process(_delta: float) -> void:
 	# Keep the bomb whistle player looping if it fell off somehow.
 	if _bomb_whistle_active and not _bomb_whistle_player.playing and not _paused:
 		_bomb_whistle_player.play()
- 
+
 # ---------------------------------------------------------------------------
 # Builder helpers
 # ---------------------------------------------------------------------------
- 
+
 func _build_sfx_player() -> void:
 	var poly_stream := AudioStreamPolyphonic.new()
 	poly_stream.polyphony = SFX_POLYPHONY
- 
+
 	_sfx_player = AudioStreamPlayer.new()
 	_sfx_player.name = "SFXPlayer"
 	_sfx_player.stream = poly_stream
@@ -189,8 +189,8 @@ func _build_sfx_player() -> void:
 	add_child(_sfx_player)
 	_sfx_player.play()  # must be playing to obtain playback object
 	_sfx_playback = _sfx_player.get_stream_playback() as AudioStreamPlaybackPolyphonic
- 
- 
+
+
 func _build_engine_player() -> void:
 	_engine_player = AudioStreamPlayer.new()
 	_engine_player.name = "EnginePlayer"
@@ -213,8 +213,8 @@ func _build_music_players() -> void:
 	_music_player_a = _make_music_player("MusicA")
 	_music_player_b = _make_music_player("MusicB")
 	_music_active_player = _music_player_a
- 
- 
+
+
 func _make_music_player(p_name: String) -> AudioStreamPlayer:
 	var player := AudioStreamPlayer.new()
 	player.name = p_name
@@ -222,17 +222,17 @@ func _make_music_player(p_name: String) -> AudioStreamPlayer:
 	player.volume_db = -80.0  # start silent
 	add_child(player)
 	return player
- 
+
 # ---------------------------------------------------------------------------
 # Asset loading — discovers variant files automatically
 # ---------------------------------------------------------------------------
- 
+
 func _load_all_streams() -> void:
 	var dir := DirAccess.open(SFX_DIR)
 	if dir == null:
 		push_error("SoundManager: SFX directory not found: %s" % SFX_DIR)
 		return
- 
+
 	# Gather all .wav / .ogg / .mp3 filenames.
 	var all_files: Array[String] = []
 	dir.list_dir_begin()
@@ -245,7 +245,7 @@ func _load_all_streams() -> void:
 		fname = dir.get_next()
 	dir.list_dir_end()
 	all_files.sort()
- 
+
 	# Map each SoundEvent stem to any matching files.
 	for event: int in EVENT_STEMS:
 		var stem: String = EVENT_STEMS[event]
@@ -259,20 +259,20 @@ func _load_all_streams() -> void:
 					matched.append(res)
 				else:
 					push_warning("SoundManager: could not load %s" % (SFX_DIR + f))
- 
+
 		if matched.is_empty():
 			push_warning("SoundManager: no files found for event %s (stem '%s')" % [SoundEvent.keys()[event], stem])
 		else:
 			_streams[event] = matched
- 
+
 		# Wire engine loop stream.
 		if event == SoundEvent.ENGINE and not matched.is_empty():
 			_engine_player.stream = matched[0]
- 
+
 # ---------------------------------------------------------------------------
 # Public — SFX
 # ---------------------------------------------------------------------------
- 
+
 ## Play a sound event.
 ## Optional overrides dict keys: "volume_db", "pitch", "pan"
 func play_sfx(event: SoundEvent, overrides: Dictionary = {}) -> void:
@@ -309,16 +309,16 @@ func play_sfx(event: SoundEvent, overrides: Dictionary = {}) -> void:
 	# We schedule a panned one-shot on demand only when pan != 0.
 	if not is_zero_approx(pan):
 		_play_panned(stream, vol_db, pitch, pan)
- 
- 
+
+
 ## Convenience wrapper: play with explicit left/right world position (–1.0 to 1.0).
 func play_sfx_panned(event: SoundEvent, pan: float) -> void:
 	play_sfx(event, {"pan": clampf(pan, -1.0, 1.0)})
- 
+
 # ---------------------------------------------------------------------------
 # Public — Engine loop
 # ---------------------------------------------------------------------------
- 
+
 ## Activate the looping engine sound.
 func start_engine() -> void:
 	if not _streams.has(SoundEvent.ENGINE):
@@ -326,8 +326,8 @@ func start_engine() -> void:
 	_engine_active = true
 	if not _engine_player.playing:
 		_engine_player.play()
- 
- 
+
+
 ## Deactivate the engine loop gracefully.
 func stop_engine(fade_out: float = 0.15) -> void:
 	_engine_active = false
@@ -337,8 +337,8 @@ func stop_engine(fade_out: float = 0.15) -> void:
 		t.tween_callback(_engine_player.stop)
 	else:
 		_engine_player.stop()
- 
- 
+
+
 ## Drive the engine sound from your plane's RPM each frame.
 ## p_rpm_norm: 0.0 = idle, 1.0 = full throttle
 func set_engine_rpm(p_rpm_norm: float) -> void:
@@ -395,7 +395,7 @@ func set_bomb_whistle_rpm(p_rpm_norm: float) -> void:
 # ---------------------------------------------------------------------------
 # Public — Music
 # ---------------------------------------------------------------------------
- 
+
 ## Play a music track with optional fade in/out crossfade.
 ## Pass an empty string or null to stop music.
 func play_music(path: String, fade_duration: float = 0.1) -> void:
@@ -431,15 +431,15 @@ func play_music(path: String, fade_duration: float = 0.1) -> void:
 		_music_active_player.volume_db = -80.0
 		_music_active_player = incoming
 	)
- 
- 
+
+
 ## Pause the current music track with a fade.
 func pause_music(fade_duration: float = 0.1) -> void:
 	if not _music_active_player.playing:
 		return
 	_fade_out_music(_music_active_player, fade_duration, true)
- 
- 
+
+
 ## Resume a paused music track with a fade in.
 func resume_music(fade_duration: float = 0.1) -> void:
 	if _music_active_player.stream == null:
@@ -448,34 +448,34 @@ func resume_music(fade_duration: float = 0.1) -> void:
 		_music_active_player.play(_music_active_player.get_playback_position())
 	var t := create_tween()
 	t.tween_property(_music_active_player, "volume_db", 0.0, fade_duration)
- 
- 
+
+
 ## Stop music immediately (no fade).
 func stop_music() -> void:
 	_music_player_a.stop()
 	_music_player_b.stop()
- 
+
 # ---------------------------------------------------------------------------
 # Public — Global pause / resume
 # ---------------------------------------------------------------------------
- 
+
 func pause_all() -> void:
 	if _paused:
 		return
 	_paused = true
 	get_tree().paused = true  # pauses the scene tree; AudioStreamPlayer respects this
- 
- 
+
+
 func resume_all() -> void:
 	if not _paused:
 		return
 	_paused = false
 	get_tree().paused = false
- 
+
 # ---------------------------------------------------------------------------
 # Volume helpers (bus-level — affects all sounds on that bus)
 # ---------------------------------------------------------------------------
- 
+
 func set_sfx_volume(linear: float) -> void:
 	_set_bus_volume(&"SFX", linear)
 	if GameManager:
@@ -490,15 +490,15 @@ func set_music_volume(linear: float) -> void:
 
 func set_master_volume(linear: float) -> void:
 	_set_bus_volume(&"Master", linear)
- 
+
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
- 
+
 func _inactive_music_player() -> AudioStreamPlayer:
 	return _music_player_b if _music_active_player == _music_player_a else _music_player_a
- 
- 
+
+
 func _fade_out_music(player: AudioStreamPlayer, duration: float, and_pause := false) -> void:
 	var t := create_tween()
 	t.tween_property(player, "volume_db", -80.0, duration)
@@ -506,8 +506,8 @@ func _fade_out_music(player: AudioStreamPlayer, duration: float, and_pause := fa
 		t.tween_callback(func(): player.stream_paused = true)
 	else:
 		t.tween_callback(player.stop)
- 
- 
+
+
 ## Spawn a temporary panned player for a single shot.
 ## The node frees itself via the finished signal.
 func _play_panned(stream: AudioStream, vol_db: float, pitch: float, pan: float) -> void:
@@ -527,8 +527,8 @@ func _play_panned(stream: AudioStream, vol_db: float, pitch: float, pan: float) 
 	add_child(p)
 	p.play()
 	p.finished.connect(p.queue_free)
- 
- 
+
+
 func _set_bus_volume(bus_name: StringName, linear: float) -> void:
 	var idx := AudioServer.get_bus_index(bus_name)
 	if idx == -1:
