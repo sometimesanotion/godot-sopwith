@@ -172,14 +172,15 @@ func _update_config_text() -> void:
 	var cows_str: String = GameManager.cow_count
 	var sfx_str: String = str(GameManager.sound_fx_volume) if GameManager.sound_fx_volume > 0 else "None"
 	var music_str: String = str(GameManager.music_volume) if GameManager.music_volume > 0 else "None"
-	control_content.text = "1 - Enemy Planes:  " + ("ON" if GameManager.enemy_planes else "OFF") + "\n"
-	control_content.text += "2 - Enemy Bombs:  " + ("ON" if GameManager.enemy_bombs else "OFF") + "\n"
-	control_content.text += "3 - Huge Explosions:  " + ("ON" if GameManager.huge_explosions else "OFF") + "\n"
-	control_content.text += "4 - Enemy Homebases:  " + str(GameManager.enemy_homebases) + "\n"
-	control_content.text += "5 - Bird Flocks:  " + birds_str + "\n"
-	control_content.text += "6 - Cows:  " + cows_str + "\n"
-	control_content.text += "7 - Enemy Tanks:  " + tanks_str + "\n"
-	control_content.text += "8 - Debug HUD:  " + ("ON" if GameManager.debug_hud else "OFF") + "\n"
+	control_content.text = "1 - Faction:  " + GameManager.player_faction + "\n"
+	control_content.text += "2 - Enemy Planes:  " + ("ON" if GameManager.enemy_planes else "OFF") + "\n"
+	control_content.text += "3 - Enemy Bombs:  " + ("ON" if GameManager.enemy_bombs else "OFF") + "\n"
+	control_content.text += "4 - Huge Explosions:  " + ("ON" if GameManager.huge_explosions else "OFF") + "\n"
+	control_content.text += "5 - Enemy Homebases:  " + str(GameManager.enemy_homebases) + "\n"
+	control_content.text += "6 - Bird Flocks:  " + birds_str + "\n"
+	control_content.text += "7 - Cows:  " + cows_str + "\n"
+	control_content.text += "8 - Enemy Tanks:  " + tanks_str + "\n"
+	control_content.text += "9 - Debug HUD:  " + ("ON" if GameManager.debug_hud else "OFF") + "\n"
 	control_content.text += "S - Sound FX Volume:  " + sfx_str + "\n"
 	control_content.text += "M - Music Volume:  " + music_str + "\n\n"
 	control_content.text += "Q - Back to Menu"
@@ -316,35 +317,40 @@ func _handle_configure_input(ke: InputEventKey) -> void:
 		KEY_Q:
 			_show_main_menu()
 		KEY_1:
-			GameManager.enemy_planes = not GameManager.enemy_planes
+			var faction_opts := ["United Kingdom", "France", "Germany"]
+			var idx := faction_opts.find(GameManager.player_faction)
+			GameManager.player_faction = faction_opts[(idx + 1) % faction_opts.size()]
 			_update_config_text()
 		KEY_2:
-			GameManager.enemy_bombs = not GameManager.enemy_bombs
+			GameManager.enemy_planes = not GameManager.enemy_planes
 			_update_config_text()
 		KEY_3:
-			GameManager.huge_explosions = not GameManager.huge_explosions
+			GameManager.enemy_bombs = not GameManager.enemy_bombs
 			_update_config_text()
 		KEY_4:
+			GameManager.huge_explosions = not GameManager.huge_explosions
+			_update_config_text()
+		KEY_5:
 			var opts := [2, 3, 4, 5, 6]
 			var idx := opts.find(GameManager.enemy_homebases)
 			GameManager.enemy_homebases = opts[(idx + 1) % opts.size()]
 			_update_config_text()
-		KEY_5:
+		KEY_6:
 			var opts := ["None", "Few", "Normal", "Many"]
 			var idx := opts.find(GameManager.bird_count)
 			GameManager.bird_count = opts[(idx + 1) % opts.size()]
 			_update_config_text()
-		KEY_6:
+		KEY_7:
 			var opts := ["None", "Few", "Normal", "Many"]
 			var idx := opts.find(GameManager.cow_count)
 			GameManager.cow_count = opts[(idx + 1) % opts.size()]
 			_update_config_text()
-		KEY_7:
+		KEY_8:
 			var opts := ["None", "Few", "Normal", "Many"]
 			var idx := opts.find(GameManager.enemy_tanks)
 			GameManager.enemy_tanks = opts[(idx + 1) % opts.size()]
 			_update_config_text()
-		KEY_8:
+		KEY_9:
 			GameManager.debug_hud = not GameManager.debug_hud
 			_update_config_text()
 		KEY_S:

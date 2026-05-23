@@ -4,8 +4,8 @@ var _sprite_cache: Dictionary = {}
 
 const SVG_PATH := "res://assets/svg/"
 const KNOWN_SPRITES := [
-	"biplane", "sopwith", "cow", "bird", "fuel_depot", "building",
-	"tank", "cloud", "bomb"
+	"sopwith_camel", "fokker_d7", "cow", "bird", "fuel_depot", "building",
+	"tank", "cloud", "bomb", "p-51", "spad_s13", "se5a"
 ]
 
 func _ready() -> void:

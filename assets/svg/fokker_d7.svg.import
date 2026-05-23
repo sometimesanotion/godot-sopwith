@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://caqo2qgbwk8m5"
-path="res://.godot/imported/sopwith.svg-b17695ac4c4a1b0fbe1f64124ac919e0.ctex"
+uid="uid://v6ttrf6deov5"
+path="res://.godot/imported/fokker_d7.svg-15e472c4ba5ee7cc3fc84b22ba51ef66.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/svg/sopwith.svg"
-dest_files=["res://.godot/imported/sopwith.svg-b17695ac4c4a1b0fbe1f64124ac919e0.ctex"]
+source_file="res://assets/svg/fokker_d7.svg"
+dest_files=["res://.godot/imported/fokker_d7.svg-15e472c4ba5ee7cc3fc84b22ba51ef66.ctex"]
 
 [params]
 

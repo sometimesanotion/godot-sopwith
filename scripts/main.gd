@@ -39,6 +39,26 @@ var minimap_instance: Control = null
 var is_vs_computer: bool = false
 var _showing_title_screen: bool = false
 
+func _get_plane_model_for_faction(faction: String) -> String:
+	match faction:
+		"United Kingdom":
+			return "sopwith_camel"
+		"France":
+			return "spad_s13"
+		"Germany":
+			return "fokker_d7"
+		_:
+			return "sopwith_camel"
+
+func _get_enemy_faction(player_faction: String) -> String:
+	match player_faction:
+		"United Kingdom", "France":
+			return "Germany"
+		"Germany":
+			return "France"
+		_:
+			return "Germany"
+
 func _ready() -> void:
 	add_to_group("main")
 	_load_keybindings()
@@ -251,8 +271,16 @@ func _start_playing() -> void:
 			biplane.reset_flight_state()
 		var avatar := biplane.get_avatar_data(0)
 		avatar.is_player = true
-		if biplane.has_method("setup_homebase"):
-			biplane.setup_homebase(0, PLAYER_SPAWN_X, 200.0, Vector2(PLAYER_SPAWN_X, ground_y - 12), 0.0)
+		if biplane.has_method("assign_plane_model"):
+			var player_model := _get_plane_model_for_faction(GameManager.player_faction if GameManager else "United Kingdom")
+			biplane.assign_plane_model(avatar, player_model)
+		if biplane.has_method("setup_faction_homebase"):
+			var player_faction_enum = Biplane.Faction.BRITISH
+			if GameManager.player_faction == "France":
+				player_faction_enum = Biplane.Faction.FRENCH
+			elif GameManager.player_faction == "Germany":
+				player_faction_enum = Biplane.Faction.GERMAN
+			biplane.setup_faction_homebase(0, PLAYER_SPAWN_X, 200.0, Vector2(PLAYER_SPAWN_X, ground_y - 12), 0.0, player_faction_enum)
 		if biplane.has_method("set_home_base"):
 			biplane.set_home_base(avatar, 0)
 		biplane.add_to_group("player")
@@ -269,6 +297,8 @@ func _start_playing() -> void:
 		camera.position = Vector2(PLAYER_SPAWN_X, 400)
 	_create_minimap()
 	_spawn_enemies_and_targets()
+	_create_home_base()
+	_create_enemy_bases()
 	if GameManager and biplane and biplane.has_method("get_avatar_data"):
 		var avatar = biplane.get_avatar_data(0)
 		if avatar:
@@ -299,6 +329,9 @@ func _spawn_enemies_and_targets() -> void:
 
 	var spawn_enemies: bool = GameManager.enemy_planes if GameManager else true
 
+	var enemy_faction_str := _get_enemy_faction(GameManager.player_faction if GameManager else "United Kingdom")
+	var enemy_faction_enum = Biplane.Faction.GERMAN if enemy_faction_str == "Germany" else Biplane.Faction.BRITISH
+
 	for i in range(possible_bases.size()):
 		var base_x: float = possible_bases[i]
 		enemy_home_positions.append(base_x)
@@ -317,10 +350,14 @@ func _spawn_enemies_and_targets() -> void:
 			ai.biplane = enemy
 			ai.home_base_x = base_x
 			ai.unlimited_fuel_ammo = is_vs_computer
+		if enemy.has_method("setup_faction_homebase"):
+			enemy.setup_faction_homebase(i, base_x, 200.0, Vector2(base_x + 50, 650 - 12), 0.0, enemy_faction_enum)
 		if enemy.has_method("get_avatar_data"):
-			enemy.get_avatar_data(0).is_player = false
-		if enemy.has_method("setup_homebase"):
-			enemy.setup_homebase(i, base_x, 200.0, Vector2(base_x + 50, 650 - 12), 0.0)
+			var enemy_avatar = enemy.get_avatar_data(0)
+			enemy_avatar.is_player = false
+			if enemy.has_method("assign_plane_model") and enemy.has_method("get_default_plane_model"):
+				var enemy_model = enemy.get_default_plane_model(enemy_faction_enum)
+				enemy.assign_plane_model(enemy_avatar, enemy_model)
 		if enemy.has_method("set_home_base") and enemy.has_method("get_avatar_data"):
 			enemy.set_home_base(enemy.get_avatar_data(0), i)
 		if enemy.has_method("set_game_active"):
@@ -358,9 +395,6 @@ func _spawn_enemies_and_targets() -> void:
 		var flock: Node2D = BIRD_FLOCK_SCENE.instantiate()
 		flock.position = Vector2(200 + randf() * 16000, 150 + randf() * 200)
 		add_child(flock)
-
-	_create_home_base()
-	_create_enemy_bases()
 
 func _get_target_half_width(target_type: String) -> float:
 	match target_type:

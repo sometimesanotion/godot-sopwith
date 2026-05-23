@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://v6ttrf6deov5"
-path="res://.godot/imported/biplane.svg-6e00d74247b45103a334d8e6f47c8b2f.ctex"
+uid="uid://caqo2qgbwk8m5"
+path="res://.godot/imported/sopwith_camel.svg-26d8528e425f00511aec91854608fea5.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/svg/biplane.svg"
-dest_files=["res://.godot/imported/biplane.svg-6e00d74247b45103a334d8e6f47c8b2f.ctex"]
+source_file="res://assets/svg/sopwith_camel.svg"
+dest_files=["res://.godot/imported/sopwith_camel.svg-26d8528e425f00511aec91854608fea5.ctex"]
 
 [params]
 

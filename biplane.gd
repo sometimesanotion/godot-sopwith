@@ -46,12 +46,14 @@ static var _PLANE_MODELS: Dictionary = {
 		"mass_kg": 422.0,
 		"engine_power_watts": 96941.0,
 		"wing_area": 21.46,
-		"zero_lift_drag_area": 0.811,
-		"ar_efficiency": 11.0,
-		"max_lift_coeff": 1.4,
+		"zero_lift_drag_area": 0.811,     # Loftin NASA SP-468: CD0=0.0378, drag area = 0.811 m²
+		"ar_efficiency": 11.0,            # π × AR × e = π × 4.11 × 0.85 ≈ 10.97
+		"max_lift_coeff": 1.4,            # Cambered biplane, standard WW1 value
+		"max_aoa": 16.0,                  # ~16° stall AoA for thin biplane wing
 		"max_speed_ms": 50.6,
 		"stall_speed_ms": 21.4,
-		"rotation_speed": 5.0,
+		"rotation_speed": 5.0,            # Baseline: notoriously fast pitch response
+		"negative_rotation_speed": 3.2,   # Rotary engine gyroscope strongly biases against pitch-down
 		"rotation_inertia": 4.0,
 		"bullet_spawn_offset": Vector2(34, -15),
 		"bomb_spawn_offset": Vector2(0, 26),
@@ -59,19 +61,43 @@ static var _PLANE_MODELS: Dictionary = {
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
 		"hard_landing_vperp": 200.0,
-		"svg_sprite_name": "sopwith"
+		"svg_sprite_name": "sopwith_camel"
+	},
+	"se5a": {
+		"name": "S.E.5a",
+		"mass_kg": 880.0,                # 902kg MTOW; ~880kg at typical combat fuel load
+		"engine_power_watts": 149140.0,  # 200hp Wolseley Viper (licensed Hispano-Suiza 8a) × 745.7
+		"wing_area": 22.67,              # 444 ft², confirmed: upper 11.8m² + lower 11.0m² + ailerons
+		"zero_lift_drag_area": 0.771,    # CD0≈0.034 × 22.67m²; cleaner cowl than Camel (no exposed cylinders)
+		"ar_efficiency": 15.1,           # π × AR × e = π × 5.79 × 0.83; AR = span/chord = 8.11/1.40
+		"max_lift_coeff": 1.4,           # Standard cambered biplane, same as Camel
+		"max_aoa": 16.0,                 # Thin biplane wing; more forgiving stall behavior than Camel
+		"max_speed_ms": 53.6,            # 193 km/h at altitude; sea-level combat speed
+		"stall_speed_ms": 21.1,          # Calculated from wing loading; comparable to Camel
+		"rotation_speed": 3.8,           # Agile but not twitchy; designed for stability over dogfighting
+		"negative_rotation_speed": 2.6,  # No rotary gyroscope bias; conventional inline V8
+		"rotation_inertia": 4.0,
+		"bullet_spawn_offset": Vector2(34, -15),
+		"bomb_spawn_offset": Vector2(0, 26),
+		"visual_scale": Vector2.ONE,
+		"bungee_time": 0.15,
+		"soft_landing_vperp": 80.0,
+		"hard_landing_vperp": 200.0,
+		"svg_sprite_name": "se5a"
 	},
 	"bristol_f2": {
 		"name": "Bristol F.2B",
 		"mass_kg": 973.0,
 		"engine_power_watts": 205000.0,
 		"wing_area": 37.6,
-		"zero_lift_drag_area": 0.811,
-		"ar_efficiency": 11.0,
-		"max_lift_coeff": 1.4,
+		"zero_lift_drag_area": 1.58,      # CD0≈0.042 (large two-seater, more struts/bracing) × 37.6m²
+		"ar_efficiency": 9.3,             # π × AR × e = π × 3.80 × 0.78 ≈ 9.32; AR=11.96²/37.6
+		"max_lift_coeff": 1.35,           # Heavier two-seater, slightly lower peak CL
+		"max_aoa": 15.0,                  # Standard biplane thin wing, ~15°
 		"max_speed_ms": 55.0,
 		"stall_speed_ms": 22.0,
-		"rotation_speed": 5.0,
+		"rotation_speed": 3.5,            # Heavy two-seater, notably less agile than Camel
+		"negative_rotation_speed": 2.3,   # Heavier tail, slow pitch-down response
 		"rotation_inertia": 4.0,
 		"bullet_spawn_offset": Vector2(34, -15),
 		"bomb_spawn_offset": Vector2(0, 26),
@@ -79,19 +105,21 @@ static var _PLANE_MODELS: Dictionary = {
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
 		"hard_landing_vperp": 200.0,
-		"svg_sprite_name": "sopwith"
+		"svg_sprite_name": "bristol_f2b"
 	},
 	"p-51d": {
 		"name": "P-51D Mustang",
 		"mass_kg": 3463.0,
 		"engine_power_watts": 1280000.0,
 		"wing_area": 21.8,
-		"zero_lift_drag_area": 0.811,
-		"ar_efficiency": 11.0,
-		"max_lift_coeff": 1.4,
+		"zero_lift_drag_area": 0.353,     # Loftin NASA SP-468: CD0=0.0161, drag area = 0.353 m²
+		"ar_efficiency": 16.0,            # π × AR × e = π × 5.84 × 0.87 ≈ 15.95; AR=11.28²/21.8
+		"max_lift_coeff": 1.55,           # Laminar flow wing with combat flaps; higher than WW1 biplanes
+		"max_aoa": 16.0,                  # Laminar flow wing stalls cleanly around 15-17°
 		"max_speed_ms": 197.2,
 		"stall_speed_ms": 44.4,
-		"rotation_speed": 5.0,
+		"rotation_speed": 3.2,            # Heavy fighter, good but not twitchy; roll-rate limited at speed
+		"negative_rotation_speed": 2.2,   # Conventional design, slower pitch-down vs pitch-up
 		"rotation_inertia": 4.0,
 		"bullet_spawn_offset": Vector2(34, -15),
 		"bomb_spawn_offset": Vector2(0, 26),
@@ -101,17 +129,19 @@ static var _PLANE_MODELS: Dictionary = {
 		"hard_landing_vperp": 200.0,
 		"svg_sprite_name": "p-51"
 	},
-	"spad": {
+	"spad_s13": {
 		"name": "SPAD S.XIII",
 		"mass_kg": 602.0,
 		"engine_power_watts": 161800.0,
 		"wing_area": 21.11,
-		"zero_lift_drag_area": 0.9,	# ???
-		"ar_efficiency": 11.0,	# ???
-		"max_lift_coeff": 1.4, # ??
+		"zero_lift_drag_area": 0.718,     # CD0≈0.034 (Loftin: "relatively low" for WW1) × 21.11m²
+		"ar_efficiency": 7.5,             # π × AR × e = π × 3.05 × 0.78 ≈ 7.47; AR=8.02²/21.11
+		"max_lift_coeff": 1.3,            # Thin wing, notoriously poor at low speed, tricky to land
+		"max_aoa": 14.0,                  # Thin biplane wing, abrupt stall; SPAD was feared for this
 		"max_speed_ms": 60.56,
 		"stall_speed_ms": 23.3,
-		"rotation_speed": 5.0,
+		"rotation_speed": 3.8,            # Stiffer controls than Camel; less agile in pitch
+		"negative_rotation_speed": 2.6,   # Standard non-rotary inline engine behavior
 		"rotation_inertia": 4.0,
 		"bullet_spawn_offset": Vector2(34, -15),
 		"bomb_spawn_offset": Vector2(0, 26),
@@ -119,19 +149,21 @@ static var _PLANE_MODELS: Dictionary = {
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
 		"hard_landing_vperp": 200.0,
-		"svg_sprite_name": "spad"
+		"svg_sprite_name": "spad_s13"
 	},
 	"fokker_d7": {
 		"name": "Fokker D.VII",
 		"mass_kg": 670.0,
 		"engine_power_watts": 119000.0,
 		"wing_area": 20.5,
-		"zero_lift_drag_area": 0.95,
-		"ar_efficiency": 9.5,
-		"max_lift_coeff": 1.3,
+		"zero_lift_drag_area": 0.759,     # CD0≈0.037 × 20.5m²; clean fuselage but strut-braced biplane
+		"ar_efficiency": 9.7,             # π × AR × e = π × 3.86 × 0.80 ≈ 9.70; AR=8.9²/20.5
+		"max_lift_coeff": 1.55,           # Thick Göttingen airfoil; hallmark high-AoA lift retention
+		"max_aoa": 20.0,                  # Famous for hanging on its prop at extreme AoA without spinning
 		"max_speed_ms": 52.5,
 		"stall_speed_ms": 15.3,
-		"rotation_speed": 4.5,
+		"rotation_speed": 4.2,            # Agile, but not as hair-trigger as the Camel
+		"negative_rotation_speed": 2.8,   # Good but asymmetric pitch authority, as typical
 		"rotation_inertia": 5.0,
 		"bullet_spawn_offset": Vector2(32, -14),
 		"bomb_spawn_offset": Vector2(0, 24),
@@ -139,19 +171,15 @@ static var _PLANE_MODELS: Dictionary = {
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
 		"hard_landing_vperp": 200.0,
-		"svg_sprite_name": "biplane"
+		"svg_sprite_name": "fokker_d7"
 	}
 }
 
 static func get_plane_models() -> Dictionary:
-	return _PLANE_MODELS.duplicate()
-
-static func _get_svg_path(avatar: AvatarData) -> String:
-	var sprite_name = avatar.model_params.get("svg_sprite_name", "biplane")
-	return "res://assets/svg/" + sprite_name + ".svg"
+	return _PLANE_MODELS
 
 static func _get_svg_path_from_params(model_params: Dictionary) -> String:
-	var sprite_name = model_params.get("svg_sprite_name", "biplane")
+	var sprite_name = model_params.get("svg_sprite_name", "fokker_d7")
 	return "res://assets/svg/" + sprite_name + ".svg"
 
 ###############################################################################
@@ -193,7 +221,7 @@ const THROTTLE_REPEAT_DELAY := 0.1
 const THROTTLE_RAMP_SPEED   := 5.0
 
 const MAX_AMMO  := 500
-const MAX_BOMBS := 5
+const MAX_BOMBS := 4
 
 const FLIP_DURATION   := 0.35
 const FLIP_ARC_HEIGHT := 15.0
@@ -241,7 +269,7 @@ enum DamageState {
 }
 
 ## Faction for team/hostility checks.
-enum Faction { BRITISH = 0, GERMAN = 1, NEUTRAL = 2 }
+enum Faction { BRITISH = 0, GERMAN = 1, FRENCH = 2, NEUTRAL = 3 }
 enum Team    { ALLIED  = 0, ENEMY  = 1, NEUTRAL = 2 }
 
 ###############################################################################
@@ -253,8 +281,9 @@ class HomebaseData:
 	var home_base_x:      float   = 6554.0
 	var home_base_width:  float   = 700.0
 	var spawn_position:   Vector2 = Vector2(7000, 500)
-	var spawn_rotation:   float   = 0.0
+	var spawn_rotation:    float   = 0.0
 	var team:             Team    = Team.ALLIED
+	var faction:          Faction = Faction.BRITISH
 
 var _homebases: Dictionary[int, HomebaseData] = {}
 
@@ -557,10 +586,21 @@ func assign_plane_model(avatar: AvatarData, model: String) -> void:
 	avatar.plane_model = model
 	avatar.update_model_params()
 
-	# Update visual representation if this entity is loaded
-	if avatar.is_player and has_node("Visual/Sprite2D"):
+	match model:
+		"fokker_d7":
+			avatar.faction = Faction.GERMAN
+			avatar.team = Team.ENEMY
+		"spad_s13":
+			avatar.faction = Faction.FRENCH
+			avatar.team = Team.ALLIED
+		_:
+			avatar.faction = Faction.BRITISH
+			avatar.team = Team.ALLIED
+
+	# Update visual representation
+	if has_node("Visual/Sprite2D"):
 		var sprite: Sprite2D = $Visual/Sprite2D
-		sprite.texture = load(_get_svg_path(avatar))
+		sprite.texture = load(_get_svg_path_from_params(avatar.model_params))
 		sprite.scale = avatar.get_model_param("visual_scale", Vector2.ONE)
 
 func get_default_plane_model(faction: Faction) -> String:
@@ -569,6 +609,8 @@ func get_default_plane_model(faction: Faction) -> String:
 			return "sopwith_camel"
 		Faction.GERMAN:
 			return "fokker_d7"
+		Faction.FRENCH:
+			return "spad_s13"
 		_:
 			return "sopwith_camel"
 
@@ -1557,6 +1599,7 @@ func setup_faction_homebase(id: int, x: float, width: float, spawn_pos: Vector2,
 		spawn_rot: float, faction: Faction) -> void:
 	var team = Team.ALLIED if faction == Faction.BRITISH else Team.ENEMY
 	setup_homebase(id, x, width, spawn_pos, spawn_rot, team)
+	_homebases[id].faction = faction
 
 	# Set default model for any entities spawned at this homebase
 	for avatar_id in _avatars:
@@ -1564,6 +1607,17 @@ func setup_faction_homebase(id: int, x: float, width: float, spawn_pos: Vector2,
 		if avatar.homebase_id == id:
 			avatar.plane_model = get_default_plane_model(faction)
 			avatar.update_model_params()
+			avatar.faction = faction
+			avatar.team = team
+
+## Re-apply plane model from the avatar's assigned homebase faction.
+## Used on respawn so the homebase drives the model, faction, team, and sprite.
+func apply_homebase_model(avatar: AvatarData) -> void:
+	var hb := _get_homebase(avatar)
+	if not hb:
+		return
+	var default_model := get_default_plane_model(hb.faction)
+	assign_plane_model(avatar, default_model)
 
 ###############################################################################
 # RESET & RESPAWN

@@ -831,7 +831,10 @@ func _do_respawn() -> void:
 	if biplane.has_method("reset_flight_state"):
 		biplane.reset_flight_state()
 	if biplane.has_method("get_avatar_data"):
-		biplane.get_avatar_data(0).is_player = false
+		var avatar = biplane.get_avatar_data(0)
+		avatar.is_player = false
+		if biplane.has_method("apply_homebase_model"):
+			biplane.apply_homebase_model(avatar)
 	if biplane.has_method("set_game_active"):
 		biplane.set_game_active(true)
 	ai_state = AIState.GROUNDED
