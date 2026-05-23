@@ -23,6 +23,7 @@ var bird_count: String = "Normal"
 var cow_count: String = "Normal"
 var sound_fx_volume: float = 1.0
 var music_volume: float = 1.0
+var debug_hud: bool = false
 
 class PlayerData:
 	var avatar_id: int = 0
