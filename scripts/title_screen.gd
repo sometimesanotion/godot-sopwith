@@ -22,14 +22,17 @@ var key_actions: Array[String] = []
 var key_labels_arr: Array[String] = []
 var _last_known_size := Vector2(-1, -1)
 
+func _design_size() -> Vector2:
+	return Vector2(
+		ProjectSettings.get_setting("display/window/size/viewport_width", 1920),
+		ProjectSettings.get_setting("display/window/size/viewport_height", 1080)
+	)
+
 func _ready() -> void:
 	get_viewport().size_changed.connect(_rebuild_all)
 
 func _rebuild_all() -> void:
-	var vp := get_viewport()
-	if not vp:
-		return
-	var vs: Vector2 = vp.size
+	var vs := _design_size()
 	if vs == _last_known_size:
 		return
 	_last_known_size = vs
@@ -39,9 +42,9 @@ func _rebuild_all() -> void:
 func _update_layout_from_scratch() -> void:
 	_clear_all()
 
-	var vs: Vector2 = get_viewport().size
+	var vs := _design_size()
 	var hh: float = vs.y * 0.12
-	var cp_height: float = min(vs.y - hh - 40, vs.y) # TODO - this height of 700 needs to be dynamically adjusted
+	var cp_height: float = min(vs.y - hh - 40, vs.y * 0.65)
 	var cp_y: float = hh + (vs.y - hh - cp_height) * 0.5
 
 	header_bg = ColorRect.new()
@@ -405,8 +408,4 @@ func _save_bindings() -> void:
 
 func _process(_delta: float) -> void:
 	if _last_known_size == Vector2(-1, -1):
-		var vq := get_viewport()
-		if vq:
-			var vs: Vector2 = vq.size
-			if vs.x > 100 and vs.y > 100:
-				_rebuild_all()
+		_rebuild_all()

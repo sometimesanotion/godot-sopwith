@@ -732,8 +732,8 @@ func _on_landed(delta: float) -> void:
 func _create_minimap() -> void:
 	minimap_instance = MINIMAP_SCENE.instantiate()
 	ui.add_child(minimap_instance)
-	# TODO - dynamic sizing and placement
-	minimap_instance.position = Vector2(600, 20)
+	var design_w: float = ProjectSettings.get_setting("display/window/size/viewport_width", 1920)
+	minimap_instance.position = Vector2((design_w - 574) / 2, 20)
 	minimap_instance.update_home(HOME_BASE.x)
 	if terrain and terrain.has_method("get_ground_points"):
 		minimap_instance.update_terrain(terrain.get_ground_points())

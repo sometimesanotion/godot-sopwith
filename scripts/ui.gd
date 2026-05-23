@@ -13,6 +13,25 @@ var display_player_id: int = 0
 
 var enemy_labels: Array[Label] = []
 
+## With canvas_items stretch mode, Godot scales the canvas to the window.
+## All UI is laid out at the design resolution from project settings.
+## get_viewport().size returns the window size, so we read from ProjectSettings.
+
+func _get_vp_size() -> Vector2:
+	return Vector2(
+		ProjectSettings.get_setting("display/window/size/viewport_width", 1720),
+		ProjectSettings.get_setting("display/window/size/viewport_height", 720)
+	)
+
+func _scale_x(x: float) -> float:
+	return x
+
+func _scale_y(y: float) -> float:
+	return y
+
+func _scale_font(size: float) -> int:
+	return maxi(8, int(size))
+
 const AI_STATE_NAMES := {
 	0: "GROUNDED",
 	1: "TAKING_OFF",
@@ -41,6 +60,7 @@ const DAMAGE_STATE_NAMES := {
 
 func _ready() -> void:
 	_create_ui_elements()
+	get_viewport().size_changed.connect(_rebuild_ui)
 	if GameManager:
 		GameManager.fuel_changed.connect(_on_fuel_changed)
 		GameManager.lives_changed.connect(_on_lives_changed)
@@ -50,28 +70,32 @@ func _ready() -> void:
 		_update_display()
 
 func _create_ui_elements() -> void:
-	fuel_label = _create_label("FUEL: 100%", Vector2(20, 20))
-	ammo_label = _create_label("AMMO: 100", Vector2(20, 50))
-	bombs_label = _create_label("BOMBS: 5", Vector2(20, 80))
-	lives_label = _create_label("LIVES: 5", Vector2(20, 110))
-	score_label = _create_label("SCORE: 0", Vector2(20, 140))
-	speed_label = _create_label("SPEED: 0", Vector2(20, 170))
-	altitude_label = _create_label("ALT: 0", Vector2(20, 200))
+	var x_margin := _scale_x(20)
+	var y_start := _scale_y(20)
+	var line_h := _scale_y(30)
+	fuel_label = _create_label("FUEL: 100%", Vector2(x_margin, y_start))
+	ammo_label = _create_label("AMMO: 100", Vector2(x_margin, y_start + line_h))
+	bombs_label = _create_label("BOMBS: 5", Vector2(x_margin, y_start + line_h * 2))
+	lives_label = _create_label("LIVES: 5", Vector2(x_margin, y_start + line_h * 3))
+	score_label = _create_label("SCORE: 0", Vector2(x_margin, y_start + line_h * 4))
+	speed_label = _create_label("SPEED: 0", Vector2(x_margin, y_start + line_h * 5))
+	altitude_label = _create_label("ALT: 0", Vector2(x_margin, y_start + line_h * 6))
 	_create_enemy_debug_panel()
 
 func _create_enemy_debug_panel() -> void:
-	var vp := get_viewport()
-	var vs: Vector2 = vp.size if vp else Vector2(1280, 720)
-	var base_x: float = vs.x - 220
+	var vs := _get_vp_size()
+	var base_x: float = vs.x - _scale_x(220)
+	var line_h := _scale_y(14)
+	var block_h := _scale_y(56)
 
 	for i in range(8):
-		var base_y: float = 20.0 + i * 56.0
+		var base_y: float = _scale_y(20.0) + i * block_h
 		for j in range(3):
 			var label := Label.new()
 			label.name = "EnemyDebug_%d_%d" % [i, j]
 			label.text = ""
-			label.position = Vector2(base_x, base_y + j * 14)
-			label.add_theme_font_size_override("font_size", 14)
+			label.position = Vector2(base_x, base_y + j * line_h)
+			label.add_theme_font_size_override("font_size", _scale_font(14))
 			label.add_theme_color_override("font_color", Color(0.8, 0.9, 0.8))
 			label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 			label.add_theme_constant_override("outline_size", 2)
@@ -82,7 +106,7 @@ func _create_label(text: String, pos: Vector2) -> Label:
 	var label := Label.new()
 	label.text = text
 	label.position = pos
-	label.add_theme_font_size_override("font_size", 18)
+	label.add_theme_font_size_override("font_size", _scale_font(18))
 	label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9))
 	add_child(label)
 	return label
@@ -121,6 +145,20 @@ func _process(_delta: float) -> void:
 
 	if show_debug:
 		_update_enemy_debug_panel(main_node)
+
+func _rebuild_ui() -> void:
+	for c in get_children():
+		c.queue_free()
+	fuel_label = null
+	ammo_label = null
+	bombs_label = null
+	lives_label = null
+	score_label = null
+	speed_label = null
+	altitude_label = null
+	enemy_labels.clear()
+	_create_ui_elements()
+	_update_display()
 
 func _on_fuel_changed(player_id: int, new_fuel: float) -> void:
 	if player_id != display_player_id:
