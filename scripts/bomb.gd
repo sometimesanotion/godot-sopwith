@@ -6,6 +6,7 @@ var explosion_damage: float = 300.0
 
 var _bomb_owner: Node = null
 var has_exploded: bool = false
+var whistle_start_time: float = -1.0
 
 var _svg_sprite_name: String = "bomb"
 var _svg_size: Vector2 = Vector2(20, 25)
@@ -40,6 +41,15 @@ func _physics_process(delta: float) -> void:
 
 	velocity.y += gravity * delta
 
+	if SoundManager:
+		if whistle_start_time < 0.0 and velocity.y > 20.0:
+			whistle_start_time = 0.0
+			SoundManager.start_bomb_whistle()
+		if whistle_start_time >= 0.0:
+			whistle_start_time += delta
+			var t := whistle_start_time / maxf(1.0, 3.0)
+			SoundManager.set_bomb_whistle_rpm(t)
+
 	var collision := move_and_collide(velocity * delta)
 	if collision:
 		explode()
@@ -72,6 +82,9 @@ func explode() -> void:
 	if has_exploded:
 		return
 	has_exploded = true
+
+	if SoundManager:
+		SoundManager.stop_bomb_whistle()
 
 	exploded.emit(global_position, explosion_radius, explosion_damage)
 

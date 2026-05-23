@@ -172,15 +172,14 @@ func _update_config_text() -> void:
 	var cows_str: String = GameManager.cow_count
 	var sfx_str: String = str(GameManager.sound_fx_volume) if GameManager.sound_fx_volume > 0 else "None"
 	var music_str: String = str(GameManager.music_volume) if GameManager.music_volume > 0 else "None"
-	control_content.text = ""
-	control_content.text += "1 - Enemy Planes:  " + ("ON" if GameManager.enemy_planes else "OFF") + "\n"
+	control_content.text = "1 - Enemy Planes:  " + ("ON" if GameManager.enemy_planes else "OFF") + "\n"
 	control_content.text += "2 - Enemy Bombs:  " + ("ON" if GameManager.enemy_bombs else "OFF") + "\n"
 	control_content.text += "3 - Huge Explosions:  " + ("ON" if GameManager.huge_explosions else "OFF") + "\n"
 	control_content.text += "4 - Enemy Homebases:  " + str(GameManager.enemy_homebases) + "\n"
 	control_content.text += "5 - Bird Flocks:  " + birds_str + "\n"
 	control_content.text += "6 - Cows:  " + cows_str + "\n"
 	control_content.text += "7 - Enemy Tanks:  " + tanks_str + "\n"
-	control_content.text += "8 - Sound FX Volume:  " + sfx_str + "\n"
+	control_content.text += "S - Sound FX Volume:  " + sfx_str + "\n"
 	control_content.text += "M - Music Volume:  " + music_str + "\n\n"
 	control_content.text += "Q - Back to Menu"
 
@@ -207,7 +206,7 @@ func _show_keys_menu() -> void:
 		key_labels_arr.append(key_name)
 		var num: int = i + 1
 		control_content.text += str(num) + " - " + action_name.replace("_", " ").capitalize() + ":  " + key_name + "\n"
-	control_content.text += "\nPress number key to rebind, Q to cancel, Enter to save"
+	control_content.text += "\nPress number for key to rebind, Q to cancel, Enter to save"
 
 func _get_key_name(event: InputEventKey) -> String:
 	var pk := event.physical_keycode

@@ -122,8 +122,8 @@ const EVENT_CONFIG: Dictionary = {
 ## Engine RPM → pitch mapping.  x = normalised RPM (0–1), y = pitch scale.
 const ENGINE_PITCH_IDLE    := 0.70
 const ENGINE_PITCH_FULL    := 1.30
-const ENGINE_VOLUME_IDLE   := -8.0  # dB
-const ENGINE_VOLUME_FULL   :=  0.0  # dB
+const ENGINE_VOLUME_IDLE   := -10.0  # dB
+const ENGINE_VOLUME_FULL   :=  -6.0  # dB
  
 # ---------------------------------------------------------------------------
 # Internal state
@@ -139,7 +139,11 @@ var _sfx_playback: AudioStreamPlaybackPolyphonic
 ## Dedicated looping player for the engine sound.
 var _engine_player: AudioStreamPlayer
 var _engine_active := false
- 
+
+## Dedicated looping player for bomb whistle.
+var _bomb_whistle_player: AudioStreamPlayer
+var _bomb_whistle_active := false
+
 ## Music player pair (A/B crossfade support).
 var _music_player_a: AudioStreamPlayer
 var _music_player_b: AudioStreamPlayer
@@ -156,15 +160,19 @@ var _paused := false
 func _ready() -> void:
 	_build_sfx_player()
 	_build_engine_player()
+	_build_bomb_whistle_player()
 	_build_music_players()
 	_load_all_streams()
- 
- 
+
+
 ## Call every frame (or from your plane's _process) to keep the engine sound alive.
 func _process(_delta: float) -> void:
 	# Keep the engine player looping if it fell off somehow.
 	if _engine_active and not _engine_player.playing and not _paused:
 		_engine_player.play()
+	# Keep the bomb whistle player looping if it fell off somehow.
+	if _bomb_whistle_active and not _bomb_whistle_player.playing and not _paused:
+		_bomb_whistle_player.play()
  
 # ---------------------------------------------------------------------------
 # Builder helpers
@@ -190,8 +198,17 @@ func _build_engine_player() -> void:
 	_engine_player.volume_db = ENGINE_VOLUME_IDLE
 	_engine_player.pitch_scale = ENGINE_PITCH_IDLE
 	add_child(_engine_player)
- 
- 
+
+
+func _build_bomb_whistle_player() -> void:
+	_bomb_whistle_player = AudioStreamPlayer.new()
+	_bomb_whistle_player.name = "BombWhistlePlayer"
+	_bomb_whistle_player.bus = &"SFX"
+	_bomb_whistle_player.volume_db = -6.0
+	_bomb_whistle_player.pitch_scale = 1.0
+	add_child(_bomb_whistle_player)
+
+
 func _build_music_players() -> void:
 	_music_player_a = _make_music_player("MusicA")
 	_music_player_b = _make_music_player("MusicB")
@@ -336,7 +353,45 @@ func set_engine_rpm(p_rpm_norm: float) -> void:
 	if is_nan(sfx_vol) or is_inf(sfx_vol) or sfx_vol < -80.0:
 		sfx_vol = ENGINE_VOLUME_IDLE
 	_engine_player.volume_db = sfx_vol
- 
+
+
+# ---------------------------------------------------------------------------
+# Public — Bomb whistle
+# ---------------------------------------------------------------------------
+
+## Activate the looping bomb whistle sound.
+func start_bomb_whistle() -> void:
+	if not _streams.has(SoundEvent.BOMB_WHISTLE):
+		return
+	_bomb_whistle_active = true
+	if not _bomb_whistle_player.playing:
+		_bomb_whistle_player.play()
+
+
+## Deactivate the bomb whistle loop.
+func stop_bomb_whistle(fade_out: float = 0.1) -> void:
+	_bomb_whistle_active = false
+	if fade_out > 0.0:
+		var t := create_tween()
+		t.tween_property(_bomb_whistle_player, "volume_db", -80.0, fade_out)
+		t.tween_callback(_bomb_whistle_player.stop)
+	else:
+		_bomb_whistle_player.stop()
+
+
+## Drive the bomb whistle pitch as it falls. p_rpm_norm: 0.0 = high pitch, 1.0 = low pitch.
+func set_bomb_whistle_rpm(p_rpm_norm: float) -> void:
+	if not _bomb_whistle_active:
+		return
+	var t := clampf(p_rpm_norm, 0.0, 1.0)
+	_bomb_whistle_player.pitch_scale = lerpf(1.5, 0.6, t)
+	var sfx_vol := -6.0
+	if GameManager and not is_nan(GameManager.sound_fx_volume) and GameManager.sound_fx_volume >= 0.0:
+		sfx_vol = -6.0 + linear_to_db(GameManager.sound_fx_volume)
+	if is_nan(sfx_vol) or is_inf(sfx_vol) or sfx_vol < -80.0:
+		sfx_vol = -6.0
+	_bomb_whistle_player.volume_db = sfx_vol
+
 # ---------------------------------------------------------------------------
 # Public — Music
 # ---------------------------------------------------------------------------

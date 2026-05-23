@@ -458,6 +458,7 @@ signal damaged(impact_force: float, v_perp: float)
 
 var game_active: bool = false
 var _terrain: Node    = null   ## Cached in _ready(); null if terrain absent.
+var _active_bombs: Array[Node] = []   ## Bombs this plane dropped, tracking for whistle.
 
 ###############################################################################
 # STATIC ACCESSOR
@@ -689,6 +690,7 @@ func _physics_process(delta: float) -> void:
 		_check_obstacle_collision(avatar)
 		_check_fuel_consumption(avatar, delta)
 		_check_home_refuel(avatar, delta)
+		_track_active_bombs(avatar, delta)
 
 ###############################################################################
 # UNIFIED PHYSICS LOOP
@@ -1192,6 +1194,27 @@ func drop_bomb(avatar: AvatarData) -> void:
 	bomb.initialize(self, velocity)
 	get_parent().add_child(bomb)
 	dropped_bomb.emit(spawn_pos, velocity, self)
+	_active_bombs.append(bomb)
+	bomb.tree_exited.connect(_on_dropped_bomb_exited.bind(bomb))
+
+
+func _on_dropped_bomb_exited(bomb: Node) -> void:
+	var idx := _active_bombs.find(bomb)
+	if idx >= 0:
+		_active_bombs.remove_at(idx)
+
+
+func _track_active_bombs(avatar: AvatarData, delta: float) -> void:
+	if not avatar.is_player or not SoundManager:
+		return
+	for bomb in _active_bombs:
+		if not is_instance_valid(bomb):
+			continue
+		if bomb.velocity.y > 20.0:
+			SoundManager.start_bomb_whistle()
+			return
+	SoundManager.stop_bomb_whistle()
+
 
 func _find_nearest_enemy(avatar: AvatarData) -> Node:
 	var nearest: Node = null
