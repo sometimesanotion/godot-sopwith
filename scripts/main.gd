@@ -25,6 +25,7 @@ const ENEMY_SCENE := preload("res://scenes/enemy_biplane.tscn")
 const GROUND_TARGET_SCENE := preload("res://scenes/ground_target.tscn")
 const MINIMAP_SCENE := preload("res://scenes/minimap.tscn")
 const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
+const LEVEL_COMPLETE_SCENE := preload("res://scenes/level_complete.tscn")
 
 var game_state: String = "TITLE"
 var title_screen: CanvasLayer = null
@@ -104,10 +105,6 @@ func _input(event: InputEvent) -> void:
 	if event is not InputEventKey:
 		return
 
-	if event.is_action_pressed("ui_accept"):
-		if game_state == "GAME_OVER":
-			get_tree().reload_current_scene()
-
 	if event.is_action_pressed("ui_cancel") or (event is InputEventKey and (event as InputEventKey).keycode == KEY_P):
 		if game_state == "PLAYING":
 			_toggle_pause()
@@ -159,10 +156,15 @@ func _abort_game() -> void:
 	_show_title_screen()
 
 func _clear_game_objects() -> void:
+	enemies.clear()
+	enemy_home_positions.clear()
+	_occupied_positions.clear()
 	var children = get_children()
 	for child in children:
 		if child != biplane and child != camera and child != terrain and child != ui and child.name != "Background":
 			if child.has_method("queue_free"):
+				if child.is_in_group("enemy_target"):
+					child.remove_from_group("enemy_target")
 				child.queue_free()
 
 func _toggle_pause() -> void:
@@ -373,8 +375,9 @@ func _spawn_enemies_and_targets() -> void:
 		if terrain and terrain.has_method("add_runway"):
 			terrain.add_runway(base_x + 50)
 
+	var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
 	var cow_count_map: Dictionary = {"None": 0, "Few": 6, "Normal": 12, "Many": 24}
-	var num_cows: int = int(cow_count_map.get(GameManager.cow_count if GameManager else "Normal", 6))
+	var num_cows: int = int(cow_count_map.get(GameManager.cow_count if GameManager else "Normal", 6) * lm)
 	for i in range(num_cows):
 		var cow_x: float
 		var attempts := 0
@@ -391,7 +394,7 @@ func _spawn_enemies_and_targets() -> void:
 		add_child(cow)
 
 	var bird_count_map: Dictionary = {"None": 0, "Few": 3, "Normal": 6, "Many": 12}
-	var num_birds: int = int(bird_count_map.get(GameManager.bird_count if GameManager else "Normal", 6))
+	var num_birds: int = int(bird_count_map.get(GameManager.bird_count if GameManager else "Normal", 6) * lm)
 	for i in range(num_birds):
 		var flock: Node2D = BIRD_FLOCK_SCENE.instantiate()
 		flock.position = Vector2(200 + randf() * 16000, 150 + randf() * 200)
@@ -448,6 +451,7 @@ func _create_home_base() -> void:
 		_mark_position_occupied(depot_x, depot_hw)
 
 func _create_enemy_bases() -> void:
+	var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
 	for home_x in enemy_home_positions:
 		if abs(home_x - PLAYER_SPAWN_X) < SAFE_ZONE_RADIUS:
 			continue
@@ -486,7 +490,7 @@ func _create_enemy_bases() -> void:
 
 		var tanks_setting: String = GameManager.enemy_tanks if GameManager else "Normal"
 		var num_extra: Dictionary = {"None": 0, "Few": 1, "Normal": 3, "Many": 6}
-		var extra_count: int = int(num_extra.get(tanks_setting, 3))
+		var extra_count: int = int(num_extra.get(tanks_setting, 3) * lm)
 		for i in range(extra_count):
 			var target_type: String = ["building", "hangar", "tank"].pick_random()
 			var target_hw: float = _get_target_half_width(target_type)
@@ -588,9 +592,44 @@ func _respawn_biplane() -> void:
 		_show_game_over()
 
 func _win_game() -> void:
-	game_state = "WIN"
+	game_state = "LEVEL_COMPLETE"
 	if GameManager:
 		GameManager.game_win()
+	var level_complete := LEVEL_COMPLETE_SCENE.instantiate()
+	level_complete.next_level.connect(_on_next_level)
+	add_child(level_complete)
+
+func _on_next_level() -> void:
+	game_state = "PLAYING"
+	if GameManager:
+		GameManager.current_level += 1
+	_clear_game_objects()
+	if biplane:
+		biplane.set_game_active(false)
+		biplane.visible = false
+	_spawn_enemies_and_targets()
+	_create_home_base()
+	_create_enemy_bases()
+	if minimap_instance and minimap_instance.has_method("clear"):
+		minimap_instance.clear()
+	if biplane:
+		var ground_y := 650.0
+		if terrain and terrain.has_method("get_ground_height_at"):
+			ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
+		biplane.position = Vector2(PLAYER_SPAWN_X, ground_y - 12)
+		biplane.rotation = 0
+		biplane.velocity = Vector2.ZERO
+		if biplane.has_method("reset_flight_state"):
+			biplane.reset_flight_state()
+		var avatar := biplane.get_avatar_data(0) if biplane.has_method("get_avatar_data") else null
+		if avatar:
+			avatar.fuel = 100.0
+			avatar.ammo = 500
+			avatar.bombs = 5
+		biplane.set_game_active(true)
+		biplane.visible = true
+		if camera:
+			camera.position = Vector2(PLAYER_SPAWN_X, ground_y - 250)
 
 func _show_game_over() -> void:
 	game_state = "GAME_OVER"
@@ -686,6 +725,9 @@ func _on_landed(delta: float) -> void:
 			if avatar.bombs < 5:
 				avatar.bombs = min(5, avatar.bombs + 1)
 				GameManager.bombs_changed.emit(0, avatar.bombs)
+			if avatar.fuel >= 100 and avatar.ammo >= 500 and avatar.bombs >= 5 \
+					and biplane.has_method("_perform_teleport_landing"):
+				biplane._perform_teleport_landing(avatar)
 
 func _create_minimap() -> void:
 	minimap_instance = MINIMAP_SCENE.instantiate()

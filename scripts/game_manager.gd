@@ -26,6 +26,11 @@ var music_volume: float = 0.2
 var debug_hud: bool = false
 var player_faction: String = "United Kingdom"
 
+var current_level: int = 1
+
+func get_level_multiplier() -> float:
+	return 1.0 + 0.1 * (current_level - 1)
+
 class PlayerData:
 	var avatar_id: int = 0
 	var lives: int = MAX_LIVES
@@ -89,6 +94,7 @@ func request_screen_shake(intensity: float) -> void:
 func reset_game() -> void:
 	_players.clear()
 	game_state = "PLAYING"
+	current_level = 1
 	for pid in _players:
 		_players[pid] = 0
 	emit_signal("score_changed", 0)

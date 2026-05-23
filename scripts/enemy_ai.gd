@@ -842,8 +842,9 @@ func _do_respawn() -> void:
 func _show_explosion_and_hide() -> void:
 	if not biplane:
 		return
+	var pos := biplane.global_position
 	var explosion: Node = load("res://scenes/explosion.tscn").instantiate()
-	explosion.global_position = biplane.global_position
+	explosion.global_position = pos
 	get_parent().add_child(explosion)
 
 	if biplane.has_node("Visual"):
@@ -856,7 +857,7 @@ func _show_explosion_and_hide() -> void:
 			Vector2(10, 4)
 		])
 		var shatter: Node = load("res://scenes/shatter_effect.tscn").instantiate()
-		shatter.setup(plane_poly, Color(0.5, 0.55, 0.5), biplane.global_position, 20.0)
+		shatter.setup(plane_poly, Color(0.5, 0.55, 0.5), pos, 20.0)
 		get_parent().add_child(shatter)
 
 	if biplane.has_method("set_game_active"):

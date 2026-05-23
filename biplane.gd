@@ -1210,9 +1210,12 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 		elif child is CharacterBody2D and child.has_method("get_primary_entity") and speed > 10.0:
 			var dist := global_position.distance_to(child.global_position)
 			if dist < 40.0:
+				take_damage(avatar, 100.0, child)
 				_on_avatar_crashed(avatar)
 				if child.has_method("force_crash"):
 					child.force_crash()
+					if is_in_group("player") and GameManager:
+						GameManager.add_score(0, 100)
 				elif child.has_method("take_damage"):
 					child.take_damage(100.0, self)
 				return
@@ -1414,6 +1417,12 @@ func take_damage(avatar_or_amount, amount_or_attacker = null, _attacker = null) 
 	if not avatar or avatar.flight_state == FlightState.CRASHED:
 		return
 
+	## Score: if a player caused the damage to a non-player plane, add score.
+	if _attacker and not _attacker is AvatarData and _attacker.is_in_group("player") \
+			and not is_in_group("player"):
+		if GameManager:
+			GameManager.add_score(0, int(amount))
+
 	avatar.damage_percent = minf(1.0, avatar.damage_percent + amount / 100.0)
 	_refresh_damage_modifiers(avatar)
 
@@ -1540,15 +1549,16 @@ func _update_ground_ray(avatar: AvatarData) -> void:
 		ground_ray.target_position = Vector2(0, -base_offset if avatar.is_inverted else base_offset)
 
 func create_explosion() -> void:
+	var pos := global_position
 	var explosion_scene := load("res://scenes/explosion.tscn")
 	if explosion_scene:
 		var explosion: Node = explosion_scene.instantiate()
-		explosion.global_position = global_position
+		explosion.global_position = pos
 		get_parent().add_child(explosion)
 	var shatter_scene := load("res://scenes/shatter_effect.tscn")
 	if shatter_scene:
 		var shatter: Node = shatter_scene.instantiate()
-		shatter.setup(get_plane_polygon(), Color(0.5, 0.55, 0.5), global_position, 20.0)
+		shatter.setup(get_plane_polygon(), Color(0.5, 0.55, 0.5), pos, 20.0)
 		get_parent().add_child(shatter)
 
 func get_plane_polygon() -> PackedVector2Array:
