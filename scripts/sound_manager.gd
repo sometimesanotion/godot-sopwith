@@ -268,6 +268,9 @@ func _load_all_streams() -> void:
 		# Wire engine loop stream.
 		if event == SoundEvent.ENGINE and not matched.is_empty():
 			_engine_player.stream = matched[0]
+		# Wire bomb whistle stream.
+		if event == SoundEvent.BOMB_WHISTLE and not matched.is_empty():
+			_bomb_whistle_player.stream = matched[0]
 
 # ---------------------------------------------------------------------------
 # Public — SFX

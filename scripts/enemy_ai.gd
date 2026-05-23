@@ -856,7 +856,7 @@ func _show_explosion_and_hide() -> void:
 			Vector2(10, 4)
 		])
 		var shatter: Node = load("res://scenes/shatter_effect.tscn").instantiate()
-		shatter.setup(plane_poly, Color(0.5, 0.55, 0.5), biplane.global_position)
+		shatter.setup(plane_poly, Color(0.5, 0.55, 0.5), biplane.global_position, 20.0)
 		get_parent().add_child(shatter)
 
 	if biplane.has_method("set_game_active"):

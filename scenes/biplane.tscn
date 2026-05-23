@@ -10,7 +10,7 @@ height = 40.0
 [node name="Biplane" type="CharacterBody2D"]
 motion_mode = 1
 collision_layer = 2
-collision_mask = 1
+collision_mask = 3
 script = ExtResource("1_biplane")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]

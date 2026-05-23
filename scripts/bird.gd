@@ -16,6 +16,7 @@ const TERRAIN_LENGTH := 16384.0
 func _ready() -> void:
 	add_to_group("obstacle")
 	add_to_group("destructible")
+	add_to_group("bird")
 	motion_mode = MotionMode.MOTION_MODE_FLOATING
 	move_direction = Vector2(80 + randf() * 40, randf() * 20 - 10)
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
@@ -37,7 +38,28 @@ func _physics_process(delta: float) -> void:
 			var desired_heading = to_target.normalized()
 			move_direction = move_direction.lerp(desired_heading * move_direction.length(), delta * 3.0)
 
-	global_position += move_direction * delta
+	var collision := move_and_collide(move_direction * delta)
+	if collision:
+		var collider := collision.get_collider()
+		if collider and collider.has_method("take_damage") and collider.has_method("get_avatar_data"):
+			var bird_damage := randi_range(10, 50)
+			var av = collider.get_avatar_data(0) if collider.has_method("get_avatar_data") else null
+			if av:
+				collider.take_damage(av, bird_damage, self)
+			else:
+				collider.take_damage(bird_damage, self)
+			_destroy_bird()
+			return
+		elif collider and collider.has_method("take_damage"):
+			collider.take_damage(100.0, self)
+			_destroy_bird()
+			return
+		else:
+			_destroy_bird()
+			return
+	else:
+		global_position += move_direction * delta
+
 	wing_flap += delta * 15
 	queue_redraw()
 
@@ -76,18 +98,3 @@ func _spawn_explosion_effect() -> void:
 		if GameManager:
 			GameManager.request_screen_shake(5.0)
 
-func _on_area_entered(_area: Area2D) -> void:
-	_destroy_bird()
-
-func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
-	var count = state.get_contact_count()
-	for i in range(count):
-		var collider = state.get_contact_collider_object(i)
-		if collider and collider.has_method("take_damage") and collider.has_method("get_avatar_data"):
-			collider.take_damage(100.0, self)
-			_destroy_bird()
-			return
-		elif collider and collider.has_method("take_damage"):
-			collider.take_damage(100.0, self)
-			_destroy_bird()
-			return

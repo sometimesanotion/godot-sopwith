@@ -21,8 +21,8 @@ var enemy_tanks: String = "Normal"
 var huge_explosions: bool = true
 var bird_count: String = "Normal"
 var cow_count: String = "Normal"
-var sound_fx_volume: float = 1.0
-var music_volume: float = 1.0
+var sound_fx_volume: float = 0.2
+var music_volume: float = 0.2
 var debug_hud: bool = false
 var player_faction: String = "United Kingdom"
 

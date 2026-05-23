@@ -1208,16 +1208,21 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 				return
 
 		elif child is CharacterBody2D and child.has_method("get_primary_entity") and speed > 10.0:
-			var other_av: AvatarData = child.get_primary_entity() \
-			              if child.has_method("get_primary_entity") else null
-			if other_av and not avatar.is_hostile_to(other_av):
-				continue   ## Allied — skip.
 			var dist := global_position.distance_to(child.global_position)
 			if dist < 40.0:
 				_on_avatar_crashed(avatar)
 				if child.has_method("force_crash"):
 					child.force_crash()
 				elif child.has_method("take_damage"):
+					child.take_damage(100.0, self)
+				return
+
+		elif child.is_in_group("bird") and speed > 5.0:
+			var dist := global_position.distance_to(child.global_position)
+			if dist < 20.0:
+				var bird_damage := randi_range(10, 50)
+				take_damage(avatar, bird_damage, child)
+				if child.has_method("take_damage"):
 					child.take_damage(100.0, self)
 				return
 
@@ -1386,7 +1391,7 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 		if avatar.fuel  != old_fuel:  GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
 
 	## Teleport to spawn when fully resupplied and cooldown expired.
-	if avatar.fuel < 100.0 or avatar.ammo < MAX_AMMO or avatar.bombs < MAX_BOMBS:
+	if avatar.fuel >= 100.0 and avatar.ammo >= MAX_AMMO and avatar.bombs >= MAX_BOMBS:
 		if avatar.refuel_cooldown <= 0.0:
 			_perform_teleport_landing(avatar)
 			avatar.refuel_cooldown = 10.0
@@ -1541,10 +1546,9 @@ func create_explosion() -> void:
 		explosion.global_position = global_position
 		get_parent().add_child(explosion)
 	var shatter_scene := load("res://scenes/shatter_effect.tscn")
-	if shatter_scene and has_node("Visual"):
+	if shatter_scene:
 		var shatter: Node = shatter_scene.instantiate()
-		var crash_pos := Vector2(global_position.x, _ground_y(global_position.x))
-		shatter.setup(get_plane_polygon(), Color(0.5, 0.55, 0.5), crash_pos, 20.0)
+		shatter.setup(get_plane_polygon(), Color(0.5, 0.55, 0.5), global_position, 20.0)
 		get_parent().add_child(shatter)
 
 func get_plane_polygon() -> PackedVector2Array:

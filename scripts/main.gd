@@ -38,6 +38,7 @@ var enemies: Array = []
 var minimap_instance: Control = null
 var is_vs_computer: bool = false
 var _showing_title_screen: bool = false
+var _respawn_guard: bool = false
 
 func _get_plane_model_for_faction(faction: String) -> String:
 	match faction:
@@ -537,6 +538,9 @@ func _physics_process(delta: float) -> void:
 			_respawn_biplane()
 
 func _on_biplane_crashed() -> void:
+	if _respawn_guard:
+		return
+	_respawn_guard = true
 	is_waiting_for_crash_land = true
 
 	if biplane and biplane.has_method("create_explosion"):
@@ -556,6 +560,7 @@ func _respawn_biplane() -> void:
 	if not is_respawning:
 		return
 	is_respawning = false
+	_respawn_guard = false
 	if GameManager and GameManager.get_lives(0) > 0:
 		var ground_y: float = 650.0
 		if terrain and terrain.has_method("get_ground_height_at"):
@@ -630,6 +635,14 @@ func _update_camera(delta: float) -> void:
 	if screen_shake_intensity > 0:
 		target_pos += Vector2(randf_range(-1, 1), randf_range(-1, 1)) * screen_shake_intensity
 		screen_shake_intensity = max(0, screen_shake_intensity - 5.0 * delta)
+
+	## Limit camera Y so ground occupies ≤20% of viewport height.
+	var ground_y := 650.0
+	if terrain and terrain.has_method("get_ground_height_at"):
+		ground_y = terrain.get_ground_height_at(target_pos.x)
+	var view_h := get_viewport_rect().size.y
+	var max_camera_y := ground_y - 0.3 * view_h / camera.zoom.y
+	target_pos.y = minf(target_pos.y, max_camera_y)
 
 	var lerp_rate: float = 0.4 * speed_coeff
 	camera.position = camera.position.lerp(target_pos, delta * lerp_rate)

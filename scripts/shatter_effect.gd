@@ -41,19 +41,19 @@ func _spawn_fire_and_smoke() -> void:
 	fire.emitting = true
 	fire.one_shot = true
 	fire.explosiveness = 0.9
-	fire.amount = 20
-	fire.lifetime = 0.6
+	fire.amount = 8
+	fire.lifetime = 0.4
 	fire.position = Vector2.ZERO
 
 	var fire_mat := ParticleProcessMaterial.new()
 	fire_mat.emission_shape = 1
-	fire_mat.emission_sphere_radius = 8.0
-	fire_mat.gravity = Vector3(0, -40, 0)
+	fire_mat.emission_sphere_radius = 4.0
+	fire_mat.gravity = Vector3(0, -20, 0)
 	fire_mat.spread = 180.0
-	fire_mat.initial_velocity_min = 60.0
-	fire_mat.initial_velocity_max = 140.0
-	fire_mat.scale_min = 2.0
-	fire_mat.scale_max = 5.0
+	fire_mat.initial_velocity_min = 30.0
+	fire_mat.initial_velocity_max = 70.0
+	fire_mat.scale_min = 1.0
+	fire_mat.scale_max = 2.5
 	fire_mat.color = Color(1, 0.4, 0, 1)
 	fire.process_material = fire_mat
 	add_child(fire)
@@ -62,19 +62,19 @@ func _spawn_fire_and_smoke() -> void:
 	smoke.emitting = true
 	smoke.one_shot = true
 	smoke.explosiveness = 0.6
-	smoke.amount = 15
-	smoke.lifetime = 1.2
+	smoke.amount = 6
+	smoke.lifetime = 0.8
 	smoke.position = Vector2.ZERO
 
 	var smoke_mat := ParticleProcessMaterial.new()
 	smoke_mat.emission_shape = 1
-	smoke_mat.emission_sphere_radius = 12.0
-	smoke_mat.gravity = Vector3(0, -15, 0)
+	smoke_mat.emission_sphere_radius = 6.0
+	smoke_mat.gravity = Vector3(0, -8, 0)
 	smoke_mat.spread = 180.0
-	smoke_mat.initial_velocity_min = 30.0
-	smoke_mat.initial_velocity_max = 70.0
-	smoke_mat.scale_min = 3.0
-	smoke_mat.scale_max = 7.0
+	smoke_mat.initial_velocity_min = 15.0
+	smoke_mat.initial_velocity_max = 35.0
+	smoke_mat.scale_min = 1.5
+	smoke_mat.scale_max = 3.5
 	smoke_mat.color = Color(0.15, 0.15, 0.15, 1)
 	smoke.process_material = smoke_mat
 	add_child(smoke)
@@ -95,7 +95,7 @@ func _create_fragment(poly: PackedVector2Array, color: Color, center: Vector2) -
 	var start_angle := randf() * TAU
 	for i in range(num_points):
 		var angle := start_angle + i * angle_step
-		var dist := randf_range(5, 15)
+		var dist := randf_range(2, 8)
 		fragment_poly.append(Vector2(cos(angle), sin(angle)) * dist)
 
 	var collision := CollisionPolygon2D.new()
@@ -112,7 +112,7 @@ func _create_fragment(poly: PackedVector2Array, color: Color, center: Vector2) -
 	rb.angular_damp = 0.5
 
 	var random_dir := Vector2(randf_range(-1, 1), randf_range(-1, -0.5)).normalized()
-	var force := random_dir * randf_range(100, 300)
+	var force := random_dir * randf_range(50, 150)
 	rb.linear_velocity = force
 	rb.angular_velocity = randf_range(-5, 5)
 
@@ -123,5 +123,8 @@ func _create_fragment(poly: PackedVector2Array, color: Color, center: Vector2) -
 
 func _on_fragment_hit(body: Node) -> void:
 	if body.has_method("take_damage"):
-		if "is_player" in body and body.is_player:
+		if body.has_method("get_avatar_data"):
+			var av = body.get_avatar_data(0)
+			body.take_damage(av, _damage_amount, self)
+		else:
 			body.take_damage(_damage_amount, self)

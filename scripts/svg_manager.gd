@@ -4,7 +4,7 @@ var _sprite_cache: Dictionary = {}
 
 const SVG_PATH := "res://assets/svg/"
 const KNOWN_SPRITES := [
-	"sopwith_camel", "fokker_d7", "cow", "bird", "fuel_depot", "building",
+	"sopwith_camel", "fokker_d7", "cow", "cow_tipped", "bird", "fuel_depot", "building",
 	"tank", "cloud", "bomb", "p-51", "spad_s13", "se5a"
 ]
 
