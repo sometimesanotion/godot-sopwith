@@ -17,10 +17,13 @@ func _process(_delta: float) -> void:
 	if biplane and biplane.has_method("get_avatar_data"):
 		var avatar = biplane.get_avatar_data(0)
 		if avatar:
-			if _svg_sprite_name == "biplane" and avatar.is_player:
-				_svg_sprite_name = "sopwith"
-				if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
-					texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+			var model_params = avatar.model_params
+			if model_params.has("svg_sprite_name"):
+				var sprite_name = model_params.get("svg_sprite_name")
+				if _svg_sprite_name != sprite_name:
+					_svg_sprite_name = sprite_name
+					if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
+						texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	queue_redraw()
 
 func _draw() -> void:

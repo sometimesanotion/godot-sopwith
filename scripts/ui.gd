@@ -179,11 +179,19 @@ func _update_enemy_debug_panel(main_node: Node) -> void:
 	if not main_node:
 		return
 
+	var ground_y := 650.0
+	if main_node.has_method("terrain") and main_node.terrain:
+		var terrain_node = main_node.terrain
+		if terrain_node.has_method("get_ground_height_at"):
+			ground_y = terrain_node.get_ground_height_at(avatar.global_position.x)
+
+	_update_debug_entry(0, avatar, ground_y, true)
+
 	var enemies: Array = []
 	var enemies_prop = main_node.get("enemies")
 	if enemies_prop is Array:
 		enemies = enemies_prop
-	var idx := 0
+	var idx := 1
 	for enemy in enemies:
 		if idx >= 8:
 			break
@@ -201,51 +209,62 @@ func _update_enemy_debug_panel(main_node: Node) -> void:
 			idx += 1
 			continue
 
-		var avatar = enemy.get_avatar_data(0)
-		if not avatar:
+		var av = enemy.get_avatar_data(0)
+		if not av:
 			idx += 1
 			continue
 
-		var ai_node: Node = enemy.get_node_or_null("EnemyAI") if enemy.has_node("EnemyAI") else null
-		var enemy_id: Variant = enemy.get("unique_id") if enemy.get("unique_id") != null else idx
+		_update_debug_entry(idx, enemy, ground_y, false, av)
+		idx += 1
 
-		var alt_text := "---"
-		var speed_text := "---"
-		var ai_state_text := "---"
-		var flight_state_text := "---"
-		var damage_state_text := "---"
+func _update_debug_entry(idx: int, entity: Node, base_ground_y: float, is_player: bool, avatar = null) -> void:
+	var label_idx := idx * 3
 
-		var ground_y := 650.0
-		if main_node.has_method("terrain") and main_node.terrain:
-			var terrain_node = main_node.terrain
-			if terrain_node.has_method("get_ground_height_at"):
-				ground_y = terrain_node.get_ground_height_at(enemy.global_position.x)
+	for j in range(3):
+		if label_idx + j < enemy_labels.size():
+			enemy_labels[label_idx + j].text = ""
 
-		var alt := int(ground_y - enemy.global_position.y)
-		alt = maxi(0, alt)
-		alt_text = "%d" % alt
+	if not avatar:
+		avatar = entity.get_avatar_data(0) if entity.has_method("get_avatar_data") else null
+	if not avatar:
+		return
 
-		if enemy.has_method("get_avatar_speed"):
-			var speed := int(enemy.get_avatar_speed(avatar))
-			speed_text = "%d" % speed
-		else:
-			var vel: Vector2 = enemy.get("velocity") if enemy.get("velocity") != null else Vector2.ZERO
-			speed_text = "%d" % int(vel.length())
+	var entity_id: String = "P0" if is_player else "E%d" % idx
+	var ai_state_text := "---"
+	var flight_state_text := "---"
+	var damage_state_text := "---"
+	var alt_text := "---"
+	var speed_text := "---"
 
+	var entity_ground_y := base_ground_y
+	if entity.has_method("_ground_y"):
+		entity_ground_y = entity._ground_y(entity.global_position.x)
+
+	var alt := int(entity_ground_y - entity.global_position.y)
+	alt = maxi(0, alt)
+	alt_text = "%d" % alt
+
+	if entity.has_method("get_avatar_speed") and avatar:
+		var speed := int(entity.get_avatar_speed(avatar))
+		speed_text = "%d" % speed
+	else:
+		var vel: Vector2 = entity.get("velocity") if entity.get("velocity") != null else Vector2.ZERO
+		speed_text = "%d" % int(vel.length())
+
+	if not is_player:
+		var ai_node: Node = entity.get_node_or_null("EnemyAI") if entity.has_node("EnemyAI") else null
 		if ai_node and "ai_state" in ai_node:
 			var state_val: int = int(ai_node.ai_state)
 			ai_state_text = AI_STATE_NAMES.get(state_val, "UNKNOWN")
 
-		if "flight_state" in avatar:
-			var state_val: int = int(avatar.flight_state)
-			flight_state_text = FLIGHT_STATE_NAMES.get(state_val, "UNKNOWN")
+	if "flight_state" in avatar:
+		var state_val: int = int(avatar.flight_state)
+		flight_state_text = FLIGHT_STATE_NAMES.get(state_val, "UNKNOWN")
 
-		if "damage_state" in avatar:
-			var state_val: int = int(avatar.damage_state)
-			damage_state_text = DAMAGE_STATE_NAMES.get(state_val, "UNKNOWN")
+	if "damage_state" in avatar:
+		var state_val: int = int(avatar.damage_state)
+		damage_state_text = DAMAGE_STATE_NAMES.get(state_val, "UNKNOWN")
 
-		enemy_labels[label_idx].text = "E%d: AI=%s FST=%s" % [enemy_id, ai_state_text, flight_state_text]
-		enemy_labels[label_idx + 1].text = "    DST=%s ALT=%s" % [damage_state_text, alt_text]
-		enemy_labels[label_idx + 2].text = "    SPD=%s" % speed_text
-
-		idx += 1
+	enemy_labels[label_idx].text = "%s: AI=%s FST=%s" % [entity_id, ai_state_text, flight_state_text]
+	enemy_labels[label_idx + 1].text = "    DST=%s ALT=%s" % [damage_state_text, alt_text]
+	enemy_labels[label_idx + 2].text = "    SPD=%s" % speed_text

@@ -59,7 +59,27 @@ static var _PLANE_MODELS: Dictionary = {
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
 		"hard_landing_vperp": 200.0,
-		"svg_path": "res://assets/svg/sopwith.svg"
+		"svg_sprite_name": "sopwith"
+	},
+	"bristol_f2": {
+		"name": "Bristol F.2B",
+		"mass_kg": 973.0,
+		"engine_power_watts": 205000.0,
+		"wing_area": 37.6,
+		"zero_lift_drag_area": 0.811,
+		"ar_efficiency": 11.0,
+		"max_lift_coeff": 1.4,
+		"max_speed_ms": 55.0,
+		"stall_speed_ms": 22.0,
+		"rotation_speed": 5.0,
+		"rotation_inertia": 4.0,
+		"bullet_spawn_offset": Vector2(34, -15),
+		"bomb_spawn_offset": Vector2(0, 26),
+		"visual_scale": Vector2.ONE,
+		"bungee_time": 0.15,
+		"soft_landing_vperp": 80.0,
+		"hard_landing_vperp": 200.0,
+		"svg_sprite_name": "sopwith"
 	},
 	"p-51d": {
 		"name": "P-51D Mustang",
@@ -79,7 +99,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
 		"hard_landing_vperp": 200.0,
-		"svg_path": "res://assets/svg/p-51.svg"
+		"svg_sprite_name": "p-51"
 	},
 	"spad": {
 		"name": "SPAD S.XIII",
@@ -99,7 +119,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
 		"hard_landing_vperp": 200.0,
-		"svg_path": "res://assets/svg/spad.svg"
+		"svg_sprite_name": "spad"
 	},
 	"fokker_d7": {
 		"name": "Fokker D.VII",
@@ -119,12 +139,20 @@ static var _PLANE_MODELS: Dictionary = {
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
 		"hard_landing_vperp": 200.0,
-		"svg_path": "res://assets/svg/biplane.svg"
+		"svg_sprite_name": "biplane"
 	}
 }
 
 static func get_plane_models() -> Dictionary:
 	return _PLANE_MODELS.duplicate()
+
+static func _get_svg_path(avatar: AvatarData) -> String:
+	var sprite_name = avatar.model_params.get("svg_sprite_name", "biplane")
+	return "res://assets/svg/" + sprite_name + ".svg"
+
+static func _get_svg_path_from_params(model_params: Dictionary) -> String:
+	var sprite_name = model_params.get("svg_sprite_name", "biplane")
+	return "res://assets/svg/" + sprite_name + ".svg"
 
 ###############################################################################
 # EXPORTS
@@ -532,7 +560,7 @@ func assign_plane_model(avatar: AvatarData, model: String) -> void:
 	# Update visual representation if this entity is loaded
 	if avatar.is_player and has_node("Visual/Sprite2D"):
 		var sprite: Sprite2D = $Visual/Sprite2D
-		sprite.texture = load(avatar.get_model_param("svg_path"))
+		sprite.texture = load(_get_svg_path(avatar))
 		sprite.scale = avatar.get_model_param("visual_scale", Vector2.ONE)
 
 func get_default_plane_model(faction: Faction) -> String:
@@ -1440,7 +1468,7 @@ func update_visual_representation(avatar: AvatarData) -> void:
 	if visual.has_node("Sprite2D"):
 		var sprite: Sprite2D = $Visual/Sprite2D
 		var model_params = avatar.model_params
-		sprite.texture = load(model_params.get("svg_path", "res://assets/svg/sopwith.svg"))
+		sprite.texture = load(_get_svg_path_from_params(model_params))
 		sprite.scale = model_params.get("visual_scale", Vector2.ONE)
 
 	# Update visual elements based on damage state
