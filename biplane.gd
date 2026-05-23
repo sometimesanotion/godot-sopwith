@@ -61,6 +61,26 @@ static var _PLANE_MODELS: Dictionary = {
 		"hard_landing_vperp": 200.0,
 		"svg_path": "res://assets/svg/sopwith.svg"
 	},
+	"p-51d": {
+		"name": "P-51D Mustang",
+		"mass_kg": 3463.0,
+		"engine_power_watts": 1280000.0,
+		"wing_area": 21.8,
+		"zero_lift_drag_area": 0.811,
+		"ar_efficiency": 11.0,
+		"max_lift_coeff": 1.4,
+		"max_speed_ms": 197.2,
+		"stall_speed_ms": 44.4,
+		"rotation_speed": 5.0,
+		"rotation_inertia": 4.0,
+		"bullet_spawn_offset": Vector2(34, -15),
+		"bomb_spawn_offset": Vector2(0, 26),
+		"visual_scale": Vector2.ONE,
+		"bungee_time": 0.15,
+		"soft_landing_vperp": 80.0,
+		"hard_landing_vperp": 200.0,
+		"svg_path": "res://assets/svg/p-51.svg"
+	},
 	"spad": {
 		"name": "SPAD S.XIII",
 		"mass_kg": 602.0,
@@ -1289,10 +1309,10 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 		if avatar.fuel  != old_fuel:  GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
 
 	## Teleport to spawn when fully resupplied and cooldown expired.
-	if avatar.refuel_cooldown <= 0.0:
-		_perform_teleport_landing(avatar)
-		avatar.refuel_cooldown = 5.0
-	# if avatar.fuel >= 100.0 and avatar.ammo >= MAX_AMMO and avatar.bombs >= MAX_BOMBS:
+	if avatar.fuel < 100.0 or avatar.ammo < MAX_AMMO or avatar.bombs < MAX_BOMBS:
+		if avatar.refuel_cooldown <= 0.0:
+			_perform_teleport_landing(avatar)
+			avatar.refuel_cooldown = 10.0
 
 ###############################################################################
 # DAMAGE
@@ -1537,12 +1557,12 @@ func force_crash() -> void:
 func _perform_teleport_landing(avatar: AvatarData) -> void:
 	var spawn_pos := get_homebase_spawn_position(avatar)
 	var spawn_rot := get_homebase_spawn_rotation(avatar)
-	var model_params = avatar.model_params
 	var ground_y := _ground_y(spawn_pos.x)
-	global_position    = Vector2(spawn_pos.x, ground_y - GROUND_SURFACE_OFFSET)
+	velocity = Vector2.ZERO
 	rotation            = spawn_rot
 	avatar.pitch_angle  = spawn_rot
 	reset_visual_transform()
+	global_position    = Vector2(spawn_pos.x, ground_y - GROUND_SURFACE_OFFSET)
 	if avatar.is_player and GameManager:
 		GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
 		GameManager.ammo_changed.emit(avatar.id, avatar.ammo)
