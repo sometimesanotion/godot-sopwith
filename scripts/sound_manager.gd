@@ -62,6 +62,7 @@ const EVENT_STEMS: Dictionary = {
 	SoundEvent.BOMB_WHISTLE: "bomb_whistle",
 	SoundEvent.EXPLOSION:    "explosion",
 	SoundEvent.BANG:         "bang",
+	SoundEvent.YELL:         "yell",
 	SoundEvent.BOING:        "boing",
 	SoundEvent.BUMP:         "bump",
 	SoundEvent.PICKUP:       "pickup",
@@ -92,6 +93,10 @@ const EVENT_CONFIG: Dictionary = {
 		"pitch_min": 0.9, "pitch_max": 1.1,
 	},
 	SoundEvent.BANG: {
+		"volume_db_min": -3.0, "volume_db_max": 0.0,
+		"pitch_min": 0.9, "pitch_max": 1.1,
+	},
+	SoundEvent.YELL: {
 		"volume_db_min": -3.0, "volume_db_max": 0.0,
 		"pitch_min": 0.9, "pitch_max": 1.1,
 	},
