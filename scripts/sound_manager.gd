@@ -34,6 +34,7 @@ enum SoundEvent {
 	BOMB_WHISTLE, ## Bomb falling (looping while in air)
 	EXPLOSION,    ## Ground / target impact
 	BANG,         ## Generic bang/hit
+	YELL,         ## Random yells
 	BOING,        ## Silly bounce
 	BUMP,         ## Soft collision
 	PICKUP,       ## Collect an item
@@ -266,21 +267,26 @@ func play_sfx(event: SoundEvent, overrides: Dictionary = {}) -> void:
 	if event == SoundEvent.ENGINE:
 		push_warning("SoundManager: use start_engine() / stop_engine() for the engine loop.")
 		return
- 
+
 	var variants: Array = _streams[event]
 	var stream: AudioStream = variants[randi() % variants.size()]
 	var cfg: Dictionary = EVENT_CONFIG.get(event, {})
- 
+
 	var vol_db: float = overrides.get("volume_db",
 		randf_range(cfg.get("volume_db_min", 0.0), cfg.get("volume_db_max", 0.0)))
 	var pitch: float = overrides.get("pitch",
 		randf_range(cfg.get("pitch_min", 1.0), cfg.get("pitch_max", 1.0)))
 	var pan: float = overrides.get("pan",
 		randf_range(cfg.get("pan_min", 0.0), cfg.get("pan_max", 0.0)))
- 
+
+	if GameManager and not is_nan(GameManager.sound_fx_volume) and GameManager.sound_fx_volume >= 0.0:
+		vol_db += linear_to_db(GameManager.sound_fx_volume)
+	if is_nan(vol_db) or is_inf(vol_db):
+		vol_db = 0.0
+
 	# AudioStreamPlaybackPolyphonic.play_stream(stream, from_offset, volume_db, pitch_scale, playback_type, bus)
 	_sfx_playback.play_stream(stream, 0.0, vol_db, pitch)
- 
+
 	# Stereo panning: AudioStreamPlayer has a `panning_strength` and individual
 	# bus sends, but the simplest approach for a non-3D game is a helper node.
 	# We schedule a panned one-shot on demand only when pan != 0.
@@ -323,7 +329,13 @@ func set_engine_rpm(p_rpm_norm: float) -> void:
 		return
 	var t := clampf(p_rpm_norm, 0.0, 1.0)
 	_engine_player.pitch_scale = lerpf(ENGINE_PITCH_IDLE, ENGINE_PITCH_FULL, t)
-	_engine_player.volume_db   = lerpf(ENGINE_VOLUME_IDLE, ENGINE_VOLUME_FULL, t)
+	var base_vol := lerpf(ENGINE_VOLUME_IDLE, ENGINE_VOLUME_FULL, t)
+	var sfx_vol := base_vol
+	if GameManager and not is_nan(GameManager.sound_fx_volume) and GameManager.sound_fx_volume >= 0.0:
+		sfx_vol = base_vol + linear_to_db(GameManager.sound_fx_volume)
+	if is_nan(sfx_vol) or is_inf(sfx_vol) or sfx_vol < -80.0:
+		sfx_vol = ENGINE_VOLUME_IDLE
+	_engine_player.volume_db = sfx_vol
  
 # ---------------------------------------------------------------------------
 # Public — Music
@@ -334,24 +346,30 @@ func set_engine_rpm(p_rpm_norm: float) -> void:
 func play_music(path: String, fade_duration: float = 0.1) -> void:
 	if _music_fade_tween and _music_fade_tween.is_valid():
 		_music_fade_tween.kill()
- 
+
 	var incoming := _inactive_music_player()
- 
+
 	if path == "" or path == null:
 		_fade_out_music(_music_active_player, fade_duration)
 		return
- 
+
 	var stream := load(path) as AudioStream
 	if stream == null:
 		push_error("SoundManager: could not load music '%s'" % path)
 		return
- 
+
 	incoming.stream = stream
 	incoming.volume_db = -80.0
 	incoming.play()
- 
+
+	var music_target_vol := 0.0
+	if GameManager and not is_nan(GameManager.music_volume) and GameManager.music_volume >= 0.0:
+		music_target_vol = linear_to_db(GameManager.music_volume)
+	if is_nan(music_target_vol) or is_inf(music_target_vol):
+		music_target_vol = 0.0
+
 	_music_fade_tween = create_tween().set_parallel(true)
-	_music_fade_tween.tween_property(incoming, "volume_db", 0.0, fade_duration)
+	_music_fade_tween.tween_property(incoming, "volume_db", music_target_vol, fade_duration)
 	_music_fade_tween.tween_property(_music_active_player, "volume_db", -80.0, fade_duration)
 	_music_fade_tween.chain().tween_callback(func():
 		_music_active_player.stop()
@@ -405,12 +423,16 @@ func resume_all() -> void:
  
 func set_sfx_volume(linear: float) -> void:
 	_set_bus_volume(&"SFX", linear)
- 
- 
+	if GameManager:
+		GameManager.sound_fx_volume = linear
+
+
 func set_music_volume(linear: float) -> void:
 	_set_bus_volume(&"Music", linear)
- 
- 
+	if GameManager:
+		GameManager.music_volume = linear
+
+
 func set_master_volume(linear: float) -> void:
 	_set_bus_volume(&"Master", linear)
  

@@ -221,6 +221,9 @@ func _start_playing() -> void:
 	if biplane:
 		biplane.visible = true
 		biplane.set_game_active(true)
+		if SoundManager:
+			SoundManager.start_engine()
+			SoundManager.set_engine_rpm(0.0)
 	if camera:
 		camera.enabled = true
 		camera.zoom = Vector2(1, 1)
@@ -504,6 +507,7 @@ func _on_biplane_crashed() -> void:
 		GameManager.request_screen_shake(25.0)
 
 	if SoundManager:
+		SoundManager.stop_engine()
 		SoundManager.play_sfx(SoundManager.SoundEvent.EXPLOSION)
 
 func _on_biplane_damaged(impact_force: float, v_perp: float) -> void:

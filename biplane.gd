@@ -276,6 +276,7 @@ class AvatarData:
 	var engine_cutoff:          bool  = false
 	var engine_restart_hold_time:     float = 0.0
 	var engine_restart_required_time: float = 0.0
+	var sputtering_timer:              float = 0.0
 
 	# Flip / roll
 	var is_inverted:    bool  = false
@@ -910,13 +911,25 @@ func _check_altitude_engine_cutoff(avatar: AvatarData, delta: float) -> void:
 			avatar.throttle_target               = 0.0
 			avatar.engine_restart_hold_time      = 0.0
 			avatar.engine_restart_required_time  = 4.0 + randf() * 4.0
+			avatar.sputtering_timer             = 0.0
+			if avatar.is_player and SoundManager:
+				SoundManager.stop_engine()
 	else:
+		## Sputtering sound while engine is cut off.
+		if avatar.is_player and SoundManager:
+			avatar.sputtering_timer += delta
+			if avatar.sputtering_timer >= 0.25:
+				avatar.sputtering_timer = 0.0
+				SoundManager.set_engine_rpm(randf() * 0.4)
 		## Hold throttle-up to restart the engine after descending.
 		if avatar.is_player and Input.is_action_pressed("throttle_up"):
 			avatar.engine_restart_hold_time += delta
 			if avatar.engine_restart_hold_time >= avatar.engine_restart_required_time:
 				avatar.engine_cutoff            = false
 				avatar.engine_restart_hold_time = 0.0
+				if SoundManager:
+					SoundManager.start_engine()
+					SoundManager.set_engine_rpm(0.0)
 
 ###############################################################################
 # INPUT (human player)
@@ -1485,6 +1498,9 @@ func reset_flight_state() -> void:
 		avatar.reset()
 		_crash_processed.erase(0)
 		_update_ground_ray(avatar)
+		if avatar.is_player and SoundManager:
+			SoundManager.start_engine()
+			SoundManager.set_engine_rpm(0.0)
 	reset_visual_transform()
 
 func force_crash() -> void:
@@ -1508,6 +1524,9 @@ func _perform_teleport_landing(avatar: AvatarData) -> void:
 		GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
 		GameManager.ammo_changed.emit(avatar.id, avatar.ammo)
 		GameManager.bombs_changed.emit(avatar.id, avatar.bombs)
+	if avatar.is_player and SoundManager:
+		SoundManager.start_engine()
+		SoundManager.set_engine_rpm(0.0)
 
 ###############################################################################
 # PUBLIC ACCESSORS
