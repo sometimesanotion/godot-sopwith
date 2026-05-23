@@ -152,7 +152,7 @@ func _clear_all() -> void:
 func _show_main_menu() -> void:
 	current_mode = Mode.MAIN
 	if SoundManager:
-		SoundManager.play_theme_music()
+		SoundManager.play_music("res://assets/music/title.ogg")
 	if control_title:
 		control_title.text = ""
 	if control_content:

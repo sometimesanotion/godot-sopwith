@@ -504,12 +504,12 @@ func _on_biplane_crashed() -> void:
 		GameManager.request_screen_shake(25.0)
 
 	if SoundManager:
-		SoundManager.play_explosion()
+		SoundManager.play_sfx(SoundManager.SoundEvent.EXPLOSION)
 
 func _on_biplane_damaged(impact_force: float, v_perp: float) -> void:
 	GameManager.request_screen_shake(10.0)
 	if SoundManager:
-		SoundManager.play_explosion()
+		SoundManager.play_sfx(SoundManager.SoundEvent.BUMP)
 
 func _respawn_biplane() -> void:
 	is_respawning = false

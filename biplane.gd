@@ -855,7 +855,7 @@ func _process_landing_impact(avatar: AvatarData, v_perp: float,
 		velocity.x *= 0.5
 		damaged.emit(impact_force_calc, v_perp)
 		if SoundManager:
-			SoundManager.play_explosion()
+			SoundManager.play_sfx(SoundManager.SoundEvent.BUMP)
 
 	else:
 		_on_avatar_crashed(avatar)
@@ -1155,7 +1155,7 @@ func fire_gun(avatar: AvatarData) -> void:
 	get_parent().add_child(bullet)
 	fired_bullet.emit(spawn_pos, direction, bullet_speed, self, range_pct)
 	if SoundManager:
-		SoundManager.play_machine_gun()
+		SoundManager.play_sfx(SoundManager.SoundEvent.GUN)
 
 func drop_bomb(avatar: AvatarData) -> void:
 	if avatar.bombs_disabled or avatar.bombs <= 0:
@@ -1219,7 +1219,7 @@ func _check_fuel_consumption(avatar: AvatarData, delta: float) -> void:
 			GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
 
 	if SoundManager and avatar.is_player:
-		SoundManager.play_engine(avatar.throttle)
+		SoundManager.set_engine_rpm(avatar.throttle)
 
 ###############################################################################
 # HOME BASE REFUEL & REPAIR
