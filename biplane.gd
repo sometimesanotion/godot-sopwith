@@ -1102,6 +1102,13 @@ func _apply_crash_physics(avatar: AvatarData, delta: float) -> void:
 		avatar.has_hit_ground = true
 		damaged.emit(1.0, 0.0)
 		_on_avatar_crashed(avatar)
+		return
+
+	var surf_y := _ground_y(global_position.x) - GROUND_SURFACE_OFFSET
+	if global_position.y > surf_y:
+		global_position.y = surf_y
+		if velocity.y > 0.0:
+			velocity.y = -velocity.y * 0.1
 
 ###############################################################################
 # OBSTACLE COLLISION
