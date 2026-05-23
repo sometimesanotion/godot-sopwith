@@ -41,7 +41,7 @@ func _update_layout_from_scratch() -> void:
 
 	var vs: Vector2 = get_viewport().size
 	var hh: float = vs.y * 0.12
-	var cp_height: float = min(vs.y - hh - 40, 700.0)
+	var cp_height: float = min(vs.y - hh - 40, vs.y) # TODO - this height of 700 needs to be dynamically adjusted
 	var cp_y: float = hh + (vs.y - hh - cp_height) * 0.5
 
 	header_bg = ColorRect.new()
@@ -67,8 +67,8 @@ func _update_layout_from_scratch() -> void:
 	add_child(title_label)
 
 	var svg_h: float = hh * 0.40
-	var bip_path := "res://assets/svg/biplane.svg"
-	var sop_path := "res://assets/svg/sopwith.svg"
+	var bip_path := "res://assets/svg/fokker_d7.svg"
+	var sop_path := "res://assets/svg/sopwith_camel.svg"
 
 	if ResourceLoader.exists(bip_path):
 		var tex: Texture2D = load(bip_path)

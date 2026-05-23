@@ -584,7 +584,7 @@ func _respawn_biplane() -> void:
 			if avatar:
 				avatar.fuel = 100.0
 				avatar.ammo = 500
-				avatar.bombs = 5
+				avatar.bombs = biplane.MAX_BOMBS
 				GameManager.fuel_changed.emit(0, avatar.fuel)
 				GameManager.ammo_changed.emit(0, avatar.ammo)
 				GameManager.bombs_changed.emit(0, avatar.bombs)
@@ -625,7 +625,7 @@ func _on_next_level() -> void:
 		if avatar:
 			avatar.fuel = 100.0
 			avatar.ammo = 500
-			avatar.bombs = 5
+			avatar.bombs = biplane.MAX_BOMBS
 		biplane.set_game_active(true)
 		biplane.visible = true
 		if camera:
@@ -725,7 +725,7 @@ func _on_landed(delta: float) -> void:
 			if avatar.bombs < 5:
 				avatar.bombs = min(5, avatar.bombs + 1)
 				GameManager.bombs_changed.emit(0, avatar.bombs)
-			if avatar.fuel >= 100 and avatar.ammo >= 500 and avatar.bombs >= 5 \
+			if avatar.fuel >= 100 and avatar.ammo >= 500 and avatar.bombs >= biplane.MAX_BOMBS \
 					and biplane.has_method("_perform_teleport_landing"):
 				biplane._perform_teleport_landing(avatar)
 
