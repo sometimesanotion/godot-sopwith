@@ -120,6 +120,9 @@ func _abort_game() -> void:
 		pause_menu = null
 	get_tree().paused = false
 	_clear_game_objects()
+	if SoundManager:
+		SoundManager.stop_engine()
+		SoundManager.stop_bomb_whistle()
 	if title_screen:
 		title_screen.queue_free()
 		title_screen = null
@@ -516,6 +519,8 @@ func _on_biplane_damaged(impact_force: float, v_perp: float) -> void:
 		SoundManager.play_sfx(SoundManager.SoundEvent.BUMP)
 
 func _respawn_biplane() -> void:
+	if not is_respawning:
+		return
 	is_respawning = false
 	if GameManager and GameManager.get_lives(0) > 0:
 		var ground_y: float = 650.0

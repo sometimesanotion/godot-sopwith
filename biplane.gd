@@ -260,6 +260,7 @@ class AvatarData:
 	var damage_state:    DamageState = DamageState.INTACT
 	var reliability:     float       = 1.0
 	var refuel_timer:    float       = 0.0
+	var refuel_cooldown: float       = 0.0
 	## Cached physics modifiers; recomputed by _refresh_damage_modifiers().
 	var drag_multiplier:   float = 1.0
 	var thrust_multiplier: float = 1.0
@@ -319,6 +320,7 @@ class AvatarData:
 		drag_multiplier  = 1.0
 		thrust_multiplier = 1.0
 		refuel_timer     = 0.0
+		refuel_cooldown  = 0.0
 		pitch_angle      = 0.0
 		angular_velocity  = 0.0
 		control_effectiveness = 1.0
@@ -1260,6 +1262,10 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 	if abs(global_position.x - hb.home_base_x) > hb.home_base_width:
 		return
 
+	## Cooldown prevents teleport loop when taxiing into homebase.
+	if avatar.refuel_cooldown > 0.0:
+		avatar.refuel_cooldown -= delta
+
 	## Repair damage instantly on landing at home.
 	if avatar.damage_state != DamageState.INTACT:
 		avatar.damage_percent = 0.0
@@ -1281,6 +1287,12 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 		if avatar.ammo  != old_ammo:  GameManager.ammo_changed.emit(avatar.id, avatar.ammo)
 		if avatar.bombs != old_bombs: GameManager.bombs_changed.emit(avatar.id, avatar.bombs)
 		if avatar.fuel  != old_fuel:  GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
+
+	## Teleport to spawn when fully resupplied and cooldown expired.
+	if avatar.fuel >= 100.0 and avatar.ammo >= MAX_AMMO and avatar.bombs >= MAX_BOMBS:
+		if avatar.refuel_cooldown <= 0.0:
+			_perform_teleport_landing(avatar)
+			avatar.refuel_cooldown = 10.0
 
 ###############################################################################
 # DAMAGE
@@ -1520,6 +1532,7 @@ func force_crash() -> void:
 			avatar.damage_percent = 1.0
 			_refresh_damage_modifiers(avatar)
 			_start_spinning_out(avatar)
+			_on_avatar_crashed(avatar)
 
 func _perform_teleport_landing(avatar: AvatarData) -> void:
 	var spawn_pos := get_homebase_spawn_position(avatar)

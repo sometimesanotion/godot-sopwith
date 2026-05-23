@@ -42,7 +42,7 @@ func _physics_process(delta: float) -> void:
 	velocity.y += gravity * delta
 
 	if SoundManager:
-		if whistle_start_time < 0.0 and velocity.y > 20.0:
+		if whistle_start_time < 0.0 and velocity.y > 0.0:
 			whistle_start_time = 0.0
 			SoundManager.start_bomb_whistle()
 		if whistle_start_time >= 0.0:
