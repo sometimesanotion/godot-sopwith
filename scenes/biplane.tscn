@@ -4,8 +4,8 @@
 [ext_resource type="Script" path="res://scripts/biplane_draw.gd" id="2_draw"]
 
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_1"]
-radius = 30.0
-height = 40.0
+radius = 32.0
+height = 45.0
 
 [node name="Biplane" type="CharacterBody2D"]
 motion_mode = 1

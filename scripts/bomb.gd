@@ -33,7 +33,7 @@ func take_damage(amount: float, attacker: Node) -> void:
 
 func initialize(owner: Node, inherit_velocity: Vector2) -> void:
 	_bomb_owner = owner
-	velocity = inherit_velocity * 0.7
+	velocity = inherit_velocity * 0.8
 
 func _physics_process(delta: float) -> void:
 	if has_exploded:

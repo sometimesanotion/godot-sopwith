@@ -56,7 +56,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"negative_rotation_speed": 3.2,   # Rotary engine gyroscope strongly biases against pitch-down
 		"rotation_inertia": 4.0,
 		"bullet_spawn_offset": Vector2(34, -15),
-		"bomb_spawn_offset": Vector2(0, 26),
+		"bomb_spawn_offset": Vector2(0, 32),
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
@@ -78,7 +78,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"negative_rotation_speed": 2.6,  # No rotary gyroscope bias; conventional inline V8
 		"rotation_inertia": 4.0,
 		"bullet_spawn_offset": Vector2(34, -15),
-		"bomb_spawn_offset": Vector2(0, 26),
+		"bomb_spawn_offset": Vector2(0, 32),
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
@@ -100,7 +100,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"negative_rotation_speed": 2.3,   # Heavier tail, slow pitch-down response
 		"rotation_inertia": 4.0,
 		"bullet_spawn_offset": Vector2(34, -15),
-		"bomb_spawn_offset": Vector2(0, 26),
+		"bomb_spawn_offset": Vector2(0, 32),
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
@@ -122,7 +122,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"negative_rotation_speed": 2.2,   # Conventional design, slower pitch-down vs pitch-up
 		"rotation_inertia": 4.0,
 		"bullet_spawn_offset": Vector2(34, -15),
-		"bomb_spawn_offset": Vector2(0, 26),
+		"bomb_spawn_offset": Vector2(0, 32),
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
@@ -144,7 +144,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"negative_rotation_speed": 2.6,   # Standard non-rotary inline engine behavior
 		"rotation_inertia": 4.0,
 		"bullet_spawn_offset": Vector2(34, -15),
-		"bomb_spawn_offset": Vector2(0, 26),
+		"bomb_spawn_offset": Vector2(0, 32),
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
@@ -387,7 +387,7 @@ class AvatarData:
 	var mass_kg: float = model_params.get("mass_kg", 447.0)
 
 	var bullet_spawn_offset: Vector2 = model_params.get("bullet_spawn_offset", Vector2(34, -15))
-	var bomb_spawn_offset: Vector2 = model_params.get("bomb_spawn_offset", Vector2(0, 26))
+	var bomb_spawn_offset: Vector2 = model_params.get("bomb_spawn_offset", Vector2(0, 32))
 
 	func reset() -> void:
 		flight_state = FlightState.FLYING
