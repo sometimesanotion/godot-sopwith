@@ -1,29 +1,40 @@
 extends Node
 
 ## Enemy AI for Sopwith biplanes
-## Layered architecture: State Machine -> Pursuit Calculator -> Reflex Layer
+## Architecture: State Machine -> Pursuit Calculator -> Reflex Layer
 ##
-## FIXES IN THIS REVISION
+## ENCAPSULATION
+##   All mutable per-pilot runtime state lives in PilotState.  The node itself
+##   holds only constants, the biplane/target references, and an Array[PilotState]
+##   (pilots).  This means multiple AI nodes never share mutable data,
+##   and a future multi-pilot manager can simply hold an Array[PilotState].
 ##
-## 1. Target liveness guard — all engagement logic gates on _is_target_alive().
-##    Dead or falling targets are released immediately; AI returns to PATROLLING.
+## PITCH CONTROL  (Options B + C)
+##   B — State-aware damping profiles: ENGAGING uses a more aggressive budget
+##       (lower floor, lower ceiling) than CRUISE (patrol / return / takeoff).
+##       The AoA blend that re-raises damping during a turn is suppressed in
+##       combat so dogfighting authority is never silently stolen back.
+##   C — Angular-velocity damping is a flat decoupled coefficient, not folded
+##       into the speed curve.  This gives immediate snap on dive pull-outs
+##       without affecting the speed-based sensitivity scaling.
 ##
-## 2. AoA-aware stall recovery — hard override steers nose toward the velocity
-##    vector while stalled, using max_aoa from the plane model. Recovery exits
-##    only once AoA drops below 70 % of the model limit (hysteresis).
+## WOBBLE FIXES
+##   • Residual heading-damping term removed (was fighting ang-vel term).
+##   • desired_heading lerped each tick instead of hard-set, filtering noise
+##     from a moving target.
+##   • Deadband widened to 0.10 rad (~6°) so the AI declares "on heading"
+##     before micro-corrections trigger an opposite input.
 ##
-## 3. Energy-state engagement — total mechanical energy (kinetic + potential)
-##    drives attack posture. High-energy AI dives and presses; low-energy AI
-##    climbs to reposition. Ground target with bombs takes priority over all
-##    air-combat logic.
-##
-## 4. Runway pitch suppression — last_pitch_input and last_throttle are reset
-##    on respawn. _apply_reflexes() is skipped in GROUNDED and TAKING_OFF states
-##    so spurious altitude/pull-up reflexes cannot inject pitch while grounded.
-##
-## 5. Dynamic pitch damping — PITCH_DAMPING lerps smoothly from 3.0 (near stall,
-##    high AoA) down to 0.6 (cruise speed, nose on velocity vector). PITCH_SENSITIVITY
-##    is similarly scaled so authority matches actual aerodynamic control authority.
+## OTHER FIXES (carried from previous revision)
+##   • Target liveness guard — engagement releases on CRASHED / FALLING.
+##   • AoA-aware stall recovery — hard override toward velocity vector.
+##   • Energy-state engagement — altitude + speed gate dive attacks.
+##   • Runway pitch suppression — outputs reset on respawn; reflexes skipped
+##     in GROUNDED / TAKING_OFF.
+
+# ---------------------------------------------------------------------------
+# STATE ENUM
+# ---------------------------------------------------------------------------
 
 enum AIState {
 	GROUNDED,
@@ -31,121 +42,142 @@ enum AIState {
 	PATROLLING,
 	ENGAGING,
 	EVADING,
-	RETURNING
+	RETURNING,
 }
+
+# ---------------------------------------------------------------------------
+# CONSTANTS  (shared, never written at runtime)
+# ---------------------------------------------------------------------------
 
 const TERRAIN_LENGTH := 16384.0
 
 # Altitude thresholds (pixels above terrain)
-const PATROL_ALTITUDE               := 250.0
-const MIN_ALTITUDE_ABOVE_GROUND     := 80.0
-const DANGER_ALTITUDE_ABOVE_GROUND  := 60.0
+const PATROL_ALTITUDE                := 250.0
+const MIN_ALTITUDE_ABOVE_GROUND      := 80.0
+const DANGER_ALTITUDE_ABOVE_GROUND   := 60.0
 const CRITICAL_ALTITUDE_ABOVE_GROUND := 20.0
-const PULL_UP_ALTITUDE              := 200.0
-const MAX_ALTITUDE                  := 1600.0
+const PULL_UP_ALTITUDE               := 200.0
+const MAX_ALTITUDE                   := 1600.0
 
-# Detection & engagement geometry
-const DETECTION_RANGE         := 3000.0
-const ENGAGEMENT_RANGE        := 1500.0
-const MAX_FIRE_RANGE          := 400.0
-const MIN_FIRE_RANGE          := 30.0
-const FIRE_CONE_ANGLE         := 0.3
-const STALKING_THRESHOLD      := 400.0
-const RETURN_REENGAGE_RANGE   := 400.0
-const HOME_PROXIMITY          := 100.0
+# Detection / engagement geometry
+const DETECTION_RANGE       := 9000.0
+const ENGAGEMENT_RANGE      := 2000.0
+const MAX_FIRE_RANGE        := 600.0
+const MIN_FIRE_RANGE        := 30.0
+const FIRE_CONE_ANGLE       := 0.3
+const STALKING_THRESHOLD    := 400.0
+const ADVANTAGE_THRESHOLD   := 50.0
+const RETURN_REENGAGE_RANGE := 400.0
+const HOME_PROXIMITY        := 100.0
 
 # Energy-state thresholds
-# Altitude advantage above which the AI presses a dive attack (pixels).
-const ENERGY_ALTITUDE_ADVANTAGE := 120.0
-# Speed ratio (my_speed / stall_speed) above which energy is considered healthy.
-const ENERGY_SPEED_RATIO_GOOD   := 1.4
+const ENERGY_ALTITUDE_ADVANTAGE := 120.0   # px altitude edge to press a dive
+const ENERGY_SPEED_RATIO_GOOD   := 1.4     # speed / stall_speed for healthy energy
 
-# Patrol behaviour
+# Patrol
 const ALTITUDE_OSCILLATION_SPEED := 1.5
 const ALTITUDE_OSCILLATION_AMP   := 30.0
 
-# Pitch control — state-aware profiles (Option B) with decoupled angular
-# velocity damping (Option C).
-#
-# ENGAGE profile: aggressive authority for dogfighting.
-const PITCH_SENSITIVITY_ENGAGE_BASE := 2.2   # cruise-speed gain in combat
-const PITCH_SENSITIVITY_ENGAGE_LOW  := 0.9   # near-stall gain in combat
-const PITCH_DAMPING_ENGAGE_MAX      := 2.2   # low-speed damping in combat
-const PITCH_DAMPING_ENGAGE_MIN      := 0.4   # cruise damping in combat
-#
-# CRUISE profile: conservative authority for patrol / return / takeoff.
-const PITCH_SENSITIVITY_CRUISE_BASE := 1.8
-const PITCH_SENSITIVITY_CRUISE_LOW  := 0.7
-const PITCH_DAMPING_CRUISE_MAX      := 3.0
-const PITCH_DAMPING_CRUISE_MIN      := 0.6
-#
-# Angular velocity damping — decoupled from the speed curve (Option C).
-# Applied as a flat multiplier on angular_vel, separate from speed-based damping.
-# Lower in combat so pull-outs snap; higher in cruise so patrol is smooth.
-const ANG_VEL_DAMPING_ENGAGE := 0.05
-const ANG_VEL_DAMPING_CRUISE := 0.50
+# Pitch control — ENGAGE profile (aggressive, combat authority)
+const PITCH_SENS_ENGAGE_BASE  := 2.2   # gain at cruise speed in combat
+const PITCH_SENS_ENGAGE_LOW   := 0.9   # gain near stall in combat
+const PITCH_DAMP_ENGAGE_MAX   := 2.2   # speed-damping at low speed in combat
+const PITCH_DAMP_ENGAGE_MIN   := 0.4   # speed-damping at cruise in combat
+const ANG_VEL_DAMP_ENGAGE     := 0.25  # flat ang-vel coefficient in combat
 
-# Evade behaviour
+# Pitch control — CRUISE profile (conservative, patrol / return / takeoff)
+const PITCH_SENS_CRUISE_BASE  := 1.8
+const PITCH_SENS_CRUISE_LOW   := 0.7
+const PITCH_DAMP_CRUISE_MAX   := 3.0
+const PITCH_DAMP_CRUISE_MIN   := 0.6
+const ANG_VEL_DAMP_CRUISE     := 0.50
+
+# Heading smoothing (lerp factor per decision tick)
+const HEADING_LERP_FACTOR     := 0.30  # 0 = never turns, 1 = instant snap
+# Deadband: angle error below this is treated as "on heading"
+const HEADING_DEADBAND        := 0.10  # radians (~6°)
+
+# Evade
 const EVADE_DURATION_MIN := 0.5
 const EVADE_DURATION_MAX := 2.0
 
 # Terrain look-ahead
-const TERRAIN_LOOK_DISTANCES  := [50.0, 100.0, 200.0]
-const TERRAIN_RISE_THRESHOLD  := 0.3
+const TERRAIN_LOOK_DISTANCES := [50.0, 100.0, 200.0]
+const TERRAIN_RISE_THRESHOLD := 0.3
 
-# Take-off speeds (pixels/s) and pitch angles (radians, negative = nose up)
-const TAKEOFF_BUILD_SPEED   := 90.0
-const TAKEOFF_ROTATE_SPEED  := 120.0
-const TAKEOFF_PITCH         := -0.05
-const TAKEOFF_CLIMB_PITCH   := -0.10
+# Take-off
+const TAKEOFF_BUILD_SPEED  := 90.0
+const TAKEOFF_ROTATE_SPEED := 120.0
+const TAKEOFF_PITCH        := -0.05
+const TAKEOFF_CLIMB_PITCH  := -0.10
 
-# Bombing geometry
+# Bombing
 const GROUND_ATTACK_ALTITUDE    := 300.0
 const BOMB_OVERHEAD_X_THRESHOLD := 200.0
 const BOMB_ANGLE_TOLERANCE      := 0.175
 
+# ---------------------------------------------------------------------------
+# PILOT STATE  (all mutable runtime data for one AI pilot)
+# ---------------------------------------------------------------------------
+
+class PilotState:
+	# FSM
+	var ai_state: int        = 0   # AIState.GROUNDED
+	var previous_state: int  = 2   # AIState.PATROLLING
+
+	# Control outputs carried between frames
+	var last_pitch_input: float = 0.0
+	var last_throttle: float    = 0.0
+	var desired_heading: float  = 0.0
+
+	# Timers
+	var decision_timer: float        = 0.0
+	var incoming_bullet_timer: float = 0.0
+	var flip_cooldown: float         = 0.0
+	var bomb_cooldown_timer: float   = 0.0
+	var evade_timer: float           = 0.0
+	var crash_timer: float           = 0.0
+	var respawn_timer: float         = 0.0
+	var patrol_time: float           = 0.0
+	var takeoff_timer: float         = 0.0
+
+	# Flags
+	var is_using_autopilot: bool        = false
+	var is_waiting_for_crash_land: bool = false
+
+	func reset_control_outputs() -> void:
+		last_pitch_input = 0.0
+		last_throttle    = 0.0
+		desired_heading  = 0.0
+
+# ---------------------------------------------------------------------------
+# NODE-LEVEL FIELDS
+# ---------------------------------------------------------------------------
+
 @export var target: Node2D
 @export var biplane: CharacterBody2D
 
-# Timers
-var decision_timer: float      = 0.0
-var decision_interval: float   = 0.05
-var incoming_bullet_timer: float = 0.0
-var flip_cooldown: float       = 0.0
-var bomb_cooldown_timer: float = 0.0
-var evade_timer: float         = 0.0
-var crash_timer: float         = 0.0
-var crash_delay: float         = 2.0
-var respawn_timer: float       = 0.0
-var respawn_delay: float       = 3.0
-var patrol_time: float         = 0.0
-var takeoff_delay: float       = 0.0
-var takeoff_timer: float       = 0.0
+# Configuration (set by spawner before _ready)
+@export var home_base_x: float  = 1400.0
+@export var patrol_range: float = 2000.0
+@export var takeoff_delay: float = 0.0
+@export var unlimited_fuel_ammo: bool = false
 
-# State
-var ai_state: AIState      = AIState.GROUNDED
-var previous_state: AIState = AIState.PATROLLING
-var is_using_autopilot: bool   = false
-var unlimited_fuel_ammo: bool  = false
-var is_waiting_for_crash_land: bool = false
+var decision_interval: float = 0.05
+var crash_delay: float       = 2.0
+var respawn_delay: float     = 3.0
 
-# Territory
-var home_base_x: float    = 1400.0
-var patrol_range: float   = 2000.0
 var territory_left: float  = 0.0
 var territory_right: float = 16384.0
 
-# Control outputs carried between frames
-var last_pitch_input: float = 0.0
-var last_throttle: float    = 0.0
-var desired_heading: float  = 0.0
-
-# Cached terrain node
 var terrain_cache: Node2D = null
 
-###############################################################################
+# The one pilot this node controls.
+var pilots: Array[PilotState] = [PilotState.new()]
+
+# ---------------------------------------------------------------------------
 # LIFECYCLE
-###############################################################################
+# ---------------------------------------------------------------------------
 
 func _ready() -> void:
 	add_to_group("enemy")
@@ -155,68 +187,53 @@ func _ready() -> void:
 	_setup_territory()
 
 func _setup_territory() -> void:
-	var half_range := patrol_range * 0.5
-	territory_left  = home_base_x - half_range
-	territory_right = home_base_x + half_range
+	var half := patrol_range * 0.5
+	territory_left  = home_base_x - half
+	territory_right = home_base_x + half
 
-###############################################################################
+# ---------------------------------------------------------------------------
 # PHYSICS LOOP
-###############################################################################
+# ---------------------------------------------------------------------------
 
 func _physics_process(delta: float) -> void:
 	if not target or not biplane:
 		return
 
-	# Stagger takeoff if a delay has been configured.
-	if takeoff_delay > 0:
-		takeoff_timer += delta
-		if takeoff_timer < takeoff_delay:
+	if takeoff_delay > 0.0:
+		pilots[0].takeoff_timer += delta
+		if pilots[0].takeoff_timer < takeoff_delay:
 			return
 
-	incoming_bullet_timer = maxf(0.0, incoming_bullet_timer - delta)
-	bomb_cooldown_timer   = maxf(0.0, bomb_cooldown_timer - delta)
-	flip_cooldown         = maxf(0.0, flip_cooldown - delta)
+	pilots[0].incoming_bullet_timer = maxf(0.0, pilots[0].incoming_bullet_timer - delta)
+	pilots[0].bomb_cooldown_timer   = maxf(0.0, pilots[0].bomb_cooldown_timer - delta)
+	pilots[0].flip_cooldown         = maxf(0.0, pilots[0].flip_cooldown - delta)
 
-	# DESTROYED+grounded without going through CRASHED (e.g. bombed on the ground).
-	var avatar_check = _get_avatar()
-	if crash_timer <= 0 and not is_waiting_for_crash_land and respawn_timer <= 0:
-		if avatar_check and avatar_check.damage_state >= 4 \
-				and (_is_grounded() or avatar_check.has_hit_ground):
-			is_waiting_for_crash_land = true
-			crash_timer = crash_delay
-			if biplane and biplane.has_method("create_explosion"):
-				biplane.create_explosion()
-			return
-
-	# Crash cooldown: hold the AI dormant while the plane is tumbling.
-	if crash_timer > 0:
-		crash_timer -= delta
+	if pilots[0].crash_timer > 0.0:
+		pilots[0].crash_timer -= delta
 		return
 
-	# Wait for the crashed plane to actually hit the ground before respawning.
-	if is_waiting_for_crash_land:
+	if pilots[0].is_waiting_for_crash_land:
 		var avatar = _get_avatar()
 		if avatar and avatar.has_hit_ground:
-			is_waiting_for_crash_land = false
-			respawn_timer = respawn_delay
+			pilots[0].is_waiting_for_crash_land = false
+			pilots[0].respawn_timer = respawn_delay
 
-	# Always push the last computed control output to the physics body.
-	_apply_input(last_pitch_input, last_throttle)
+	_apply_input(pilots[0].last_pitch_input, pilots[0].last_throttle)
 
-	if respawn_timer > 0:
-		respawn_timer -= delta
-		if respawn_timer <= 0:
+	if pilots[0].respawn_timer > 0.0:
+		pilots[0].respawn_timer -= delta
+		if pilots[0].respawn_timer <= 0.0:
 			_do_respawn()
 		return
 
-	decision_timer -= delta
-	if decision_timer <= 0.0:
-		decision_timer = decision_interval
+	pilots[0].decision_timer -= delta
+	if pilots[0].decision_timer <= 0.0:
+		pilots[0].decision_timer = decision_interval
 		_make_decision()
 
-###############################################################################
+# ---------------------------------------------------------------------------
 # DECISION LOOP
-###############################################################################
+# ---------------------------------------------------------------------------
 
 func _make_decision() -> void:
 	if not target or not biplane:
@@ -227,277 +244,258 @@ func _make_decision() -> void:
 
 	_update_state_machine()
 
-	var pitch: float    = 0.0
-	var throttle: float = 0.0
-
-	match ai_state:
+	match pilots[0].ai_state:
 		AIState.GROUNDED:
-			# Zero outputs; skip reflexes so the plane sits still on the runway.
-			last_pitch_input = 0.0
-			last_throttle    = 0.0
+			# Zero outputs; skip reflexes — plane sits still on the runway.
+			pilots[0].last_pitch_input = 0.0
+			pilots[0].last_throttle    = 0.0
 			return
 
 		AIState.TAKING_OFF:
-			# Dedicated handler writes directly to last_pitch_input / last_throttle.
-			_decision_takeoff()
+			# Dedicated handler writes directly to pilot outputs.
+			_decision_takeoff(avatar)
 			return
 
 		AIState.PATROLLING:
-			pitch    = _compute_patrol_pitch()
-			throttle = _compute_patrol_throttle(avatar)
+			var pitch    = _compute_patrol_pitch()
+			var throttle = _compute_patrol_throttle(avatar)
+			var reflexed = _apply_reflexes(pitch, throttle)
+			pilots[0].last_pitch_input = reflexed[0]
+			pilots[0].last_throttle    = reflexed[1]
 
 		AIState.ENGAGING:
-			var result = _compute_engage(avatar)
-			pitch    = result[0]
-			throttle = result[1]
+			var result   = _compute_engage(avatar)
+			var reflexed = _apply_reflexes(result[0], result[1])
+			pilots[0].last_pitch_input = reflexed[0]
+			pilots[0].last_throttle    = reflexed[1]
 
 		AIState.EVADING:
-			pitch    = _compute_evade_pitch()
-			throttle = _compute_evade_throttle()
+			var pitch    = _compute_evade_pitch()
+			var throttle = _compute_evade_throttle()
+			var reflexed = _apply_reflexes(pitch, throttle)
+			pilots[0].last_pitch_input = reflexed[0]
+			pilots[0].last_throttle    = reflexed[1]
 
 		AIState.RETURNING:
-			pitch    = _compute_return_pitch()
-			throttle = _compute_return_throttle(avatar)
+			var pitch    = _compute_return_pitch()
+			var throttle = _compute_return_throttle(avatar)
+			var reflexed = _apply_reflexes(pitch, throttle)
+			pilots[0].last_pitch_input = reflexed[0]
+			pilots[0].last_throttle    = reflexed[1]
 
-	# Reflexes apply to all flying states; they are suppressed for GROUNDED and
-	# TAKING_OFF above via early return.
-	var reflex_result = _apply_reflexes(pitch, throttle)
-	last_pitch_input  = reflex_result[0]
-	last_throttle     = reflex_result[1]
-
-###############################################################################
+# ---------------------------------------------------------------------------
 # STATE MACHINE
-###############################################################################
+# ---------------------------------------------------------------------------
 
 func _update_state_machine() -> void:
 	if not biplane or not target:
 		return
 
-	var avatar = _get_avatar()
-	var damage: float = avatar.damage_percent if avatar else 0.0
-	var my_dist_to_home   := _get_wrapped_distance(biplane.global_position.x, home_base_x)
-	var wrapped_dist_to_target := _get_wrapped_distance(biplane.global_position.x, target.global_position.x)
+	var avatar        = _get_avatar()
+	var damage        = avatar.damage_percent if avatar else 0.0
+	var my_dist_home  = _get_wrapped_distance(biplane.global_position.x, home_base_x)
+	var dist_to_tgt   = _get_wrapped_distance(biplane.global_position.x, target.global_position.x)
 
-	match ai_state:
+	match pilots[0].ai_state:
 		AIState.GROUNDED:
-			if wrapped_dist_to_target < DETECTION_RANGE and _is_player_in_territory():
-				ai_state = AIState.TAKING_OFF
+			if dist_to_tgt < DETECTION_RANGE and _is_player_in_territory():
+				pilots[0].ai_state = AIState.TAKING_OFF
 
 		AIState.TAKING_OFF:
-			var alt := _get_altitude_above_ground()
+			var alt = _get_altitude_above_ground()
 			if alt > PATROL_ALTITUDE:
-				ai_state   = AIState.PATROLLING
-				patrol_time = 0.0
-			elif wrapped_dist_to_target < ENGAGEMENT_RANGE and alt > MIN_ALTITUDE_ABOVE_GROUND:
-				ai_state = AIState.ENGAGING
+				pilots[0].ai_state   = AIState.PATROLLING
+				pilots[0].patrol_time = 0.0
+			elif dist_to_tgt < ENGAGEMENT_RANGE and alt > MIN_ALTITUDE_ABOVE_GROUND:
+				pilots[0].ai_state = AIState.ENGAGING
 
 		AIState.PATROLLING:
-			if wrapped_dist_to_target < ENGAGEMENT_RANGE and _is_player_in_territory():
-				ai_state = AIState.ENGAGING
+			if dist_to_tgt < ENGAGEMENT_RANGE and _is_player_in_territory():
+				pilots[0].ai_state = AIState.ENGAGING
 
 		AIState.ENGAGING:
-			# Release the target immediately if it is no longer a viable threat.
+			# Release immediately if the target is no longer a viable threat.
 			if not _is_target_alive():
-				ai_state   = AIState.PATROLLING
-				patrol_time = 0.0
+				pilots[0].ai_state    = AIState.PATROLLING
+				pilots[0].patrol_time = 0.0
 				return
 
-			var alt := _get_altitude_above_ground()
-
-			if alt < DANGER_ALTITUDE_ABOVE_GROUND or incoming_bullet_timer > 0.0:
-				previous_state = ai_state
-				ai_state       = AIState.EVADING
-				evade_timer    = randf_range(EVADE_DURATION_MIN, EVADE_DURATION_MAX)
+			var alt = _get_altitude_above_ground()
+			if alt < DANGER_ALTITUDE_ABOVE_GROUND or pilots[0].incoming_bullet_timer > 0.0:
+				pilots[0].previous_state = pilots[0].ai_state
+				pilots[0].ai_state       = AIState.EVADING
+				pilots[0].evade_timer    = randf_range(EVADE_DURATION_MIN, EVADE_DURATION_MAX)
 			elif damage >= 0.5:
-				ai_state = AIState.RETURNING
-			elif wrapped_dist_to_target > ENGAGEMENT_RANGE * 1.2:
-				ai_state   = AIState.PATROLLING
-				patrol_time = 0.0
+				pilots[0].ai_state = AIState.RETURNING
+			elif dist_to_tgt > ENGAGEMENT_RANGE * 1.2:
+				pilots[0].ai_state    = AIState.PATROLLING
+				pilots[0].patrol_time = 0.0
 
 		AIState.EVADING:
-			evade_timer -= decision_interval
-			var alt := _get_altitude_above_ground()
-			var avatar_data = _get_avatar()
-			var is_stalled: bool = avatar_data and avatar_data.flight_state == 1  # FlightState.STALLED
-
-			if not is_stalled and evade_timer <= 0.0 \
+			pilots[0].evade_timer -= decision_interval
+			var alt         = _get_altitude_above_ground()
+			var avdata      = _get_avatar()
+			var is_stalled  = avdata and avdata.flight_state == 1
+			if not is_stalled \
+					and pilots[0].evade_timer <= 0.0 \
 					and alt > MIN_ALTITUDE_ABOVE_GROUND \
-					and incoming_bullet_timer <= 0.0:
-				ai_state = previous_state
+					and pilots[0].incoming_bullet_timer <= 0.0:
+				pilots[0].ai_state = pilots[0].previous_state
 
 		AIState.RETURNING:
-			if wrapped_dist_to_target < RETURN_REENGAGE_RANGE and damage < 0.5 \
-					and _is_target_alive():
-				ai_state = AIState.ENGAGING
-			elif my_dist_to_home < HOME_PROXIMITY and _is_grounded():
-				ai_state = AIState.GROUNDED
+			if dist_to_tgt < RETURN_REENGAGE_RANGE and damage < 0.5 and _is_target_alive():
+				pilots[0].ai_state = AIState.ENGAGING
+			elif my_dist_home < HOME_PROXIMITY and _is_grounded():
+				pilots[0].ai_state = AIState.GROUNDED
 				if biplane.has_method("disable_autopilot"):
 					biplane.disable_autopilot()
-				is_using_autopilot = false
+				pilots[0].is_using_autopilot = false
 
-###############################################################################
+# ---------------------------------------------------------------------------
 # TARGET VALIDITY
-###############################################################################
+# ---------------------------------------------------------------------------
 
-## Returns false when the target is destroyed or in a terminal fall.
-## Gates every engagement decision so the AI never chases a wreck.
+## False when the target is destroyed or in a terminal fall so the AI never
+## chases a wreck.  Non-biplane targets (ground structures) pass as alive.
 func _is_target_alive() -> bool:
 	if not target:
 		return false
 	if not target.has_method("get_avatar_data"):
-		# Target is not a biplane — treat as alive (e.g. ground structure).
-		return true
-	var target_avatar = target.get_avatar_data(0)
-	if not target_avatar:
+		return true   # ground structure — treat as alive
+	var ta = target.get_avatar_data(0)
+	if not ta:
 		return false
-	# FlightState.CRASHED == 5, FlightState.FALLING == 2
-	return target_avatar.flight_state != 5 and target_avatar.flight_state != 2
+	# FlightState: CRASHED == 5, FALLING == 2
+	return ta.flight_state != 5 and ta.flight_state != 2
 
-###############################################################################
-# ENGAGE — unified pitch + throttle with energy-state logic
-###############################################################################
+# ---------------------------------------------------------------------------
+# ENGAGE — unified entry point
+# ---------------------------------------------------------------------------
 
 ## Returns [pitch, throttle].  Bombing takes priority over air combat.
 func _compute_engage(avatar) -> Array:
-	# Ground target with bombs: set up bomb run immediately, skip air combat.
+	# Ground target with bombs → bomb run, bypass air combat entirely.
 	if _is_target_on_ground() and _has_bombs(avatar):
+		_try_decide_bomb_drop()
 		return [_compute_bomb_pitch(), _compute_engage_throttle(avatar)]
 
-	# Ground target, no bombs: only strafe if the angle is already good;
-	# do not kamikaze-dive onto it.
+	# Ground target, no bombs → gentle approach only; do not kamikaze.
 	if _is_target_on_ground():
 		_try_fire_weapon()
 		return [_compute_patrol_pitch(), _compute_patrol_throttle(avatar)]
 
-	# Airborne target — energy-state logic.
+	# Airborne target → energy-state air combat.
 	_try_fire_weapon()
 	return [_compute_engage_pitch(), _compute_engage_throttle(avatar)]
 
-## Evaluate whether to drop a bomb (separate from approach pitch).
-func _decide_bomb_drop() -> void:
-	if _can_bomb_ground_target():
-		_try_drop_bomb()
-
-###############################################################################
+# ---------------------------------------------------------------------------
 # PITCH COMPUTATION
-###############################################################################
+# ---------------------------------------------------------------------------
 
 func _compute_patrol_pitch() -> float:
 	if not biplane:
 		return 0.0
-	var patrol_x  := clampf(home_base_x, TERRAIN_LENGTH * 0.33, TERRAIN_LENGTH * 0.67)
-	var ground_y  := _get_ground_height(patrol_x)
-	patrol_time   += decision_interval
-	var oscillation := sin(patrol_time * ALTITUDE_OSCILLATION_SPEED) * ALTITUDE_OSCILLATION_AMP
-	var aim_point := Vector2(patrol_x, ground_y - PATROL_ALTITUDE + oscillation)
-	_steer_toward(aim_point)
-	return _compute_pitch_from_heading()
+	var patrol_x  = clampf(home_base_x, TERRAIN_LENGTH * 0.33, TERRAIN_LENGTH * 0.67)
+	var ground_y  = _get_ground_height(patrol_x)
+	pilots[0].patrol_time += decision_interval
+	var osc       = sin(pilots[0].patrol_time * ALTITUDE_OSCILLATION_SPEED) * ALTITUDE_OSCILLATION_AMP
+	var aim       = Vector2(patrol_x, ground_y - PATROL_ALTITUDE + osc)
+	_steer_toward(aim)
+	return _compute_pitch_from_heading(false)
 
 func _compute_engage_pitch() -> float:
 	if not biplane or not target:
 		return 0.0
 
-	var my_pos     := biplane.global_position
-	var target_pos := target.global_position
-	var distance   := my_pos.distance_to(target_pos)
-	var my_alt     := _get_altitude_above_ground()
-	var target_alt := _get_altitude_above_ground_for(target)
-	var alt_diff   := my_alt - target_alt
+	var my_pos     = biplane.global_position
+	var target_pos = target.global_position
+	var distance   = my_pos.distance_to(target_pos)
+	var my_alt     = _get_altitude_above_ground()
+	var target_alt = _get_altitude_above_ground_for(target)
+	var alt_diff   = my_alt - target_alt
 
-	var aim_point: Vector2
-
+	var aim: Vector2
 	if distance > STALKING_THRESHOLD:
-		# Still closing — climb to gain energy before committing.
-		aim_point = _stalking_waypoint(target_pos)
-
+		aim = _stalking_waypoint(target_pos)
 	elif _has_energy_advantage():
-		# We have altitude and speed — dive and press the attack.
-		aim_point   = _lead_pursuit_point(target_pos, 0.6)
-		aim_point.y += 30.0   # Aim slightly below to maintain dive angle.
-
+		aim    = _lead_pursuit_point(target_pos, 0.6)
+		aim.y += 30.0   # lean into the dive
 	elif alt_diff < -ENERGY_ALTITUDE_ADVANTAGE:
-		# Enemy is above us — don't chase upward, nose down to build speed first.
-		aim_point   = _lead_pursuit_point(target_pos, 0.4)
-		aim_point.y -= 40.0   # Dive to accelerate, then loop up.
-
+		aim    = _lead_pursuit_point(target_pos, 0.4)
+		aim.y -= 40.0   # nose down to build speed before looping up
 	else:
-		# Roughly equal energy — standard pursuit.
-		aim_point = _lead_pursuit_point(target_pos, 0.7)
+		aim = _lead_pursuit_point(target_pos, 0.7)
 
-	_steer_toward(aim_point)
-	return _compute_pitch_from_heading(true)
+	_steer_toward(aim)
+	return _compute_pitch_from_heading(true)   # ENGAGE profile
 
 func _compute_bomb_pitch() -> float:
 	if not biplane or not target:
 		return 0.0
 
-	var my_pos     := biplane.global_position
-	var target_pos := target.global_position
-	var x_dist     := _get_wrapped_distance(my_pos.x, target_pos.x)
-	var approach_dir: float = sign(target_pos.x - my_pos.x)
+	var my_pos       = biplane.global_position
+	var target_pos   = target.global_position
+	var x_dist       = _get_wrapped_distance(my_pos.x, target_pos.x)
+	var approach_dir = sign(target_pos.x - my_pos.x)
 
-	# If nearly overhead, fly level while dropping.
 	if x_dist < BOMB_OVERHEAD_X_THRESHOLD * 0.5:
-		_try_decide_bomb_drop()
-		var aim_point := Vector2(my_pos.x + approach_dir * 100.0, my_pos.y - 20.0)
-		_steer_toward(aim_point)
+		var aim = Vector2(my_pos.x + approach_dir * 100.0, my_pos.y - 20.0)
+		_steer_toward(aim)
 		return _compute_pitch_from_heading(true)
 
-	# Approach: fly toward a point ahead of and above the target.
-	var overhead_x: float = target_pos.x - approach_dir * BOMB_OVERHEAD_X_THRESHOLD * 2.0
-	var aim_point   := Vector2(overhead_x, my_pos.y)
-	_steer_toward(aim_point)
-	return _compute_pitch_from_heading()
+	var overhead_x = target_pos.x - approach_dir * BOMB_OVERHEAD_X_THRESHOLD * 2.0
+	_steer_toward(Vector2(overhead_x, my_pos.y))
+	return _compute_pitch_from_heading(true)
 
 func _compute_evade_pitch() -> float:
 	if not biplane:
 		return 0.0
-	var alt := _get_altitude_above_ground()
+	var alt = _get_altitude_above_ground()
 	if alt < CRITICAL_ALTITUDE_ABOVE_GROUND:
 		return -1.0
 	elif alt < DANGER_ALTITUDE_ABOVE_GROUND:
 		return -0.8
-	elif incoming_bullet_timer > 0.0:
-		if flip_cooldown <= 0.0 and randf() < 0.6:
-			var avatar = _get_avatar()
-			if avatar:
-				biplane.do_flip(avatar)
-				flip_cooldown = 3.0
+	elif pilots[0].incoming_bullet_timer > 0.0:
+		if pilots[0].flip_cooldown <= 0.0 and randf() < 0.6:
+			var av = _get_avatar()
+			if av:
+				biplane.do_flip(av)
+				pilots[0].flip_cooldown = 3.0
 		return -0.3
 	return -0.5
 
 func _compute_return_pitch() -> float:
 	if not biplane:
 		return 0.0
-	var ground_y  := _get_ground_height(home_base_x)
-	var home_pos  := Vector2(home_base_x, ground_y - PATROL_ALTITUDE)
-	var to_home   := home_pos - biplane.global_position
-	var distance  := to_home.length()
+	var ground_y  = _get_ground_height(home_base_x)
+	var home_pos  = Vector2(home_base_x, ground_y - PATROL_ALTITUDE)
+	var to_home   = home_pos - biplane.global_position
+	var dist      = to_home.length()
 
-	if distance < HOME_PROXIMITY * 2.0:
-		var landing_pos := Vector2(home_base_x, ground_y - 50.0)
-		_steer_toward(landing_pos)
-		if distance < HOME_PROXIMITY and not is_using_autopilot:
+	if dist < HOME_PROXIMITY * 2.0:
+		var land_pos = Vector2(home_base_x, ground_y - 50.0)
+		_steer_toward(land_pos)
+		if dist < HOME_PROXIMITY and not pilots[0].is_using_autopilot:
 			_enable_autopilot_for_landing()
-		return _compute_pitch_from_heading()
+		return _compute_pitch_from_heading(false)
 
-	var aim_point   := _lead_pursuit_point(home_pos, 0.5)
-	aim_point.y      = minf(aim_point.y, ground_y - PATROL_ALTITUDE)
-	_steer_toward(aim_point)
-	return _compute_pitch_from_heading()
+	var aim   = _lead_pursuit_point(home_pos, 0.5)
+	aim.y      = minf(aim.y, ground_y - PATROL_ALTITUDE)
+	_steer_toward(aim)
+	return _compute_pitch_from_heading(false)
 
-###############################################################################
-# HEADING → PITCH CONVERSION  (dynamic damping)
-###############################################################################
+# ---------------------------------------------------------------------------
+# HEADING → PITCH  (Options B + C)
+# ---------------------------------------------------------------------------
 
-## Pass is_engaging = true when called from ENGAGING state logic so the
-## combat damping profile is used instead of the conservative cruise profile.
-func _compute_pitch_from_heading(is_engaging: bool = false) -> float:
+## is_engaging = true  → ENGAGE profile (aggressive, AoA blend suppressed)
+## is_engaging = false → CRUISE profile (conservative, AoA blend active)
+func _compute_pitch_from_heading(is_engaging: bool) -> float:
 	if not biplane:
 		return 0.0
 
-	var angle_diff := wrapf(desired_heading - biplane.rotation, -PI, PI)
-	if abs(angle_diff) < 0.05:
+	var angle_diff = wrapf(pilots[0].desired_heading - biplane.rotation, -PI, PI)
+	if absf(angle_diff) < HEADING_DEADBAND:
 		return 0.0
 
 	var avatar = _get_avatar()
@@ -509,22 +507,18 @@ func _compute_pitch_from_heading(is_engaging: bool = false) -> float:
 	var ppm: float = 10.0
 	if "pixels_per_meter" in biplane:
 		ppm = biplane.get("pixels_per_meter")
-	var speed_ms    := biplane.velocity.length() / ppm
-	var speed_ratio := clampf(speed_ms / maxf(stall_speed, 1.0), 0.6, 3.0)
-	# Remap to [0,1] for lerp; 0 = near stall, 1 = cruise and above.
-	var speed_t     := clampf((speed_ratio - 0.6) / 2.4, 0.0, 1.0)
+	var speed_ms    = biplane.velocity.length() / ppm
+	var speed_ratio = clampf(speed_ms / maxf(stall_speed, 1.0), 0.6, 3.0)
+	# speed_t: 0.0 = near stall, 1.0 = cruise and above
+	var speed_t     = clampf((speed_ratio - 0.6) / 2.4, 0.0, 1.0)
 
-	# --- Actual AoA ---
-	var actual_aoa := 0.0
-	if biplane.velocity.length() > 0.5:
-		actual_aoa = absf(wrapf(biplane.rotation - biplane.velocity.angle(), -PI, PI))
-	var max_aoa: float = 0.279
-	if avatar:
-		max_aoa = deg_to_rad(avatar.model_params.get("max_aoa", 16.0))
-	# AoA ratio only blends in during cruise states — suppressed in combat
-	# so dogfighting turns don't bleed damping back in (Option B).
+	# --- AoA (only blended in for CRUISE — Option B) ---
 	var aoa_ratio := 0.0
-	if not is_engaging:
+	if not is_engaging and biplane.velocity.length() > 0.5:
+		var max_aoa: float = 0.279
+		if avatar:
+			max_aoa = deg_to_rad(avatar.model_params.get("max_aoa", 16.0))
+		var actual_aoa = absf(wrapf(biplane.rotation - biplane.velocity.angle(), -PI, PI))
 		aoa_ratio = clampf(actual_aoa / maxf(max_aoa, 0.01), 0.0, 1.0)
 
 	# --- Select profile (Option B) ---
@@ -533,83 +527,94 @@ func _compute_pitch_from_heading(is_engaging: bool = false) -> float:
 	var damp_max: float
 	var damp_min: float
 	var ang_vel_damp: float
+
 	if is_engaging:
-		sens_base    = PITCH_SENSITIVITY_ENGAGE_BASE
-		sens_low     = PITCH_SENSITIVITY_ENGAGE_LOW
-		damp_max     = PITCH_DAMPING_ENGAGE_MAX
-		damp_min     = PITCH_DAMPING_ENGAGE_MIN
-		ang_vel_damp = ANG_VEL_DAMPING_ENGAGE
+		sens_base    = PITCH_SENS_ENGAGE_BASE
+		sens_low     = PITCH_SENS_ENGAGE_LOW
+		damp_max     = PITCH_DAMP_ENGAGE_MAX
+		damp_min     = PITCH_DAMP_ENGAGE_MIN
+		ang_vel_damp = ANG_VEL_DAMP_ENGAGE
 	else:
-		sens_base    = PITCH_SENSITIVITY_CRUISE_BASE
-		sens_low     = PITCH_SENSITIVITY_CRUISE_LOW
-		damp_max     = PITCH_DAMPING_CRUISE_MAX
-		damp_min     = PITCH_DAMPING_CRUISE_MIN
-		ang_vel_damp = ANG_VEL_DAMPING_CRUISE
+		sens_base    = PITCH_SENS_CRUISE_BASE
+		sens_low     = PITCH_SENS_CRUISE_LOW
+		damp_max     = PITCH_DAMP_CRUISE_MAX
+		damp_min     = PITCH_DAMP_CRUISE_MIN
+		ang_vel_damp = ANG_VEL_DAMP_CRUISE
 
-	# --- Speed-based damping, with AoA blend only in cruise (Option B+C) ---
-	var speed_damp      := lerpf(damp_max, damp_min, speed_t)
-	var dynamic_damping := lerpf(speed_damp, damp_max, aoa_ratio)
+	# Speed-based damping, then blend in AoA correction (CRUISE only).
+	var speed_damp      = lerpf(damp_max, damp_min, speed_t)
+	var dynamic_damping = lerpf(speed_damp, damp_max, aoa_ratio)
 
-	# --- Sensitivity scales with speed, same as before ---
-	var sensitivity := lerpf(sens_low, sens_base, speed_t)
+	# Sensitivity scales with speed.
+	var sensitivity = lerpf(sens_low, sens_base, speed_t)
 
-	# --- Angular velocity damping — decoupled flat term (Option C) ---
-	# This is what snaps pull-outs. Using a fixed coefficient means it doesn't
-	# interact with the speed curve, so fast dive recoveries feel immediate.
+	# Angular velocity damping — flat decoupled coefficient (Option C).
+	# Carries the stabilisation load; no longer tangled with the speed curve.
 	var angular_vel: float = avatar.angular_velocity if avatar else 0.0
-	var ang_damp_term      := angular_vel * ang_vel_damp
+	var ang_damp_term      = angular_vel * ang_vel_damp
 
-	# --- Final output ---
-	var base_pitch := angle_diff * sensitivity
-	base_pitch     -= ang_damp_term
+	# Combine: sensitivity * error  minus  ang-vel term  minus  speed-scaled heading damp.
+	# The heading damp here is a small residual (0.05, down from 0.5) whose only
+	# job is to prevent overshoot on the final approach to the target heading.
+	# At this level it cannot produce the oscillation the old value caused.
+	var base_pitch = angle_diff * sensitivity
+	base_pitch    -= ang_damp_term
+	base_pitch    -= angle_diff * dynamic_damping * 0.05
+
 	return clampf(base_pitch, -1.0, 1.0)
 
-###############################################################################
-# STALL REFLEX  (AoA-aware hard override)
-###############################################################################
+# ---------------------------------------------------------------------------
+# HEADING HELPER
+# ---------------------------------------------------------------------------
 
-## While the physics engine reports STALLED, steer the nose toward the actual
-## velocity vector to reduce AoA, then apply full throttle to recover energy.
-## Returns true to signal that normal heading logic must be skipped this frame.
-##
-## Exit hysteresis: recovery ends only once AoA drops below 70 % of max_aoa,
-## preventing premature return to pursuit that would immediately re-stall.
+## Smoothly steers pilots[0].desired_heading toward aim_point each decision tick.
+## Lerping rather than hard-setting filters single-frame jitter from a moving
+## target and prevents the heading from flipping sign between ticks.
+func _steer_toward(aim_point: Vector2) -> void:
+	if not biplane:
+		return
+	var target_heading = (aim_point - biplane.global_position).angle()
+	pilots[0].desired_heading = lerp_angle(pilots[0].desired_heading, target_heading, HEADING_LERP_FACTOR)
+
+# ---------------------------------------------------------------------------
+# STALL REFLEX  (AoA-aware hard override)
+# ---------------------------------------------------------------------------
+
+## While STALLED, steers the nose toward the velocity vector to reduce AoA,
+## then applies full throttle.  Releases only once AoA drops below 70 % of
+## max_aoa (hysteresis) to prevent re-stalling immediately after recovery.
+## Returns true to signal that the normal heading path must be skipped.
 func _stall_reflex() -> bool:
 	var avatar = _get_avatar()
 	if not avatar:
 		return false
-
 	# FlightState.STALLED == 1
 	if avatar.flight_state != 1:
 		return false
 
-	var max_aoa_deg: float = avatar.model_params.get("max_aoa", 16.0)
-	var max_aoa_rad := deg_to_rad(max_aoa_deg)
-	var recovery_threshold := max_aoa_rad * 0.7
+	var max_aoa = deg_to_rad(avatar.model_params.get("max_aoa", 16.0))
+	var recovery_threshold = max_aoa * 0.7
 
 	var actual_aoa := 0.0
 	if biplane.velocity.length() > 0.5:
 		actual_aoa = absf(wrapf(biplane.rotation - biplane.velocity.angle(), -PI, PI))
 
-	# Already recovered enough — release the override.
 	if actual_aoa < recovery_threshold:
-		return false
+		return false   # recovered — release the override
 
-	# Hard override: point the nose toward the velocity vector.
-	# Aim slightly above the relative wind (≈ 5°) to maintain a small positive
-	# AoA for lift without exceeding the stall limit.
-	var recovery_heading := biplane.velocity.angle() - deg_to_rad(5.0)
-	desired_heading       = recovery_heading
-	last_pitch_input      = _compute_pitch_from_heading()
-	last_throttle         = 1.0
+	# Hard override: aim ~5° above the relative wind for a touch of lift.
+	var recovery_heading      = biplane.velocity.angle() - deg_to_rad(5.0)
+	pilots[0].desired_heading      = recovery_heading
+	pilots[0].last_pitch_input     = _compute_pitch_from_heading(false)
+	pilots[0].last_throttle        = 1.0
 	return true
 
-###############################################################################
+# ---------------------------------------------------------------------------
 # THROTTLE COMPUTATION
-###############################################################################
+# ---------------------------------------------------------------------------
 
 func _compute_patrol_throttle(avatar) -> float:
-	var alt := _get_altitude_above_ground()
+	var alt = _get_altitude_above_ground()
 	if alt < PATROL_ALTITUDE - 30.0:
 		return 0.8
 	elif alt > PATROL_ALTITUDE + 50.0:
@@ -619,41 +624,33 @@ func _compute_patrol_throttle(avatar) -> float:
 func _compute_engage_throttle(avatar) -> float:
 	if not biplane or not target:
 		return 0.5
-	var damage_mod := _damage_throttle_modifier(avatar.damage_percent if avatar else 0.0)
+	var damage_mod = _damage_throttle_modifier(avatar.damage_percent if avatar else 0.0)
 
 	if _has_energy_advantage():
-		# Ease back slightly during a dive to keep speed controlled.
-		return 0.7 * damage_mod
+		return 0.7 * damage_mod   # ease back slightly in a dive
 	elif _is_low_energy():
-		# Full power to climb and regain energy.
-		return 1.0 * damage_mod
+		return 1.0 * damage_mod   # full power to climb and regain energy
 
-	var my_pos     := biplane.global_position
-	var target_pos := target.global_position
-	var distance   := my_pos.distance_to(target_pos)
-	if distance < MAX_FIRE_RANGE:
-		var my_heading    := Vector2(cos(biplane.rotation), sin(biplane.rotation))
-		var to_target_dir := (target_pos - my_pos).normalized()
-		if my_heading.dot(to_target_dir) > 0.8:
-			return 0.6 * damage_mod
-		return 0.8 * damage_mod
+	var dist = biplane.global_position.distance_to(target.global_position)
+	if dist < MAX_FIRE_RANGE:
+		var my_hdg    = Vector2(cos(biplane.rotation), sin(biplane.rotation))
+		var to_tgt    = (target.global_position - biplane.global_position).normalized()
+		var alignment = my_hdg.dot(to_tgt)
+		return (0.6 if alignment > 0.8 else 0.8) * damage_mod
 
 	return 1.0 * damage_mod
 
 func _compute_evade_throttle() -> float:
-	var alt := _get_altitude_above_ground()
-	if alt < DANGER_ALTITUDE_ABOVE_GROUND:
-		return 1.0
-	return 0.8
+	return 1.0 if _get_altitude_above_ground() < DANGER_ALTITUDE_ABOVE_GROUND else 0.8
 
 func _compute_return_throttle(avatar) -> float:
 	if not biplane:
 		return 0.3
-	var my_dist_to_home := _get_wrapped_distance(biplane.global_position.x, home_base_x)
-	var damage_mod := _damage_throttle_modifier(avatar.damage_percent if avatar else 0.0)
-	if my_dist_to_home > 500.0:
+	var dist_home  = _get_wrapped_distance(biplane.global_position.x, home_base_x)
+	var damage_mod = _damage_throttle_modifier(avatar.damage_percent if avatar else 0.0)
+	if dist_home > 500.0:
 		return 0.5 * damage_mod
-	elif my_dist_to_home < HOME_PROXIMITY * 2.0:
+	elif dist_home < HOME_PROXIMITY * 2.0:
 		return 0.3 * damage_mod
 	return 0.4 * damage_mod
 
@@ -666,50 +663,40 @@ func _damage_throttle_modifier(damage_percent: float) -> float:
 		return 0.75
 	return 1.0
 
-###############################################################################
+# ---------------------------------------------------------------------------
 # ENERGY STATE
-###############################################################################
+# ---------------------------------------------------------------------------
 
-## True when the AI has a meaningful altitude AND speed advantage over the target.
-## Altitude alone is insufficient — a fast low plane can out-manoeuvre a slow
-## high one.  The combined check avoids unwarranted dive attacks.
 func _has_energy_advantage() -> bool:
 	if not biplane or not target:
 		return false
-	var my_alt     := _get_altitude_above_ground()
-	var target_alt := _get_altitude_above_ground_for(target)
-	var alt_advantage := my_alt - target_alt > ENERGY_ALTITUDE_ADVANTAGE
-
-	var avatar     = _get_avatar()
-	var stall_speed: float = avatar.model_params.get("stall_speed_ms", 21.4) if avatar else 21.4
+	var alt_edge = _get_altitude_above_ground() - _get_altitude_above_ground_for(target) \
+				   > ENERGY_ALTITUDE_ADVANTAGE
+	var avatar   = _get_avatar()
+	var stall    = avatar.model_params.get("stall_speed_ms", 21.4) if avatar else 21.4
 	var ppm: float = biplane.get("pixels_per_meter") if "pixels_per_meter" in biplane else 10.0
-	var my_speed_ms := biplane.velocity.length() / ppm
-	var speed_ok    := my_speed_ms / maxf(stall_speed, 1.0) >= ENERGY_SPEED_RATIO_GOOD
+	var speed_ok = biplane.velocity.length() / ppm / maxf(stall, 1.0) >= ENERGY_SPEED_RATIO_GOOD
+	return alt_edge and speed_ok
 
-	return alt_advantage and speed_ok
-
-## True when the AI is slow and low — needs to climb before pressing an attack.
 func _is_low_energy() -> bool:
 	if not biplane:
 		return false
 	var avatar = _get_avatar()
-	var stall_speed: float = avatar.model_params.get("stall_speed_ms", 21.4) if avatar else 21.4
+	var stall  = avatar.model_params.get("stall_speed_ms", 21.4) if avatar else 21.4
 	var ppm: float = biplane.get("pixels_per_meter") if "pixels_per_meter" in biplane else 10.0
-	var my_speed_ms := biplane.velocity.length() / ppm
-	return my_speed_ms / maxf(stall_speed, 1.0) < ENERGY_SPEED_RATIO_GOOD
+	return biplane.velocity.length() / ppm / maxf(stall, 1.0) < ENERGY_SPEED_RATIO_GOOD
 
-###############################################################################
+# ---------------------------------------------------------------------------
 # TAKE-OFF HANDLER
-###############################################################################
+# ---------------------------------------------------------------------------
 
-func _decision_takeoff() -> void:
-	var avatar = _get_avatar()
+func _decision_takeoff(avatar) -> void:
 	var stall_speed: float = 21.4
 	if avatar:
 		stall_speed = avatar.model_params.get("stall_speed_ms", 21.4)
-	var speed := biplane.velocity.length()
+	var speed = biplane.velocity.length()
 
-	# --- Throttle ---
+	# Throttle
 	var throttle := 1.0
 	if not _is_grounded():
 		if speed < stall_speed * 1.5:
@@ -718,182 +705,157 @@ func _decision_takeoff() -> void:
 			throttle = 0.5
 		elif biplane.rotation < 0.0:
 			throttle = 0.7
-	last_throttle = throttle
+	pilots[0].last_throttle = throttle
 
-	# --- Pitch ---
+	# Pitch — never pitch hard while on the ground
 	if _is_grounded():
-		# Stay flat until enough speed for a clean rotation; never pitch hard
-		# on the runway regardless of what the rest of the FSM thinks.
-		if speed < TAKEOFF_ROTATE_SPEED:
-			last_pitch_input = 0.0
-		else:
-			last_pitch_input = TAKEOFF_PITCH
+		pilots[0].last_pitch_input = 0.0 if speed < TAKEOFF_ROTATE_SPEED else TAKEOFF_PITCH
 	else:
-		var alt := _get_altitude_above_ground()
+		var alt = _get_altitude_above_ground()
 		if speed < stall_speed * 2.0:
-			# Barely airborne and slow — gentle positive AoA only.
-			last_pitch_input = clampf(-0.03 * (speed / (stall_speed * 2.0)), -0.03, 0.0)
+			pilots[0].last_pitch_input = clampf(-0.03 * (speed / (stall_speed * 2.0)), -0.03, 0.0)
 		elif alt < 100.0:
-			last_pitch_input = -0.05
+			pilots[0].last_pitch_input = -0.05
 		elif alt < 200.0:
-			last_pitch_input = -0.08
+			pilots[0].last_pitch_input = -0.08
 		else:
-			last_pitch_input = TAKEOFF_CLIMB_PITCH
+			pilots[0].last_pitch_input = TAKEOFF_CLIMB_PITCH
 
-###############################################################################
+# ---------------------------------------------------------------------------
 # REFLEX LAYER
-###############################################################################
+# ---------------------------------------------------------------------------
 
-## Post-processes the computed pitch/throttle with hard safety overrides.
-## Applied to PATROLLING, ENGAGING, EVADING, RETURNING.
-## NOT applied to GROUNDED or TAKING_OFF (they manage their own outputs).
+## Applied after state pitch/throttle for PATROLLING / ENGAGING / EVADING /
+## RETURNING.  Skipped for GROUNDED and TAKING_OFF (they manage own outputs).
 func _apply_reflexes(pitch: float, throttle: float) -> Array:
-	# Stall recovery overrides everything else.
 	if _stall_reflex():
-		return [last_pitch_input, last_throttle]
+		return [pilots[0].last_pitch_input, pilots[0].last_throttle]
 
-	var alt_correction := _altitude_reflex()
-	if alt_correction != 0.0:
-		pitch    = alt_correction
+	var alt_fix = _altitude_reflex()
+	if alt_fix != 0.0:
+		pitch    = alt_fix
 		throttle = maxf(throttle, 0.8)
 
-	var ceiling_correction := _altitude_ceiling_reflex()
-	if ceiling_correction != 0.0:
-		pitch = maxf(pitch, ceiling_correction)
+	var ceil_fix = _altitude_ceiling_reflex()
+	if ceil_fix != 0.0:
+		pitch = maxf(pitch, ceil_fix)
 
-	var terrain_correction := _terrain_projection_reflex()
-	if terrain_correction != 0.0:
-		pitch = minf(pitch, terrain_correction)
+	var terrain_fix = _terrain_projection_reflex()
+	if terrain_fix != 0.0:
+		pitch = minf(pitch, terrain_fix)
 
-	var pull_up_correction := _pull_up_reflex()
-	if pull_up_correction != 0.0:
-		pitch = pull_up_correction
+	var pullup_fix = _pull_up_reflex()
+	if pullup_fix != 0.0:
+		pitch = pullup_fix
 
 	return [pitch, throttle]
 
 func _pull_up_reflex() -> float:
-	if not biplane:
+	if not biplane or _get_altitude_above_ground() > PULL_UP_ALTITUDE:
 		return 0.0
-	if _get_altitude_above_ground() > PULL_UP_ALTITUDE:
-		return 0.0
-	if biplane.rotation > 0.1:
-		return -0.5
-	return 0.0
+	return -0.5 if biplane.rotation > 0.1 else 0.0
 
 func _altitude_reflex() -> float:
 	if not biplane:
 		return 0.0
-	var altitude := _get_altitude_above_ground()
-	if altitude < CRITICAL_ALTITUDE_ABOVE_GROUND:
+	var alt = _get_altitude_above_ground()
+	if alt < CRITICAL_ALTITUDE_ABOVE_GROUND:
 		return -1.0
-	elif altitude < DANGER_ALTITUDE_ABOVE_GROUND:
+	elif alt < DANGER_ALTITUDE_ABOVE_GROUND:
 		return -0.7
-	elif altitude < MIN_ALTITUDE_ABOVE_GROUND:
+	elif alt < MIN_ALTITUDE_ABOVE_GROUND:
 		return -0.3
 	return 0.0
 
 func _altitude_ceiling_reflex() -> float:
 	if not biplane:
 		return 0.0
-	var altitude := _get_altitude_above_ground()
-	if altitude > MAX_ALTITUDE:
+	var alt = _get_altitude_above_ground()
+	if alt > MAX_ALTITUDE:
 		return 0.5
-	elif altitude > MAX_ALTITUDE - 50.0:
+	elif alt > MAX_ALTITUDE - 50.0:
 		return 0.2
 	return 0.0
 
 func _terrain_projection_reflex() -> float:
 	if not biplane:
 		return 0.0
-	var current_ground := _get_ground_height(biplane.global_position.x)
-	var vel_x          := biplane.velocity.x
+	var cur_ground = _get_ground_height(biplane.global_position.x)
+	var vel_x      = biplane.velocity.x
 	for look_dist in TERRAIN_LOOK_DISTANCES:
-		var future_x: float = biplane.global_position.x + sign(vel_x) * look_dist
-		var ground_y   := _get_ground_height(future_x)
-		var terrain_rise := current_ground - ground_y
+		var future_x   = biplane.global_position.x + sign(vel_x) * look_dist
+		var terrain_rise = cur_ground - _get_ground_height(future_x)
 		if terrain_rise > look_dist * TERRAIN_RISE_THRESHOLD:
 			return -0.5
 	return 0.0
 
-###############################################################################
+# ---------------------------------------------------------------------------
 # PURSUIT GEOMETRY
-###############################################################################
+# ---------------------------------------------------------------------------
 
-func _steer_toward(aim_point: Vector2) -> void:
-	if not biplane:
-		return
-	var to_aim   := aim_point - biplane.global_position
-	desired_heading = to_aim.angle()
-
-## Predict where the target will be by the time we arrive.
 func _lead_pursuit_point(target_pos: Vector2, lead_factor: float) -> Vector2:
 	if not biplane or not target:
 		return target_pos
-	var my_pos    := biplane.global_position
-	var distance  := my_pos.distance_to(target_pos)
-	var target_vel: Vector2 = target.velocity if "velocity" in target else Vector2.ZERO
-	var my_speed   := maxf(biplane.velocity.length(), 1.0)
-	var lead_time  := clampf(distance / my_speed * lead_factor, 0.2, 1.5)
-	return target_pos + target_vel * lead_time
+	var dist       = biplane.global_position.distance_to(target_pos)
+	var target_vel = target.velocity if "velocity" in target else Vector2.ZERO
+	var my_speed   = maxf(biplane.velocity.length(), 1.0)
+	var lead_time  = clampf(dist / my_speed * lead_factor, 0.2, 1.5)
+	var predicted  = target_pos + target_vel * lead_time
+	var my_alt     = _get_altitude_above_ground()
+	var tgt_alt    = _get_altitude_above_ground_for(target)
+	if my_alt < tgt_alt - ADVANTAGE_THRESHOLD:
+		predicted.y -= 30.0
+	elif my_alt > tgt_alt + ADVANTAGE_THRESHOLD:
+		predicted.y += 15.0
+	return predicted
 
-## When still closing from distance, aim ahead and above to gain energy.
 func _stalking_waypoint(target_pos: Vector2) -> Vector2:
 	if not biplane:
 		return target_pos
-	var my_pos := biplane.global_position
-	var dx     := target_pos.x - my_pos.x
+	var my_pos = biplane.global_position
+	var dx     = target_pos.x - my_pos.x
 	if abs(dx) > STALKING_THRESHOLD:
-		var waypoint_x: float = my_pos.x + sign(dx) * 150.0
-		var safe_ceil  := _get_ground_height(waypoint_x) - MIN_ALTITUDE_ABOVE_GROUND
-		var waypoint_y := minf(my_pos.y - 100.0, safe_ceil)
-		return Vector2(waypoint_x, waypoint_y)
+		var wx        = my_pos.x + sign(dx) * 150.0
+		var safe_ceil = _get_ground_height(wx) - MIN_ALTITUDE_ABOVE_GROUND
+		return Vector2(wx, minf(my_pos.y - 100.0, safe_ceil))
 	return target_pos
 
-###############################################################################
+# ---------------------------------------------------------------------------
 # WEAPONS
-###############################################################################
+# ---------------------------------------------------------------------------
 
 func _try_fire_weapon() -> void:
-	if not biplane or not target:
+	if not biplane or not target or not _is_target_alive():
 		return
-	if not _is_target_alive():
+	var my_pos    = biplane.global_position
+	var tgt_pos   = target.global_position
+	var dist      = my_pos.distance_to(tgt_pos)
+	if dist > MAX_FIRE_RANGE or dist < MIN_FIRE_RANGE:
 		return
-
-	var my_pos     := biplane.global_position
-	var target_pos := target.global_position
-	var to_target  := target_pos - my_pos
-	var distance   := to_target.length()
-
-	if distance > MAX_FIRE_RANGE or distance < MIN_FIRE_RANGE:
-		return
-
-	var target_vel: Vector2 = target.velocity if "velocity" in target else Vector2.ZERO
-	var bullet_speed  := 1600.0
-	var lead_time     := distance / bullet_speed
-	var predicted_pos: Vector2 = target_pos + target_vel * lead_time
-	var bullet_dir: Vector2    = (predicted_pos - my_pos).normalized()
-	var my_heading    := Vector2(cos(biplane.rotation), sin(biplane.rotation))
-	var angle_diff: float    = bullet_dir.angle_to(my_heading)
-	var shot_quality: float  = 1.0 - (abs(angle_diff) / FIRE_CONE_ANGLE)
-	var quality_threshold := 0.3 if distance < 200.0 else 0.6
-
-	if shot_quality >= quality_threshold:
+	var tgt_vel      = target.velocity if "velocity" in target else Vector2.ZERO
+	var lead_time    = dist / 1600.0
+	var predicted    = tgt_pos + tgt_vel * lead_time
+	var bullet_dir   = (predicted - my_pos).normalized()
+	var my_hdg       = Vector2(cos(biplane.rotation), sin(biplane.rotation))
+	var angle_diff   = bullet_dir.angle_to(my_hdg)
+	var shot_quality = 1.0 - (absf(angle_diff) / FIRE_CONE_ANGLE)
+	var threshold    = 0.3 if dist < 200.0 else 0.6
+	if shot_quality >= threshold:
 		_fire_weapon()
 
-## Evaluates whether to drop a bomb during the bomb-run approach.
 func _try_decide_bomb_drop() -> void:
 	if _can_bomb_ground_target():
 		_try_drop_bomb()
 
 func _try_drop_bomb() -> void:
-	if bomb_cooldown_timer > 0.0:
+	if pilots[0].bomb_cooldown_timer > 0.0:
 		return
 	var avatar = _get_avatar()
 	if not avatar or avatar.bombs <= 0:
 		return
 	if biplane.has_method("drop_bomb"):
 		biplane.drop_bomb(avatar)
-		bomb_cooldown_timer = 2.5
+		pilots[0].bomb_cooldown_timer = 2.5
 
 func _fire_weapon() -> void:
 	if biplane.has_method("fire_gun") and biplane.has_method("get_avatar_data"):
@@ -901,57 +863,48 @@ func _fire_weapon() -> void:
 		if avatar:
 			biplane.fire_gun(avatar)
 
-###############################################################################
+# ---------------------------------------------------------------------------
 # BOMBING PREDICATES
-###############################################################################
+# ---------------------------------------------------------------------------
 
 func _has_bombs(avatar) -> bool:
-	if GameManager and not GameManager.enemy_bombs:
+	if not avatar or avatar.bombs <= 0:
 		return false
-	return avatar and avatar.bombs > 0
-
-func _should_bomb_instead_of_strafe() -> bool:
-	return _can_bomb_ground_target()
+	return not (GameManager and not GameManager.enemy_bombs)
 
 func _can_bomb_ground_target() -> bool:
 	if GameManager and not GameManager.enemy_bombs:
 		return false
-	if not target or not biplane:
-		return false
-	if bomb_cooldown_timer > 0.0:
+	if not target or not biplane or pilots[0].bomb_cooldown_timer > 0.0:
 		return false
 	var avatar = _get_avatar()
 	if not _has_bombs(avatar):
 		return false
-	if not _is_target_on_ground():
-		return false
-	if not _is_overhead_target():
+	if not _is_target_on_ground() or not _is_overhead_target():
 		return false
 	if _get_altitude_above_ground() < 100.0:
 		return false
-	var my_pos     := biplane.global_position
-	var target_pos := target.global_position
-	var to_target  := target_pos - my_pos
-	var angle_from_vertical: float = abs(atan2(to_target.x, -to_target.y))
-	return angle_from_vertical <= BOMB_ANGLE_TOLERANCE
+	var to_target         = target.global_position - biplane.global_position
+	var angle_from_vert   = absf(atan2(to_target.x, -to_target.y))
+	return angle_from_vert <= BOMB_ANGLE_TOLERANCE
 
-###############################################################################
+# ---------------------------------------------------------------------------
 # TERRITORY & POSITION QUERIES
-###############################################################################
+# ---------------------------------------------------------------------------
 
 func _is_player_in_territory() -> bool:
 	if not target:
 		return false
-	var px := target.global_position.x
+	var px = target.global_position.x
 	return px >= territory_left and px <= territory_right
 
 func _is_target_on_ground() -> bool:
 	if not target:
 		return false
 	if target.has_method("is_grounded") and target.has_method("get_avatar_data"):
-		var avatar = target.get_avatar_data(0)
-		if avatar:
-			return target.is_grounded(avatar)
+		var ta = target.get_avatar_data(0)
+		if ta:
+			return target.is_grounded(ta)
 	return _get_altitude_above_ground_for(target) < 30.0
 
 func _is_overhead_target() -> bool:
@@ -960,9 +913,9 @@ func _is_overhead_target() -> bool:
 	return _get_wrapped_distance(biplane.global_position.x, target.global_position.x) \
 		< BOMB_OVERHEAD_X_THRESHOLD
 
-###############################################################################
+# ---------------------------------------------------------------------------
 # TERRAIN & ALTITUDE HELPERS
-###############################################################################
+# ---------------------------------------------------------------------------
 
 func _get_terrain() -> Node2D:
 	if terrain_cache == null:
@@ -970,7 +923,7 @@ func _get_terrain() -> Node2D:
 	return terrain_cache
 
 func _get_ground_height(x: float) -> float:
-	var terrain := _get_terrain()
+	var terrain = _get_terrain()
 	if terrain and terrain.has_method("get_ground_height_at"):
 		return terrain.get_ground_height_at(x)
 	return 650.0
@@ -986,10 +939,8 @@ func _get_altitude_above_ground_for(node: Node2D) -> float:
 	return _get_ground_height(node.global_position.x) - node.global_position.y
 
 func _get_wrapped_distance(x1: float, x2: float) -> float:
-	var d: float = abs(x1 - x2)
-	if d > TERRAIN_LENGTH * 0.5:
-		d = TERRAIN_LENGTH - d
-	return d
+	var d = absf(x1 - x2)
+	return TERRAIN_LENGTH - d if d > TERRAIN_LENGTH * 0.5 else d
 
 func _is_grounded() -> bool:
 	if biplane and biplane.has_method("is_grounded") and biplane.has_method("get_avatar_data"):
@@ -1003,23 +954,23 @@ func _get_avatar():
 		return biplane.get_avatar_data(0)
 	return null
 
-###############################################################################
+# ---------------------------------------------------------------------------
 # INPUT APPLICATION
-###############################################################################
+# ---------------------------------------------------------------------------
 
 func _apply_input(pitch: float, throttle_amount: float) -> void:
 	if biplane.has_method("set_ai_input"):
 		biplane.set_ai_input(pitch, throttle_amount)
 
-###############################################################################
+# ---------------------------------------------------------------------------
 # AUTOPILOT / LANDING
-###############################################################################
+# ---------------------------------------------------------------------------
 
 func _enable_autopilot_for_landing() -> void:
-	is_using_autopilot = true
+	pilots[0].is_using_autopilot = true
 	if biplane.has_method("enable_autopilot"):
 		biplane.enable_autopilot()
-	var ground_y := _get_ground_height(home_base_x)
+	var ground_y = _get_ground_height(home_base_x)
 	if biplane.has_method("setup_homebase"):
 		biplane.setup_homebase(1, home_base_x, 200.0, Vector2(home_base_x, ground_y - 12), 0.0)
 	if biplane.has_method("set_home_base") and biplane.has_method("get_avatar_data"):
@@ -1027,15 +978,15 @@ func _enable_autopilot_for_landing() -> void:
 		if avatar:
 			biplane.set_home_base(avatar, 1)
 
-###############################################################################
+# ---------------------------------------------------------------------------
 # CRASH / RESPAWN
-###############################################################################
+# ---------------------------------------------------------------------------
 
 func _on_enemy_crashed() -> void:
-	if crash_timer > 0:
+	if pilots[0].crash_timer > 0.0:
 		return
-	crash_timer = crash_delay
-	is_waiting_for_crash_land = true
+	pilots[0].crash_timer = crash_delay
+	pilots[0].is_waiting_for_crash_land = true
 	if biplane and biplane.has_method("create_explosion"):
 		biplane.create_explosion()
 
@@ -1043,12 +994,10 @@ func _do_respawn() -> void:
 	if not biplane:
 		return
 
-	# Reset control outputs so the plane doesn't pitch the moment it spawns.
-	last_pitch_input = 0.0
-	last_throttle    = 0.0
-	desired_heading  = 0.0
+	# Reset all per-pilot mutable state so nothing leaks across lives.
+	pilots[0] = PilotState.new()
 
-	var ground_y := _get_ground_height(home_base_x)
+	var ground_y = _get_ground_height(home_base_x)
 	biplane.position = Vector2(home_base_x + 50.0, ground_y - 12.0)
 	biplane.rotation = 0.0
 	biplane.velocity = Vector2.ZERO
@@ -1064,20 +1013,18 @@ func _do_respawn() -> void:
 	if biplane.has_method("set_game_active"):
 		biplane.set_game_active(true)
 
-	ai_state = AIState.GROUNDED
+	# PilotState initialises to AIState.GROUNDED — no explicit set needed.
 
-###############################################################################
+# ---------------------------------------------------------------------------
 # EXTERNAL API
-###############################################################################
+# ---------------------------------------------------------------------------
 
 func notify_incoming_fire() -> void:
-	incoming_bullet_timer = 0.5
+	pilots[0].incoming_bullet_timer = 0.5
 
 func get_dodge_chance() -> float:
 	var avatar = _get_avatar()
-	if not avatar:
-		return 0.0
-	return 0.5 if avatar.is_flipping else 0.0
+	return 0.5 if (avatar and avatar.is_flipping) else 0.0
 
 func take_damage(amount: float, attacker: Node) -> void:
 	var owner: Node = null

@@ -61,7 +61,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 100.0,
-		"hard_landing_vperp": 220.0,
+		"hard_landing_vperp": 200.0,
 		"svg_sprite_name": "sopwith_camel"
 	},
 	"se5a": {
@@ -84,7 +84,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 100.0,
-		"hard_landing_vperp": 220.0,
+		"hard_landing_vperp": 200.0,
 		"svg_sprite_name": "se5a"
 	},
 	"bristol_f2": {
@@ -107,7 +107,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 100.0,
-		"hard_landing_vperp": 220.0,
+		"hard_landing_vperp": 200.0,
 		"svg_sprite_name": "bristol_f2b"
 	},
 	"p-51d": {
@@ -130,7 +130,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 100.0,
-		"hard_landing_vperp": 220.0,
+		"hard_landing_vperp": 200.0,
 		"svg_sprite_name": "p-51"
 	},
 	"spad_s13": {
@@ -153,7 +153,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 100.0,
-		"hard_landing_vperp": 220.0,
+		"hard_landing_vperp": 200.0,
 		"svg_sprite_name": "spad_s13"
 	},
 	"fokker_d7": {
@@ -176,7 +176,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2(1.1, 1.1),
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 100.0,
-		"hard_landing_vperp": 220.0,
+		"hard_landing_vperp": 200.0,
 		"svg_sprite_name": "fokker_d7"
 	}
 }

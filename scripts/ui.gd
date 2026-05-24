@@ -292,8 +292,8 @@ func _update_debug_entry(idx: int, entity: Node, base_ground_y: float, is_player
 
 	if not is_player:
 		var ai_node: Node = entity.get_node_or_null("EnemyAI") if entity.has_node("EnemyAI") else null
-		if ai_node and "ai_state" in ai_node:
-			var state_val: int = int(ai_node.ai_state)
+		if ai_node and "pilots" in ai_node and ai_node.pilots.size() > 0:
+			var state_val: int = int(ai_node.pilots[0].ai_state)
 			ai_state_text = AI_STATE_NAMES.get(state_val, "UNKNOWN")
 
 	if "flight_state" in avatar:
