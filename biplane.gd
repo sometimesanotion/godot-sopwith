@@ -60,8 +60,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
-		"soft_landing_vperp": 120.0,
-		"hard_landing_vperp": 240.0,
+		"soft_landing_vperp": 100.0,
+		"hard_landing_vperp": 220.0,
 		"svg_sprite_name": "sopwith_camel"
 	},
 	"se5a": {
@@ -83,8 +83,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 4,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
-		"soft_landing_vperp": 120.0,
-		"hard_landing_vperp": 240.0,
+		"soft_landing_vperp": 100.0,
+		"hard_landing_vperp": 220.0,
 		"svg_sprite_name": "se5a"
 	},
 	"bristol_f2": {
@@ -106,8 +106,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 3,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
-		"soft_landing_vperp": 120.0,
-		"hard_landing_vperp": 240.0,
+		"soft_landing_vperp": 100.0,
+		"hard_landing_vperp": 220.0,
 		"svg_sprite_name": "bristol_f2b"
 	},
 	"p-51d": {
@@ -129,8 +129,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
-		"soft_landing_vperp": 120.0,
-		"hard_landing_vperp": 240.0,
+		"soft_landing_vperp": 100.0,
+		"hard_landing_vperp": 220.0,
 		"svg_sprite_name": "p-51"
 	},
 	"spad_s13": {
@@ -152,8 +152,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
-		"soft_landing_vperp": 120.0,
-		"hard_landing_vperp": 240.0,
+		"soft_landing_vperp": 100.0,
+		"hard_landing_vperp": 220.0,
 		"svg_sprite_name": "spad_s13"
 	},
 	"fokker_d7": {
@@ -175,8 +175,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 0,
 		"visual_scale": Vector2(1.1, 1.1),
 		"bungee_time": 0.15,
-		"soft_landing_vperp": 120.0,
-		"hard_landing_vperp": 240.0,
+		"soft_landing_vperp": 100.0,
+		"hard_landing_vperp": 220.0,
 		"svg_sprite_name": "fokker_d7"
 	}
 }
@@ -1392,8 +1392,8 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 		var old_bombs := avatar.bombs
 		var old_fuel  := avatar.fuel
 
-		avatar.ammo = minf(MAX_AMMO, avatar.ammo + 3.0 + int(2 + delta * 10.0))
-		avatar.fuel = minf(100.0, avatar.fuel + 10.0 + int(5 + delta * 10.0))
+		avatar.ammo = minf(MAX_AMMO, avatar.ammo + 11.0 + int(4 + delta * 10.0))
+		avatar.fuel = minf(100.0, avatar.fuel + 3.0 + int(2 + delta * 10.0))
 		avatar.bombs = mini(max_bombs, avatar.bombs + 1)
 		avatar.refuel_timer = 0.0
 

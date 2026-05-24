@@ -31,36 +31,32 @@ var game_state: String = "TITLE"
 var title_screen: CanvasLayer = null
 var pause_menu: CanvasLayer = null
 var is_paused: bool = false
-var respawn_timer: float = 0.0
-var is_respawning: bool = false
-var is_waiting_for_crash_land: bool = false
 var screen_shake_intensity: float = 0.0
 var enemies: Array = []
 var minimap_instance: Control = null
 var is_vs_computer: bool = false
 var _showing_title_screen: bool = false
-var _respawn_guard: bool = false
-var respawn_cooldown_timer: float = 0.0
+var _respawn_queue: Dictionary[int, float] = {}
 
 func _get_plane_model_for_faction(faction: String) -> String:
 	match faction:
-		"United Kingdom":
+		"British":
 			return "sopwith_camel"
-		"France":
+		"French":
 			return "spad_s13"
-		"Germany":
+		"German":
 			return "fokker_d7"
 		_:
 			return "sopwith_camel"
 
 func _get_enemy_faction(player_faction: String) -> String:
 	match player_faction:
-		"United Kingdom", "France":
-			return "Germany"
-		"Germany":
-			return "France"
+		"British", "French":
+			return "German"
+		"German":
+			return "French"
 		_:
-			return "Germany"
+			return "German"
 
 func _ready() -> void:
 	add_to_group("main")
@@ -271,14 +267,14 @@ func _start_playing() -> void:
 		var avatar := biplane.get_avatar_data(0)
 		avatar.is_player = true
 		if biplane.has_method("assign_plane_model"):
-			var player_model := _get_plane_model_for_faction(GameManager.player_faction if GameManager else "United Kingdom")
+			var player_model := _get_plane_model_for_faction(GameManager.player_faction if GameManager else "British")
 			biplane.assign_plane_model(avatar, player_model)
 			avatar.bombs = avatar.model_params.get("max_bombs", 0)
 		if biplane.has_method("setup_faction_homebase"):
 			var player_faction_enum = Biplane.Faction.BRITISH
-			if GameManager.player_faction == "France":
+			if GameManager.player_faction == "French":
 				player_faction_enum = Biplane.Faction.FRENCH
-			elif GameManager.player_faction == "Germany":
+			elif GameManager.player_faction == "German":
 				player_faction_enum = Biplane.Faction.GERMAN
 			biplane.setup_faction_homebase(0, PLAYER_SPAWN_X, 200.0, Vector2(PLAYER_SPAWN_X, ground_y - 12), 0.0, player_faction_enum)
 		if biplane.has_method("set_home_base"):
@@ -329,8 +325,8 @@ func _spawn_enemies_and_targets() -> void:
 
 	var spawn_enemies: bool = GameManager.enemy_planes if GameManager else true
 
-	var enemy_faction_str := _get_enemy_faction(GameManager.player_faction if GameManager else "United Kingdom")
-	var enemy_faction_enum = Biplane.Faction.GERMAN if enemy_faction_str == "Germany" else Biplane.Faction.BRITISH
+	var enemy_faction_str := _get_enemy_faction(GameManager.player_faction if GameManager else "British")
+	var enemy_faction_enum = Biplane.Faction.GERMAN if enemy_faction_str == "German" else Biplane.Faction.BRITISH
 
 	for i in range(possible_bases.size()):
 		var base_x: float = possible_bases[i]
@@ -516,7 +512,7 @@ func _create_enemy_bases() -> void:
 			_mark_position_occupied(target_x, target_hw)
 
 func _physics_process(delta: float) -> void:
-	if game_state != "PLAYING" or is_paused:
+	if game_state != "PLAYING" or get_tree().paused:
 		return
 
 	if biplane:
@@ -524,49 +520,47 @@ func _physics_process(delta: float) -> void:
 		_update_camera(delta)
 		_update_minimap()
 
-	if is_waiting_for_crash_land:
-		if biplane and biplane.has_method("get_avatar_data"):
-			var avatar = biplane.get_avatar_data(0)
-			if avatar and avatar.has_hit_ground:
-				is_waiting_for_crash_land = false
-				is_respawning = true
-				respawn_timer = RESPAWN_DELAY
+	# Check player for DESTROYED+grounded -> queue respawn (handles case where
+	# the plane never enters CRASHED flight state, e.g. destroyed while parked).
+	if biplane and biplane.has_method("get_avatar_data") and biplane.has_method("is_grounded"):
+		var avatar = biplane.get_avatar_data(0)
+		if avatar and avatar.damage_state == Biplane.DamageState.DESTROYED \
+				and not _respawn_queue.has(0):
+			if biplane.is_grounded(avatar) or avatar.has_hit_ground:
+				_queue_respawn(0)
 
-	if is_respawning:
-		respawn_timer -= delta
-		if respawn_timer <= 0:
+	# Process respawn queue (per-avatar, prevents duplicates).
+	var to_remove: Array[int] = []
+	for avatar_id in _respawn_queue:
+		_respawn_queue[avatar_id] -= delta
+		if _respawn_queue[avatar_id] <= 0.0:
 			_respawn_biplane()
-
-	if respawn_cooldown_timer > 0.0:
-		respawn_cooldown_timer -= delta
+			to_remove.append(avatar_id)
+	for id in to_remove:
+		_respawn_queue.erase(id)
 
 func _on_biplane_crashed() -> void:
-	if _respawn_guard:
+	if _respawn_queue.has(0):
 		return
-	if respawn_cooldown_timer > 0.0:
-		return
-	_respawn_guard = true
-	is_waiting_for_crash_land = true
-
 	if biplane and biplane.has_method("create_explosion"):
 		biplane.create_explosion()
 		GameManager.request_screen_shake(25.0)
-
 	if SoundManager:
 		SoundManager.stop_engine()
 		SoundManager.play_sfx(SoundManager.SoundEvent.EXPLOSION)
+	_queue_respawn(0)
 
 func _on_biplane_damaged(impact_force: float, v_perp: float) -> void:
 	GameManager.request_screen_shake(10.0)
 	if SoundManager:
 		SoundManager.play_sfx(SoundManager.SoundEvent.BUMP)
 
-func _respawn_biplane() -> void:
-	if not is_respawning:
+func _queue_respawn(avatar_id: int) -> void:
+	if _respawn_queue.has(avatar_id):
 		return
-	is_respawning = false
-	_respawn_guard = false
-	respawn_cooldown_timer = 5.0
+	_respawn_queue[avatar_id] = RESPAWN_DELAY
+
+func _respawn_biplane() -> void:
 	if GameManager and GameManager.get_lives(0) > 0:
 		var ground_y: float = 650.0
 		if terrain and terrain.has_method("get_ground_height_at"):

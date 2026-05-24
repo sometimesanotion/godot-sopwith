@@ -166,6 +166,17 @@ func _physics_process(delta: float) -> void:
 	bomb_cooldown_timer   = maxf(0.0, bomb_cooldown_timer - delta)
 	flip_cooldown         = maxf(0.0, flip_cooldown - delta)
 
+	# DESTROYED+grounded without going through CRASHED (e.g. bombed on the ground).
+	var avatar_check = _get_avatar()
+	if crash_timer <= 0 and not is_waiting_for_crash_land and respawn_timer <= 0:
+		if avatar_check and avatar_check.damage_state >= 4 \
+				and (_is_grounded() or avatar_check.has_hit_ground):
+			is_waiting_for_crash_land = true
+			crash_timer = crash_delay
+			if biplane and biplane.has_method("create_explosion"):
+				biplane.create_explosion()
+			return
+
 	# Crash cooldown: hold the AI dormant while the plane is tumbling.
 	if crash_timer > 0:
 		crash_timer -= delta
