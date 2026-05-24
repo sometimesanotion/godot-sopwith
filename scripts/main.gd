@@ -527,7 +527,6 @@ func _physics_process(delta: float) -> void:
 	if biplane:
 		_handle_wrap_around()
 		_update_camera(delta)
-		_check_runway_landing(delta, biplane)
 		_update_minimap()
 
 	if is_waiting_for_crash_land:
