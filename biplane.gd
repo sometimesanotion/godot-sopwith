@@ -1386,26 +1386,26 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 	var old_ammo  := avatar.ammo
 	var old_bombs := avatar.bombs
 	var old_fuel  := avatar.fuel
+	var max_bombs = avatar.model_params.get("max_bombs", 0)
 
 	avatar.ammo = mini(MAX_AMMO, avatar.ammo + int(MAX_AMMO / 20.0 * delta))
 	avatar.fuel = minf(100.0, avatar.fuel + delta * 10.0)
+	avatar.bombs = mini(max_bombs, avatar.bombs + 1)
+
 	avatar.refuel_timer += delta
 	if avatar.refuel_timer >= 1.5:
 		avatar.refuel_timer = 0.0
-		var max_bombs = avatar.model_params.get("max_bombs", 0)
-		avatar.bombs = mini(max_bombs, avatar.bombs + 1)
 
 	if GameManager:
 		if avatar.ammo  != old_ammo:  GameManager.ammo_changed.emit(avatar.id, avatar.ammo)
 		if avatar.bombs != old_bombs: GameManager.bombs_changed.emit(avatar.id, avatar.bombs)
 		if avatar.fuel  != old_fuel:  GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
 
-	## Teleport to spawn when fully resupplied and cooldown expired.
-	var max_bombs = avatar.model_params.get("max_bombs", 0)
-	if avatar.fuel >= 100.0 and avatar.ammo >= MAX_AMMO and avatar.bombs >= max_bombs:
+	## Teleport to spawn if there's no cooldown
+	if avatar.ammo > old_ammo or avatar.bombs > old_bombs or avatar.fuel > old_fuel:
 		if avatar.refuel_cooldown <= 0.0:
-			_perform_teleport_landing(avatar)
 			avatar.refuel_cooldown = 10.0
+			_perform_teleport_landing(avatar)
 
 ###############################################################################
 # DAMAGE
@@ -1668,12 +1668,11 @@ func force_crash() -> void:
 func _perform_teleport_landing(avatar: AvatarData) -> void:
 	var spawn_pos := get_homebase_spawn_position(avatar)
 	var spawn_rot := get_homebase_spawn_rotation(avatar)
-	var ground_y := _ground_y(spawn_pos.x)
 	velocity = Vector2.ZERO
 	rotation            = spawn_rot
 	avatar.pitch_angle  = spawn_rot
 	reset_visual_transform()
-	global_position    = Vector2(spawn_pos.x, ground_y - GROUND_SURFACE_OFFSET)
+	global_position    = Vector2(spawn_pos.x, spawn_pos.y)
 	if avatar.is_player and GameManager:
 		GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
 		GameManager.ammo_changed.emit(avatar.id, avatar.ammo)
