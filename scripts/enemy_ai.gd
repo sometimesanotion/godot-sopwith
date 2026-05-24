@@ -500,7 +500,7 @@ func _compute_pitch_from_heading(is_engaging: bool) -> float:
 	# --- Speed ratio ---
 	var stall_speed: float = 21.4
 	if avatar:
-		stall_speed = avatar.model_params.get("stall_speed_ms", 21.4)
+		stall_speed = avatar.stall_speed_ms
 	var ppm: float = 10.0
 	if "pixels_per_meter" in biplane:
 		ppm = biplane.get("pixels_per_meter")
@@ -632,7 +632,7 @@ func _has_energy_advantage() -> bool:
 	var alt_edge = _get_altitude_above_ground() - _get_altitude_above_ground_for(target) \
 				   > ENERGY_ALTITUDE_ADVANTAGE
 	var avatar   = _get_avatar()
-	var stall    = avatar.model_params.get("stall_speed_ms", 21.4) if avatar else 21.4
+	var stall    = avatar.stall_speed_ms if avatar else 21.4
 	var ppm: float = biplane.get("pixels_per_meter") if "pixels_per_meter" in biplane else 10.0
 	var speed_ok = biplane.velocity.length() / ppm / maxf(stall, 1.0) >= ENERGY_SPEED_RATIO_GOOD
 	return alt_edge and speed_ok
@@ -641,7 +641,7 @@ func _is_low_energy() -> bool:
 	if not biplane:
 		return false
 	var avatar = _get_avatar()
-	var stall  = avatar.model_params.get("stall_speed_ms", 21.4) if avatar else 21.4
+	var stall  = avatar.stall_speed_ms if avatar else 21.4
 	var ppm: float = biplane.get("pixels_per_meter") if "pixels_per_meter" in biplane else 10.0
 	return biplane.velocity.length() / ppm / maxf(stall, 1.0) < ENERGY_SPEED_RATIO_GOOD
 
@@ -652,7 +652,7 @@ func _is_low_energy() -> bool:
 func _decision_takeoff(avatar) -> void:
 	var stall_speed: float = 21.4
 	if avatar:
-		stall_speed = avatar.model_params.get("stall_speed_ms", 21.4)
+		stall_speed = avatar.stall_speed_ms
 	var speed = biplane.velocity.length()
 
 	# Throttle — always full except on the ground to prevent over-speed.
@@ -913,8 +913,11 @@ func _get_avatar():
 # ---------------------------------------------------------------------------
 
 func _apply_input(pitch: float, throttle_amount: float) -> void:
-	if biplane.has_method("set_ai_input"):
-		biplane.set_ai_input(pitch, throttle_amount)
+	if not biplane.has_method("set_ai_input"):
+		return
+	var avatar = _get_avatar()
+	var effective_pitch = -pitch if (avatar and avatar.is_inverted) else pitch
+	biplane.set_ai_input(effective_pitch, throttle_amount)
 
 # ---------------------------------------------------------------------------
 # AUTOPILOT / LANDING
@@ -984,11 +987,10 @@ func _check_flip_needed() -> void:
 	var avatar = _get_avatar()
 	if not avatar or avatar.is_flipping:
 		return
-	if biplane.velocity.length() < 1.0:
-		return
 
-	var should_be_inverted := biplane.velocity.x <= -100.0
-	if should_be_inverted != avatar.is_inverted and abs(biplane.velocity.x) >= 100.0:
+	var x_speed = avatar.stall_speed_ms * 10.0
+	var should_be_inverted = biplane.velocity.x <= -1 * x_speed
+	if should_be_inverted != avatar.is_inverted and abs(biplane.velocity.x) >= x_speed:
 			biplane.do_flip(avatar)
 
 func take_damage(amount: float, attacker: Node) -> void:

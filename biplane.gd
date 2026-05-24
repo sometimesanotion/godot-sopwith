@@ -312,7 +312,6 @@ class AvatarData:
 	# Plane Model
 	var plane_model: String  = "sopwith_camel"  # Key from _PLANE_MODELS
 	var model_params: Dictionary = {}  # Cached model-specific parameters
-
 	func is_hostile_to(other: AvatarData) -> bool:
 		if team == Team.NEUTRAL or other.team == Team.NEUTRAL:
 			return false
@@ -331,11 +330,14 @@ class AvatarData:
 			var plane_models = Biplane.get_plane_models()
 			model_params = plane_models["sopwith_camel"]
 
+		stall_speed_ms = model_params.get("stall_speed_ms", 21.4)
+
 	func get_plane_name() -> String:
 		return model_params.get("name", "Unknown")
 
 	# Flight state (FSM)
 	var flight_state: FlightState = FlightState.FLYING
+	var stall_speed_ms: float        = 21.4
 
 	# Damage
 	var damage_percent:  float       = 0.0
@@ -830,7 +832,7 @@ func _apply_physics(avatar: AvatarData, delta: float) -> void:
 		aoa = forward.angle_to(vel_si.normalized())
 
 	## Planes cannot stall aerodynamically while on the ground.
-	stalled = (not gc.is_grounded) and (abs(aoa) > model_params.get("stall_aoa", 0.244) or speed_si < model_params.get("stall_speed_ms_ms", 21.4 / 2.2))
+	stalled = (not gc.is_grounded) and (abs(aoa) > model_params.get("stall_aoa", 0.244) or speed_si < avatar.stall_speed_ms)
 
 	var cl: float = clampf(aoa * 2.0 * PI, -model_params.get("max_lift_coeff", 1.4), model_params.get("max_lift_coeff", 1.4))
 	if stalled:
@@ -907,9 +909,8 @@ func _apply_physics(avatar: AvatarData, delta: float) -> void:
 
 	# 7. CONTROL EFFECTIVENESS (scales with dynamic pressure)
 	var sp_si := velocity.length() / pixels_per_meter
-	var stall_speed_ms = model_params.get("stall_speed_ms_ms", 21.4 / 2.2)
 	avatar.control_effectiveness = clampf(
-		(sp_si * sp_si) / (stall_speed_ms * stall_speed_ms * 50.0), 0.6, 1.8)
+		(sp_si * sp_si) / (avatar.stall_speed_ms * avatar.stall_speed_ms * 50.0), 0.6, 1.8)
 
 	# 8. FLIGHT STATE TRANSITIONS
 	if gc.is_grounded:
