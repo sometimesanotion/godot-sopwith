@@ -149,7 +149,8 @@ func _input(event: InputEvent) -> void:
 		return
 	match ke.keycode:
 		KEY_ENTER, KEY_SPACE:
-			get_tree().quit()
+			restart_game.emit()
+			queue_free()
 	get_viewport().set_input_as_handled()
 
 func _process(_delta: float) -> void:

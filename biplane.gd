@@ -226,7 +226,7 @@ const THROTTLE_STEP         := 0.15
 const THROTTLE_REPEAT_DELAY := 0.1
 const THROTTLE_RAMP_SPEED   := 5.0
 
-const MAX_AMMO  := 500
+const MAX_AMMO  := 250	# 500 rounds, twin guns
 
 const FLIP_DURATION   := 0.35
 const FLIP_ARC_HEIGHT := 15.0
@@ -1392,7 +1392,7 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 		var old_bombs := avatar.bombs
 		var old_fuel  := avatar.fuel
 
-		avatar.fuel = minf(MAX_AMMO, avatar.ammo + 50.0 + int(10 + delta * 10.0))
+		avatar.ammo = minf(MAX_AMMO, avatar.ammo + 3.0 + int(2 + delta * 10.0))
 		avatar.fuel = minf(100.0, avatar.fuel + 10.0 + int(5 + delta * 10.0))
 		avatar.bombs = mini(max_bombs, avatar.bombs + 1)
 		avatar.refuel_timer = 0.0
