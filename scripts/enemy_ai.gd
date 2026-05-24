@@ -220,6 +220,8 @@ func _physics_process(delta: float) -> void:
 
 	_apply_input(pilots[0].last_pitch_input, pilots[0].last_throttle)
 
+	_check_flip_needed()
+
 	if pilots[0].respawn_timer > 0.0:
 		pilots[0].respawn_timer -= delta
 		if pilots[0].respawn_timer <= 0.0:
@@ -977,6 +979,17 @@ func notify_incoming_fire() -> void:
 func get_dodge_chance() -> float:
 	var avatar = _get_avatar()
 	return 0.5 if (avatar and avatar.is_flipping) else 0.0
+
+func _check_flip_needed() -> void:
+	var avatar = _get_avatar()
+	if not avatar or avatar.is_flipping:
+		return
+	if biplane.velocity.length() < 1.0:
+		return
+
+	var should_be_inverted := biplane.velocity.x <= -100.0
+	if should_be_inverted != avatar.is_inverted and abs(biplane.velocity.x) >= 100.0:
+			biplane.do_flip(avatar)
 
 func take_damage(amount: float, attacker: Node) -> void:
 	var owner: Node = null
