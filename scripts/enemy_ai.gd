@@ -71,8 +71,8 @@ const ALTITUDE_OSCILLATION_AMP   := 30.0
 # PITCH_DAMPING_MIN:      damping at cruise speed (responsive tracking).
 const PITCH_SENSITIVITY_BASE := 1.8
 const PITCH_SENSITIVITY_LOW  := 0.7
-const PITCH_DAMPING_MAX      := 3.0
-const PITCH_DAMPING_MIN      := 0.6
+const PITCH_DAMPING_MAX      := 2.6
+const PITCH_DAMPING_MIN      := 0.4
 
 # Evade behaviour
 const EVADE_DURATION_MIN := 0.5
