@@ -60,8 +60,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
-		"soft_landing_vperp": 80.0,
-		"hard_landing_vperp": 200.0,
+		"soft_landing_vperp": 120.0,
+		"hard_landing_vperp": 300.0,
 		"svg_sprite_name": "sopwith_camel"
 	},
 	"se5a": {
@@ -83,8 +83,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 4,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
-		"soft_landing_vperp": 80.0,
-		"hard_landing_vperp": 200.0,
+		"soft_landing_vperp": 120.0,
+		"hard_landing_vperp": 300.0,
 		"svg_sprite_name": "se5a"
 	},
 	"bristol_f2": {
@@ -106,8 +106,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 3,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
-		"soft_landing_vperp": 80.0,
-		"hard_landing_vperp": 200.0,
+		"soft_landing_vperp": 120.0,
+		"hard_landing_vperp": 300.0,
 		"svg_sprite_name": "bristol_f2b"
 	},
 	"p-51d": {
@@ -129,8 +129,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
-		"soft_landing_vperp": 80.0,
-		"hard_landing_vperp": 200.0,
+		"soft_landing_vperp": 120.0,
+		"hard_landing_vperp": 300.0,
 		"svg_sprite_name": "p-51"
 	},
 	"spad_s13": {
@@ -152,8 +152,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
-		"soft_landing_vperp": 80.0,
-		"hard_landing_vperp": 200.0,
+		"soft_landing_vperp": 120.0,
+		"hard_landing_vperp": 300.0,
 		"svg_sprite_name": "spad_s13"
 	},
 	"fokker_d7": {
@@ -175,8 +175,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 0,
 		"visual_scale": Vector2(1.1, 1.1),
 		"bungee_time": 0.15,
-		"soft_landing_vperp": 80.0,
-		"hard_landing_vperp": 200.0,
+		"soft_landing_vperp": 120.0,
+		"hard_landing_vperp": 300.0,
 		"svg_sprite_name": "fokker_d7"
 	}
 }
@@ -284,7 +284,7 @@ enum Team    { ALLIED  = 0, ENEMY  = 1, NEUTRAL = 2 }
 class HomebaseData:
 	var id:               int     = 0
 	var home_base_x:      float   = 6554.0
-	var home_base_width:  float   = 900.0
+	var home_base_width:  float   = 1000.0
 	var spawn_position:   Vector2 = Vector2(7000, 500)
 	var spawn_rotation:    float   = 0.0
 	var team:             Team    = Team.ALLIED
@@ -1392,8 +1392,8 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 		var old_bombs := avatar.bombs
 		var old_fuel  := avatar.fuel
 
-		avatar.ammo = mini(MAX_AMMO, avatar.ammo + int(MAX_AMMO / 20.0 * delta))
-		avatar.fuel = minf(100.0, avatar.fuel + delta * 10.0)
+		avatar.fuel = minf(MAX_AMMO, avatar.ammo + 50.0 + int(10 + delta * 10.0))
+		avatar.fuel = minf(100.0, avatar.fuel + 10.0 + int(5 + delta * 10.0))
 		avatar.bombs = mini(max_bombs, avatar.bombs + 1)
 		avatar.refuel_timer = 0.0
 
@@ -1517,11 +1517,17 @@ func _on_avatar_crashed(avatar: AvatarData) -> void:
 # VISUAL HELPERS
 ###############################################################################
 
-func reset_visual_transform() -> void:
+func reset_visual_transform(avatar: AvatarData = null) -> void:
+	if avatar == null:
+		avatar = get_primary_entity()
 	var visual    := $Visual
 	visual.scale    = Vector2.ONE
 	visual.rotation = 0.0
 	visual.position = Vector2.ZERO
+	if avatar and avatar.is_inverted:
+		visual.scale.y = -1.0
+	if avatar:
+		_update_ground_ray(avatar)
 
 func update_visual_representation(avatar: AvatarData) -> void:
 	if not has_node("Visual"):
@@ -1667,19 +1673,18 @@ func force_crash() -> void:
 			_on_avatar_crashed(avatar)
 
 func _perform_teleport_landing(avatar: AvatarData) -> void:
-	# Undo inverted flight state on teleport
-	if avatar.is_inverted:
-		avatar.is_inverted = false
-		avatar.is_flipping = false
-		avatar.flip_progress = 0.0
-		avatar.flip_direction = 0
-	reset_visual_transform()
-	# var spawn_pos := get_homebase_spawn_position(avatar)
-	# var spawn_rot := get_homebase_spawn_rotation(avatar)
-	# velocity = Vector2.ZERO
-	# rotation            = spawn_rot
-	# avatar.pitch_angle  = spawn_rot
-	# global_position    = Vector2(spawn_pos.x, spawn_pos.y)
+	avatar.is_inverted = false
+	avatar.is_flipping = false
+	avatar.flip_progress = 0.0
+	avatar.flip_direction = 0
+	avatar.pitch_angle = 0.0
+	velocity = Vector2.ZERO
+	var spawn_pos := get_homebase_spawn_position(avatar)
+	var spawn_rot := get_homebase_spawn_rotation(avatar)
+	rotation = spawn_rot
+	avatar.pitch_angle = spawn_rot
+	global_position = Vector2(spawn_pos.x, spawn_pos.y)
+	reset_visual_transform(avatar)
 	if avatar.is_player and GameManager:
 		GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
 		GameManager.ammo_changed.emit(avatar.id, avatar.ammo)

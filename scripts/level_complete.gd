@@ -19,7 +19,9 @@ func _design_size() -> Vector2:
 	)
 
 func _ready() -> void:
+	process_mode = PROCESS_MODE_WHEN_PAUSED
 	get_viewport().size_changed.connect(_rebuild_all)
+	_rebuild_all()
 	get_tree().paused = true
 
 func _rebuild_all() -> void:

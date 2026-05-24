@@ -119,7 +119,7 @@ func _update_layout_from_scratch() -> void:
 
 	_info_label = Label.new()
 	_info_label.name = "InfoLabel"
-	_info_label.text = "Press ENTER or FIRE to Restart\nPress Q to Quit"
+	_info_label.text = "Press ENTER or FIRE to Quit"
 	_info_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_info_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD
@@ -149,9 +149,6 @@ func _input(event: InputEvent) -> void:
 		return
 	match ke.keycode:
 		KEY_ENTER, KEY_SPACE:
-			restart_game.emit()
-			queue_free()
-		KEY_Q:
 			get_tree().quit()
 	get_viewport().set_input_as_handled()
 
