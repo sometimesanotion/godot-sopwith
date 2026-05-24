@@ -273,6 +273,7 @@ func _update_debug_entry(idx: int, entity: Node, base_ground_y: float, is_player
 	var damage_state_text := "---"
 	var alt_text := "---"
 	var speed_text := "---"
+	var fuel_text := "---"
 
 	var entity_ground_y := base_ground_y
 	if entity.has_method("_ground_y"):
@@ -305,4 +306,4 @@ func _update_debug_entry(idx: int, entity: Node, base_ground_y: float, is_player
 
 	enemy_labels[label_idx].text = "%s: AI=%s FST=%s" % [entity_id, ai_state_text, flight_state_text]
 	enemy_labels[label_idx + 1].text = "    DST=%s ALT=%s" % [damage_state_text, alt_text]
-	enemy_labels[label_idx + 2].text = "    SPD=%s" % speed_text
+	enemy_labels[label_idx + 2].text = "    SPD=%s FUEL=%d" % [speed_text, avatar.fuel]

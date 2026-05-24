@@ -278,6 +278,7 @@ func _start_playing() -> void:
 		if biplane.has_method("assign_plane_model"):
 			var player_model := _get_plane_model_for_faction(GameManager.player_faction if GameManager else "United Kingdom")
 			biplane.assign_plane_model(avatar, player_model)
+			avatar.bombs = avatar.model_params.get("max_bombs", 0)
 		if biplane.has_method("setup_faction_homebase"):
 			var player_faction_enum = Biplane.Faction.BRITISH
 			if GameManager.player_faction == "France":
@@ -705,35 +706,7 @@ func _handle_wrap_around() -> void:
 		biplane.position.x = VIEWPORT_MIN_X + 1
 		camera.position.x -= TERRAIN_LENGTH
 
-func _check_runway_landing(delta: float, obj: Node2D) -> void:
-	if not obj or not terrain:
-		return
 
-	if terrain.has_method("is_on_runway") and terrain.has_method("get_ground_height_at"):
-		var ground_y: float = terrain.get_ground_height_at(biplane.position.x)
-		if terrain.is_on_runway(obj.position.x):
-			if obj.position.y >= ground_y - 10:
-				if obj.velocity.length() < 30:
-					_on_landed(delta)
-
-var refuel_rate: float = 10.0
-
-func _on_landed(delta: float) -> void:
-	if GameManager and biplane and biplane.has_method("get_avatar_data"):
-		var avatar = biplane.get_avatar_data(0)
-		if avatar:
-			var max_fuel := 100.0
-			var max_ammo := 500
-			var max_bombs: int = avatar.model_params.get("max_bombs", 0)
-			if avatar.fuel < max_fuel:
-				avatar.fuel = minf(max_fuel, avatar.fuel + refuel_rate * delta)
-				GameManager.fuel_changed.emit(0, avatar.fuel)
-			if avatar.ammo < max_ammo:
-				avatar.ammo = mini(max_ammo, avatar.ammo + maxi(1, int(25.0 * delta)))
-				GameManager.ammo_changed.emit(0, avatar.ammo)
-			if avatar.bombs < max_bombs:
-				avatar.bombs = min(max_bombs, avatar.bombs + 1)
-				GameManager.bombs_changed.emit(0, avatar.bombs)
 func _create_minimap() -> void:
 	minimap_instance = MINIMAP_SCENE.instantiate()
 	ui.add_child(minimap_instance)

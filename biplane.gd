@@ -185,7 +185,7 @@ static func get_plane_models() -> Dictionary:
 	return _PLANE_MODELS
 
 static func _get_svg_path_from_params(model_params: Dictionary) -> String:
-	var sprite_name = model_params.get("svg_sprite_name", "fokker_d7")
+	var sprite_name = model_params.get("svg_sprite_name", "sopwith_camel")
 	return "res://assets/svg/" + sprite_name + ".svg"
 
 ###############################################################################
@@ -373,7 +373,7 @@ class AvatarData:
 
 	# Weapons
 	var ammo:             int   = MAX_AMMO
-	var bombs:            int   = model_params.get("max_bombs", 0)
+	var bombs:            int   = 0
 	var fuel:             float = 100.0
 	var gun_timer:        float = 0.0
 	var bomb_timer:       float = 0.0
@@ -419,7 +419,6 @@ class AvatarData:
 		is_losing_control = false
 		has_hit_ground    = false
 		ammo  = MAX_AMMO
-		bombs = model_params.get("max_bombs", 0)
 		fuel  = 100.0
 		gun_timer  = 0.0
 		bomb_timer = 0.0
@@ -436,6 +435,7 @@ class AvatarData:
 
 		# Initialize plane model parameters
 		update_model_params()
+		bombs = model_params.get("max_bombs", 0)
 
 ## All live avatars, keyed by avatar id.
 var _avatars: Dictionary[int, AvatarData] = {}
@@ -786,6 +786,7 @@ func _physics_process(delta: float) -> void:
 		_apply_physics(avatar, delta)
 		_check_obstacle_collision(avatar)
 		_check_fuel_consumption(avatar, delta)
+		_check_home_refuel(avatar, delta)
 
 ###############################################################################
 # UNIFIED PHYSICS LOOP
@@ -887,8 +888,6 @@ func _apply_physics(avatar: AvatarData, delta: float) -> void:
 		if speed_si > 0.01:
 			var mu       := _friction_coeff(gc.on_runway, avatar.throttle)
 			friction_vec  = -vel_si.normalized() * (maxf(0.0, into_gnd) * mu)
-
-		_check_home_refuel(avatar, delta)
 
 	# 5. INTEGRATE
 	var net_force := weight_vec + thrust_vec + lift_vec + drag_vec + normal_vec + friction_vec
@@ -1066,7 +1065,7 @@ func _handle_input(avatar: AvatarData, delta: float) -> void:
 	avatar.throttle = move_toward(avatar.throttle, avatar.throttle_target, THROTTLE_RAMP_SPEED * delta)
 
 	## Roll / flip.
-	if Input.is_action_just_pressed("roll") and not avatar.is_flipping:
+	if Input.is_action_just_pressed("roll") and not avatar.is_flipping and not is_grounded(avatar):
 		_start_flip(avatar)
 	elif Input.is_action_just_released("roll") and avatar.is_flipping:
 		_release_flip(avatar)
@@ -1255,7 +1254,7 @@ func fire_gun(avatar: AvatarData) -> void:
 		return
 	avatar.gun_timer = gun_cooldown
 	avatar.ammo     -= 1
-	if GameManager:
+	if avatar.is_player and GameManager:
 		GameManager.ammo_changed.emit(avatar.id, avatar.ammo)
 
 	var inv: bool = avatar.is_inverted
@@ -1289,7 +1288,7 @@ func drop_bomb(avatar: AvatarData) -> void:
 		return
 	avatar.bomb_timer = bomb_cooldown
 	avatar.bombs     -= 1
-	if GameManager:
+	if avatar.is_player and GameManager:
 		GameManager.bombs_changed.emit(avatar.id, avatar.bombs)
 
 	var inv: bool = avatar.is_inverted
@@ -1351,7 +1350,7 @@ func _check_fuel_consumption(avatar: AvatarData, delta: float) -> void:
 			DamageState.SEVERE:   loss *= 6.0
 			DamageState.MODERATE: loss *= 2.0
 		avatar.fuel = maxf(0.0, avatar.fuel - loss)
-		if GameManager:
+		if avatar.is_player and GameManager:
 			GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
 
 	if SoundManager and avatar.is_player:
@@ -1362,7 +1361,7 @@ func _check_fuel_consumption(avatar: AvatarData, delta: float) -> void:
 ###############################################################################
 
 func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
-	if not is_grounded(avatar):
+	if avatar.speed > 0 or not is_grounded(avatar):
 		return
 	var hb := _get_homebase(avatar)
 	if not hb:
@@ -1377,35 +1376,37 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 	if avatar.refuel_cooldown > 0.0:
 		avatar.refuel_cooldown -= delta
 
+	var max_bombs = avatar.model_params.get("max_bombs", 0)
+	if avatar.ammo == MAX_AMMO and avatar.bombs == max_bombs and avatar.fuel == 100:
+		return
+
 	## Repair damage instantly on landing at home.
 	if avatar.damage_state != DamageState.INTACT:
 		avatar.damage_percent = 0.0
 		_refresh_damage_modifiers(avatar)
 		avatar.flight_state = FlightState.FLYING
 
-	var old_ammo  := avatar.ammo
-	var old_bombs := avatar.bombs
-	var old_fuel  := avatar.fuel
-	var max_bombs = avatar.model_params.get("max_bombs", 0)
-
-	avatar.ammo = mini(MAX_AMMO, avatar.ammo + int(MAX_AMMO / 20.0 * delta))
-	avatar.fuel = minf(100.0, avatar.fuel + delta * 10.0)
-	avatar.bombs = mini(max_bombs, avatar.bombs + 1)
-
 	avatar.refuel_timer += delta
 	if avatar.refuel_timer >= 1.5:
+		var old_ammo  := avatar.ammo
+		var old_bombs := avatar.bombs
+		var old_fuel  := avatar.fuel
+
+		avatar.ammo = mini(MAX_AMMO, avatar.ammo + int(MAX_AMMO / 20.0 * delta))
+		avatar.fuel = minf(100.0, avatar.fuel + delta * 10.0)
+		avatar.bombs = mini(max_bombs, avatar.bombs + 1)
 		avatar.refuel_timer = 0.0
 
-	if GameManager:
-		if avatar.ammo  != old_ammo:  GameManager.ammo_changed.emit(avatar.id, avatar.ammo)
-		if avatar.bombs != old_bombs: GameManager.bombs_changed.emit(avatar.id, avatar.bombs)
-		if avatar.fuel  != old_fuel:  GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
+		if avatar.is_player and GameManager:
+			if avatar.ammo  != old_ammo:  GameManager.ammo_changed.emit(avatar.id, avatar.ammo)
+			if avatar.bombs != old_bombs: GameManager.bombs_changed.emit(avatar.id, avatar.bombs)
+			if avatar.fuel  != old_fuel:  GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
 
-	## Teleport to spawn if there's no cooldown
-	if avatar.ammo > old_ammo or avatar.bombs > old_bombs or avatar.fuel > old_fuel:
-		if avatar.refuel_cooldown <= 0.0:
-			avatar.refuel_cooldown = 10.0
-			_perform_teleport_landing(avatar)
+		## Teleport to spawn if there's no cooldown
+		if avatar.ammo > old_ammo or avatar.bombs > old_bombs or avatar.fuel > old_fuel:
+			if avatar.refuel_cooldown <= 0.0:
+				avatar.refuel_cooldown = 10.0
+				_perform_teleport_landing(avatar)
 
 ###############################################################################
 # DAMAGE
