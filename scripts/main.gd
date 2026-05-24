@@ -390,7 +390,7 @@ func _spawn_enemies_and_targets() -> void:
 		cow.position = Vector2(cow_x, 650)
 		add_child(cow)
 
-	var bird_count_map: Dictionary = {"None": 0, "Few": 3, "Normal": 6, "Many": 12}
+	var bird_count_map: Dictionary = {"None": 0, "Few": 3, "Normal": 5, "Many": 8}
 	var num_birds: int = int(bird_count_map.get(GameManager.bird_count if GameManager else "Normal", 6) * lm)
 	for i in range(num_birds):
 		var flock: Node2D = BIRD_FLOCK_SCENE.instantiate()

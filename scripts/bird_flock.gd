@@ -3,7 +3,10 @@ extends Area2D
 const BIRD_SCENE := preload("res://scenes/bird.tscn")
 const TERRAIN_LENGTH := 16384.0
 const EDGE_MARGIN := 500.0
-const MAX_HEIGHT := 1000.0
+const MAX_HEIGHT := 1200.0
+const SWAY_X := 28.0
+const SWAY_Y := 20.0
+
 
 var flock_size: int = 8
 var birds: Array[Node] = []
@@ -30,7 +33,7 @@ func _ready() -> void:
 
 func _preferred_y() -> float:
 	var g = _ground_y(global_position.x)
-	return g - (100.0 + randf() * MAX_HEIGHT)
+	return g - (200.0 + randf() * MAX_HEIGHT)
 
 func _ground_y(x: float) -> float:
 	var t = get_parent().get_node_or_null("Terrain")
@@ -97,7 +100,7 @@ func _physics_process(delta: float) -> void:
 		var b = birds[i]
 		if not is_instance_valid(b):
 			continue
-		var sway = Vector2(cos(elapsed * 2.0 + i * 1.5) * 12.0, sin(elapsed * 3.0 + i * 2.0) * 8.0)
+		var sway = Vector2(cos(elapsed * 2.0 + i * 1.5) * SWAY_X, sin(elapsed * 3.0 + i * 2.0) * SWAY_Y)
 		b.position = b.position.lerp(sway, delta * 4.0)
 		b.wing_flap += delta * 15.0
 		b.queue_redraw()
