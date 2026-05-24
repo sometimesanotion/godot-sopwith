@@ -106,19 +106,14 @@ func _input(event: InputEvent) -> void:
 	if event is not InputEventKey:
 		return
 
-	if event.is_action_pressed("ui_cancel") or (event is InputEventKey and (event as InputEventKey).keycode == KEY_P):
+	if event is InputEventKey and (event as InputEventKey).keycode == KEY_P:
 		if game_state == "PLAYING":
 			_toggle_pause()
 
-	if event.is_action_pressed("abort"):
+	if event is InputEventKey and (event as InputEventKey).keycode == KEY_ESCAPE:
 		if game_state == "PLAYING":
 			_abort_game()
 
-	if event is InputEventKey:
-		var key_event := event as InputEventKey
-		if key_event.keycode == KEY_Q:
-			if game_state == "PLAYING" or game_state == "GAME_OVER":
-				_abort_game()
 
 func _abort_game() -> void:
 	if game_state != "PLAYING":
@@ -723,6 +718,9 @@ func _update_minimap() -> void:
 
 	var enemy_targets: Array = get_tree().get_nodes_in_group("enemy_target")
 	minimap_instance.update_targets(enemy_targets)
+
+	var birds: Array = get_tree().get_nodes_in_group("flock")
+	minimap_instance.update_birds(birds)
 
 	if enemy_targets.size() == 0 and game_state == "PLAYING":
 		_win_game()

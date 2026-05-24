@@ -159,7 +159,7 @@ func _show_main_menu() -> void:
 	if control_title:
 		control_title.text = ""
 	if control_content:
-		control_content.text = "    S  - Start Single Player\n    N  - Start Network Game\n    C  - Configure Gameplay\n    K  - Key Layouts\n    Q  - Quit"
+		control_content.text = "S  - Start Single Player\nN  - Start Network Game\nC  - Configure Gameplay\nK  - Key Layouts\nEsc  - Quit"
 
 func _show_configure_menu() -> void:
 	current_mode = Mode.CONFIGURE
@@ -312,7 +312,7 @@ func _handle_main_input(ke: InputEventKey) -> void:
 			_show_configure_menu()
 		KEY_K:
 			_show_keys_menu()
-		KEY_Q:
+		KEY_ESCAPE:
 			get_tree().quit()
 
 func _handle_configure_input(ke: InputEventKey) -> void:
@@ -320,7 +320,7 @@ func _handle_configure_input(ke: InputEventKey) -> void:
 		KEY_Q:
 			_show_main_menu()
 		KEY_1:
-			var faction_opts := ["United Kingdom", "France", "Germany"]
+			var faction_opts := ["British", "French", "German"]
 			var idx := faction_opts.find(GameManager.player_faction)
 			GameManager.player_faction = faction_opts[(idx + 1) % faction_opts.size()]
 			_update_config_text()

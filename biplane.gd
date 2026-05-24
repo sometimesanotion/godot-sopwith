@@ -284,7 +284,7 @@ enum Team    { ALLIED  = 0, ENEMY  = 1, NEUTRAL = 2 }
 class HomebaseData:
 	var id:               int     = 0
 	var home_base_x:      float   = 6554.0
-	var home_base_width:  float   = 700.0
+	var home_base_width:  float   = 900.0
 	var spawn_position:   Vector2 = Vector2(7000, 500)
 	var spawn_rotation:    float   = 0.0
 	var team:             Team    = Team.ALLIED
@@ -324,12 +324,12 @@ class AvatarData:
 	func update_model_params() -> void:
 		var model_data = Biplane.get_plane_models().get(plane_model)
 		if model_data:
-			model_params = model_data.duplicate()
+			model_params = model_data
 		else:
 			push_error("Unknown plane model: %s" % plane_model)
 			# Fallback to default
 			var plane_models = Biplane.get_plane_models()
-			model_params = plane_models["sopwith_camel"].duplicate()
+			model_params = plane_models["sopwith_camel"]
 
 	func get_plane_name() -> String:
 		return model_params.get("name", "Unknown")
@@ -1403,7 +1403,7 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 			if avatar.fuel  != old_fuel:  GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
 
 		## Teleport to spawn if there's no cooldown
-		if avatar.ammo > old_ammo or avatar.bombs > old_bombs or avatar.fuel > old_fuel:
+		if avatar.throttle == 0.0 and (avatar.ammo > old_ammo or avatar.bombs > old_bombs or avatar.fuel > old_fuel):
 			if avatar.refuel_cooldown <= 0.0:
 				avatar.refuel_cooldown = 10.0
 				_perform_teleport_landing(avatar)
@@ -1667,13 +1667,19 @@ func force_crash() -> void:
 			_on_avatar_crashed(avatar)
 
 func _perform_teleport_landing(avatar: AvatarData) -> void:
-	var spawn_pos := get_homebase_spawn_position(avatar)
-	var spawn_rot := get_homebase_spawn_rotation(avatar)
-	velocity = Vector2.ZERO
-	rotation            = spawn_rot
-	avatar.pitch_angle  = spawn_rot
+	# Undo inverted flight state on teleport
+	if avatar.is_inverted:
+		avatar.is_inverted = false
+		avatar.is_flipping = false
+		avatar.flip_progress = 0.0
+		avatar.flip_direction = 0
 	reset_visual_transform()
-	global_position    = Vector2(spawn_pos.x, spawn_pos.y)
+	# var spawn_pos := get_homebase_spawn_position(avatar)
+	# var spawn_rot := get_homebase_spawn_rotation(avatar)
+	# velocity = Vector2.ZERO
+	# rotation            = spawn_rot
+	# avatar.pitch_angle  = spawn_rot
+	# global_position    = Vector2(spawn_pos.x, spawn_pos.y)
 	if avatar.is_player and GameManager:
 		GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
 		GameManager.ammo_changed.emit(avatar.id, avatar.ammo)

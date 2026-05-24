@@ -29,5 +29,5 @@ horizontal_alignment = 1
 
 [node name="ResumeLabel" type="Label" parent="VBoxContainer"]
 layout_mode = 2
-text = "Press F to Resume"
+text = "Press Q to Resume"
 horizontal_alignment = 1

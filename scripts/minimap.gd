@@ -10,6 +10,7 @@ var terrain_points: PackedVector2Array = []
 var player_dot: ColorRect
 var enemy_dots: Array[ColorRect] = []
 var target_dots: Array[ColorRect] = []
+var bird_dots: Array[ColorRect] = []
 var home_marker: ColorRect
 var terrain_line: Line2D
 var terrain_fill: Polygon2D
@@ -149,3 +150,28 @@ func update_targets(targets: Array) -> void:
 			target_dots[i].visible = true
 		else:
 			target_dots[i].visible = false
+
+func update_birds(birds: Array) -> void:
+	while bird_dots.size() < birds.size():
+		var dot := ColorRect.new()
+		dot.custom_minimum_size = Vector2(3, 3)
+		dot.color = Color(0.5, 0.6, 0.7, 0.5)
+		add_child(dot)
+		bird_dots.append(dot)
+
+	while bird_dots.size() > birds.size():
+		var dot: ColorRect = bird_dots.pop_back()
+		dot.queue_free()
+
+	var scale: float = MINIMAP_WIDTH / TERRAIN_LENGTH
+
+	for i: int in range(birds.size()):
+		var b = birds[i]
+		if is_instance_valid(b):
+			var world_pos: Vector2 = b.global_position
+			var map_x: float = wrapf(world_pos.x, 0.0, TERRAIN_LENGTH) * scale
+			var map_y: float = _altitude_to_map_y(world_pos.y)
+			bird_dots[i].position = Vector2(map_x - 1.5, map_y - 1.5)
+			bird_dots[i].visible = true
+		else:
+			bird_dots[i].visible = false
