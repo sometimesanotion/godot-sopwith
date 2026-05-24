@@ -25,7 +25,7 @@ init:
 	$(GODOT) --headless --editor --quit-after 10 $(PROJECT_DIR)
 
 build:
-	timeout 30 $(GODOT) --headless --check-only --path . 2>&1 || true
+	timeout 10 $(GODOT) --headless --check-only --path . 2>&1 || true
 
 .godot/imported:
 	rm -f .godot/imported/*.svg*.ctex .godot/imported/*.svg*.md5
