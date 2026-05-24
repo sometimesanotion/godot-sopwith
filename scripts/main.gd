@@ -678,7 +678,8 @@ func _update_camera(delta: float) -> void:
 	var max_camera_y := ground_y - 0.3 * view_h / camera.zoom.y
 	target_pos.y = minf(target_pos.y, max_camera_y)
 
-	var lerp_rate: float = 0.4 if is_landed else 0.4 * speed_coeff
+	## Camera when landed is clamped.
+	var lerp_rate: float = (0.9 * speed_coeff) # if is_landed else 0.9 * speed_coeff
 	camera.position = camera.position.lerp(target_pos, delta * lerp_rate)
 
 func _handle_wrap_around() -> void:

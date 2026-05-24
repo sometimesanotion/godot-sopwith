@@ -64,15 +64,26 @@ const ENERGY_SPEED_RATIO_GOOD   := 1.4
 const ALTITUDE_OSCILLATION_SPEED := 1.5
 const ALTITUDE_OSCILLATION_AMP   := 30.0
 
-# Pitch control — dynamic values replace the old static constants.
-# PITCH_SENSITIVITY_BASE: gain applied at cruise speed (well above stall).
-# PITCH_SENSITIVITY_LOW:  gain at near-stall speed (very gentle authority).
-# PITCH_DAMPING_MAX:      damping at low speed / high AoA (prevents overshoot).
-# PITCH_DAMPING_MIN:      damping at cruise speed (responsive tracking).
-const PITCH_SENSITIVITY_BASE := 1.8
-const PITCH_SENSITIVITY_LOW  := 0.7
-const PITCH_DAMPING_MAX      := 2.6
-const PITCH_DAMPING_MIN      := 0.4
+# Pitch control — state-aware profiles (Option B) with decoupled angular
+# velocity damping (Option C).
+#
+# ENGAGE profile: aggressive authority for dogfighting.
+const PITCH_SENSITIVITY_ENGAGE_BASE := 2.2   # cruise-speed gain in combat
+const PITCH_SENSITIVITY_ENGAGE_LOW  := 0.9   # near-stall gain in combat
+const PITCH_DAMPING_ENGAGE_MAX      := 2.2   # low-speed damping in combat
+const PITCH_DAMPING_ENGAGE_MIN      := 0.4   # cruise damping in combat
+#
+# CRUISE profile: conservative authority for patrol / return / takeoff.
+const PITCH_SENSITIVITY_CRUISE_BASE := 1.8
+const PITCH_SENSITIVITY_CRUISE_LOW  := 0.7
+const PITCH_DAMPING_CRUISE_MAX      := 3.0
+const PITCH_DAMPING_CRUISE_MIN      := 0.6
+#
+# Angular velocity damping — decoupled from the speed curve (Option C).
+# Applied as a flat multiplier on angular_vel, separate from speed-based damping.
+# Lower in combat so pull-outs snap; higher in cruise so patrol is smooth.
+const ANG_VEL_DAMPING_ENGAGE := 0.05
+const ANG_VEL_DAMPING_CRUISE := 0.50
 
 # Evade behaviour
 const EVADE_DURATION_MIN := 0.5
@@ -414,7 +425,7 @@ func _compute_engage_pitch() -> float:
 		aim_point = _lead_pursuit_point(target_pos, 0.7)
 
 	_steer_toward(aim_point)
-	return _compute_pitch_from_heading()
+	return _compute_pitch_from_heading(true)
 
 func _compute_bomb_pitch() -> float:
 	if not biplane or not target:
@@ -430,7 +441,7 @@ func _compute_bomb_pitch() -> float:
 		_try_decide_bomb_drop()
 		var aim_point := Vector2(my_pos.x + approach_dir * 100.0, my_pos.y - 20.0)
 		_steer_toward(aim_point)
-		return _compute_pitch_from_heading()
+		return _compute_pitch_from_heading(true)
 
 	# Approach: fly toward a point ahead of and above the target.
 	var overhead_x: float = target_pos.x - approach_dir * BOMB_OVERHEAD_X_THRESHOLD * 2.0
@@ -479,9 +490,9 @@ func _compute_return_pitch() -> float:
 # HEADING → PITCH CONVERSION  (dynamic damping)
 ###############################################################################
 
-## Converts desired_heading into a [-1, 1] pitch command with speed-adaptive
-## sensitivity and AoA-aware damping so the AI doesn't oversteer at low speed.
-func _compute_pitch_from_heading() -> float:
+## Pass is_engaging = true when called from ENGAGING state logic so the
+## combat damping profile is used instead of the conservative cruise profile.
+func _compute_pitch_from_heading(is_engaging: bool = false) -> float:
 	if not biplane:
 		return 0.0
 
@@ -491,42 +502,66 @@ func _compute_pitch_from_heading() -> float:
 
 	var avatar = _get_avatar()
 
-	# --- Speed ratio (clamped to a sensible range) ---
+	# --- Speed ratio ---
 	var stall_speed: float = 21.4
 	if avatar:
 		stall_speed = avatar.model_params.get("stall_speed_ms", 21.4)
-	# biplane.velocity is in px/s; biplane.pixels_per_meter converts to m/s.
 	var ppm: float = 10.0
-	if biplane.has_method("get") or "pixels_per_meter" in biplane:
-		ppm = biplane.get("pixels_per_meter") if "pixels_per_meter" in biplane else 10.0
-	var speed_ms   := biplane.velocity.length() / ppm
+	if "pixels_per_meter" in biplane:
+		ppm = biplane.get("pixels_per_meter")
+	var speed_ms    := biplane.velocity.length() / ppm
 	var speed_ratio := clampf(speed_ms / maxf(stall_speed, 1.0), 0.6, 3.0)
+	# Remap to [0,1] for lerp; 0 = near stall, 1 = cruise and above.
+	var speed_t     := clampf((speed_ratio - 0.6) / 2.4, 0.0, 1.0)
 
-	# --- Actual AoA (nose vs velocity direction) ---
+	# --- Actual AoA ---
 	var actual_aoa := 0.0
 	if biplane.velocity.length() > 0.5:
 		actual_aoa = absf(wrapf(biplane.rotation - biplane.velocity.angle(), -PI, PI))
-	var max_aoa: float = 0.279   # ~16° default in radians
+	var max_aoa: float = 0.279
 	if avatar:
 		max_aoa = deg_to_rad(avatar.model_params.get("max_aoa", 16.0))
-	var aoa_ratio := clampf(actual_aoa / maxf(max_aoa, 0.01), 0.0, 1.0)
+	# AoA ratio only blends in during cruise states — suppressed in combat
+	# so dogfighting turns don't bleed damping back in (Option B).
+	var aoa_ratio := 0.0
+	if not is_engaging:
+		aoa_ratio = clampf(actual_aoa / maxf(max_aoa, 0.01), 0.0, 1.0)
 
-	# --- Dynamic damping: high when slow or AoA is large ---
-	# speed_ratio goes 0.6 (stall) → 3.0 (fast); remap to [0,1] for lerp.
-	var speed_t    := clampf((speed_ratio - 0.6) / 2.4, 0.0, 1.0)
-	var speed_damp := lerpf(PITCH_DAMPING_MAX, PITCH_DAMPING_MIN, speed_t)
-	# AoA blends damping back toward maximum when the nose is badly misaligned.
-	var dynamic_damping := lerpf(speed_damp, PITCH_DAMPING_MAX, aoa_ratio)
+	# --- Select profile (Option B) ---
+	var sens_base: float
+	var sens_low: float
+	var damp_max: float
+	var damp_min: float
+	var ang_vel_damp: float
+	if is_engaging:
+		sens_base    = PITCH_SENSITIVITY_ENGAGE_BASE
+		sens_low     = PITCH_SENSITIVITY_ENGAGE_LOW
+		damp_max     = PITCH_DAMPING_ENGAGE_MAX
+		damp_min     = PITCH_DAMPING_ENGAGE_MIN
+		ang_vel_damp = ANG_VEL_DAMPING_ENGAGE
+	else:
+		sens_base    = PITCH_SENSITIVITY_CRUISE_BASE
+		sens_low     = PITCH_SENSITIVITY_CRUISE_LOW
+		damp_max     = PITCH_DAMPING_CRUISE_MAX
+		damp_min     = PITCH_DAMPING_CRUISE_MIN
+		ang_vel_damp = ANG_VEL_DAMPING_CRUISE
 
-	# --- Dynamic sensitivity: scale authority down near stall ---
-	var sensitivity := lerpf(PITCH_SENSITIVITY_LOW, PITCH_SENSITIVITY_BASE, speed_t)
+	# --- Speed-based damping, with AoA blend only in cruise (Option B+C) ---
+	var speed_damp      := lerpf(damp_max, damp_min, speed_t)
+	var dynamic_damping := lerpf(speed_damp, damp_max, aoa_ratio)
 
-	# --- Compute output ---
+	# --- Sensitivity scales with speed, same as before ---
+	var sensitivity := lerpf(sens_low, sens_base, speed_t)
+
+	# --- Angular velocity damping — decoupled flat term (Option C) ---
+	# This is what snaps pull-outs. Using a fixed coefficient means it doesn't
+	# interact with the speed curve, so fast dive recoveries feel immediate.
 	var angular_vel: float = avatar.angular_velocity if avatar else 0.0
-	var base_pitch  := angle_diff * sensitivity
-	var damping     := angular_vel * dynamic_damping * 0.5
-	base_pitch      -= damping
+	var ang_damp_term      := angular_vel * ang_vel_damp
 
+	# --- Final output ---
+	var base_pitch := angle_diff * sensitivity
+	base_pitch     -= ang_damp_term
 	return clampf(base_pitch, -1.0, 1.0)
 
 ###############################################################################

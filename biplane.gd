@@ -100,7 +100,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"stall_speed_ms": 22.0,
 		"rotation_speed": 3.5,            # Heavy two-seater, notably less agile than Camel
 		"negative_rotation_speed": 2.3,   # Heavier tail, slow pitch-down response
-		"rotation_inertia": 4.0,
+		"rotation_inertia": 8.0,
 		"bullet_spawn_offset": Vector2(34, -15),
 		"bomb_spawn_offset": Vector2(0, 32),
 		"max_bombs": 3,
@@ -1011,7 +1011,7 @@ func _check_altitude_engine_cutoff(avatar: AvatarData, delta: float) -> void:
 			avatar.engine_restart_required_time  = 4.0 + randf() * 4.0
 			avatar.sputtering_timer             = 0.0
 			if avatar.is_player and SoundManager:
-				SoundManager.stop_engine()
+				SoundManager.set_engine_rpm(randf() * 0.2)
 	else:
 		## Sputtering sound while engine is cut off.
 		if avatar.is_player and SoundManager:
