@@ -4,15 +4,15 @@ const BIRD_SCENE := preload("res://scenes/bird.tscn")
 const TERRAIN_LENGTH := 16384.0
 const EDGE_MARGIN := 500.0
 const MAX_HEIGHT := 1200.0
-const SWAY_X := 28.0
-const SWAY_Y := 20.0
+const SWAY_X := 42.0
+const SWAY_Y := 30.0
 
 
 var flock_size: int = 8
 var birds: Array[Node] = []
 var move_direction: int = 1
 var move_speed: float = 70.0
-var target_y: float = 500.0
+var target_y: float = 1200.0
 var altitude_timer: float = 0.0
 var altitude_interval: float = 5.0
 var scatter_triggered: bool = false
@@ -33,7 +33,7 @@ func _ready() -> void:
 
 func _preferred_y() -> float:
 	var g = _ground_y(global_position.x)
-	return g - (200.0 + randf() * MAX_HEIGHT)
+	return g - (400.0 + randf() * MAX_HEIGHT)
 
 func _ground_y(x: float) -> float:
 	var t = get_parent().get_node_or_null("Terrain")

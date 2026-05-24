@@ -6,7 +6,7 @@
    viewBox="0 0 1536.0 1024.0"
    preserveAspectRatio="xMidYMid"
    id="svg4"
-   sodipodi:docname="sopwith.svg"
+   sodipodi:docname="sopwith_camel.svg"
    inkscape:version="1.4.3 (0d15f75042, 2025-12-25)"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
@@ -25,8 +25,8 @@
      inkscape:deskcolor="#d1d1d1"
      inkscape:document-units="pt"
      inkscape:zoom="0.88549804"
-     inkscape:cx="1090.9115"
-     inkscape:cy="631.84781"
+     inkscape:cx="1070.0193"
+     inkscape:cy="145.11608"
      inkscape:window-width="3372"
      inkscape:window-height="1417"
      inkscape:window-x="0"
@@ -38,30 +38,22 @@
 Created by potrace 1.16, written by Peter Selinger 2001-2019
 </metadata>
   <rect
-     style="display:inline;fill:#00aa88;fill-opacity:1;stroke-width:0.580166"
-     id="rect23"
-     width="477.24133"
-     height="172.68605"
-     x="360.94733"
-     y="268.88159"
-     ry="4.5969748"
-     transform="matrix(0.99717223,0.07515011,-0.20716848,0.97830528,0,0)" />
-  <rect
-     style="display:inline;fill:#00aa88;fill-opacity:1;stroke-width:0.515607"
-     id="rect23-2"
-     width="424.26129"
-     height="153.42488"
-     x="332.12177"
-     y="352.76639"
-     ry="4.0842347"
-     transform="matrix(0.99101689,-0.13373677,7.6021577e-4,0.99999971,0,0)" />
+     style="display:inline;fill:#00aa88;fill-opacity:1;stroke-width:0.613063"
+     id="rect1"
+     width="515.26038"
+     height="178.59659"
+     x="326.61731"
+     y="269.60397"
+     ry="4.7543159"
+     transform="matrix(0.99862155,0.05248817,-0.06690175,0.99775957,0,0)"
+     inkscape:label="aqua" />
   <g
      id="g22"
      inkscape:label="green"
      style="display:inline"
-     transform="translate(5.0411766e-8,2.0217509e-5)">
+     transform="translate(5.0345717e-8,2.0221262e-5)">
     <rect
-       style="fill:#7fff2a;fill-opacity:1;stroke-width:0.75"
+       style="display:inline;fill:#7fff2a;fill-opacity:1;stroke-width:0.75"
        id="rect17"
        width="182.94789"
        height="94.86187"
@@ -69,7 +61,7 @@ Created by potrace 1.16, written by Peter Selinger 2001-2019
        y="231.22581"
        ry="7.620882" />
     <rect
-       style="fill:#7fff2a;fill-opacity:1;stroke-width:0.989878"
+       style="display:inline;fill:#7fff2a;fill-opacity:1;stroke-width:0.989878"
        id="rect16"
        width="285.43259"
        height="222.75598"
@@ -77,7 +69,7 @@ Created by potrace 1.16, written by Peter Selinger 2001-2019
        y="286.10181"
        ry="7.6208816" />
     <rect
-       style="fill:#7fff2a;fill-opacity:1;stroke-width:0.75"
+       style="display:inline;fill:#7fff2a;fill-opacity:1;stroke-width:0.75"
        id="rect20"
        width="392.99918"
        height="38.961124"
@@ -86,7 +78,7 @@ Created by potrace 1.16, written by Peter Selinger 2001-2019
        ry="7.620882"
        transform="rotate(-4.8)" />
     <rect
-       style="fill:#7fff2a;fill-opacity:1;stroke-width:0.760087"
+       style="display:inline;fill:#7fff2a;fill-opacity:1;stroke-width:0.760087"
        id="rect21"
        width="152.22804"
        height="213.44948"
@@ -95,7 +87,7 @@ Created by potrace 1.16, written by Peter Selinger 2001-2019
        ry="7.6212487"
        transform="matrix(0.99916841,0.04077356,-0.04300743,0.99907475,0,0)" />
     <rect
-       style="fill:#7fff2a;fill-opacity:1;stroke-width:0.765759"
+       style="display:inline;fill:#7fff2a;fill-opacity:1;stroke-width:0.765759"
        id="rect22"
        width="116.33217"
        height="65.339241"
@@ -103,40 +95,34 @@ Created by potrace 1.16, written by Peter Selinger 2001-2019
        y="137.25366"
        ry="7.6351047"
        transform="matrix(0.97983378,0.19981434,-0.21630643,0.97632552,0,0)" />
-    <circle
-       style="display:inline;fill:#7fff2a;fill-opacity:1;stroke-width:0.75"
-       id="path3"
-       cx="1129.0256"
-       cy="680.12573"
-       r="86.392059"
-       inkscape:label="wheelcap" />
   </g>
   <g
      id="g25"
      inkscape:label="livery"
-     transform="translate(5.0411766e-8,2.0217509e-5)">
+     transform="translate(5.0345717e-8,2.0221262e-5)">
     <g
-       id="g24">
+       id="g24"
+       style="display:inline">
       <circle
-         style="fill:#feffff;fill-opacity:1;stroke-width:0.75"
+         style="display:inline;fill:#feffff;fill-opacity:1;stroke-width:0.75"
          id="path22"
          cx="632.27124"
          cy="393.42267"
          r="87.662537" />
       <circle
-         style="fill:#154c93;fill-opacity:1;stroke-width:0.678264"
+         style="display:inline;fill:#154c93;fill-opacity:1;stroke-width:0.678264"
          id="path22-6"
          cx="632.38678"
          cy="393.02539"
          r="79.277855" />
       <circle
-         style="fill:#feffff;fill-opacity:1;stroke-width:0.45863"
+         style="display:inline;fill:#feffff;fill-opacity:1;stroke-width:0.45863"
          id="path22-6-1"
          cx="632.84381"
          cy="393.34024"
          r="53.606377" />
       <circle
-         style="fill:#da262c;fill-opacity:1;stroke-width:0.276033"
+         style="display:inline;fill:#da262c;fill-opacity:1;stroke-width:0.276033"
          id="path22-6-1-7"
          cx="631.56293"
          cy="394.25531"
@@ -184,7 +170,7 @@ Created by potrace 1.16, written by Peter Selinger 2001-2019
      id="g14"
      style="display:inline"
      inkscape:label="wings / prop / elevator"
-     transform="translate(5.0411766e-8,2.0217509e-5)">
+     transform="translate(5.0345717e-8,2.0221262e-5)">
     <rect
        style="fill:#ffd42a;fill-opacity:1;stroke-width:0.75"
        id="rect14"
@@ -211,7 +197,7 @@ Created by potrace 1.16, written by Peter Selinger 2001-2019
        ry="1.693962"
        transform="rotate(-1.5999999)" />
     <rect
-       style="fill:#ffd42a;fill-opacity:1;stroke-width:0.75"
+       style="display:inline;fill:#ffd42a;fill-opacity:1;stroke-width:0.75"
        id="rect9"
        width="30.49131"
        height="604.74438"
@@ -233,15 +219,22 @@ Created by potrace 1.16, written by Peter Selinger 2001-2019
      id="g3"
      style="display:inline"
      inkscape:label="wheel"
-     transform="translate(5.0411766e-8,2.0217509e-5)">
+     transform="translate(5.0345717e-8,2.0221262e-5)">
     <circle
-       style="fill:#000000;fill-opacity:1;stroke-width:0.481618"
+       style="display:inline;fill:#7fff2a;fill-opacity:1;stroke-width:0.75"
+       id="path3"
+       cx="1129.0256"
+       cy="680.12573"
+       r="86.392059"
+       inkscape:label="wheelcap" />
+    <circle
+       style="display:inline;fill:#000000;fill-opacity:1;stroke-width:0.481618"
        id="path3-5"
        cx="1128.0928"
        cy="679.46362"
        r="55.477253" />
     <circle
-       style="fill:#b3b3b3;fill-opacity:1;stroke-width:0.327206"
+       style="display:inline;fill:#b3b3b3;fill-opacity:1;stroke-width:0.327206"
        id="path3-5-2"
        cx="1128.3516"
        cy="679.72235"
@@ -251,7 +244,7 @@ Created by potrace 1.16, written by Peter Selinger 2001-2019
      id="g6"
      style="display:inline"
      inkscape:label="struts"
-     transform="translate(5.0411766e-8,2.0217509e-5)">
+     transform="translate(5.0345717e-8,2.0221262e-5)">
     <path
        style="fill:#aa4400;stroke-width:0.846982"
        d="m 1219.5251,249.76752 c -1.2823,-1.69791 -3.4568,-10.91479 -9.7462,-41.30978 -3.2005,-15.46844 -9.5235,-45.23246 -14.0508,-66.14226 -10.3419,-47.76547 -10.1824,-46.78177 -8.6033,-53.07714 0.7949,-3.16906 1.4727,-4.55476 1.8593,-3.80061 1.8892,3.68671 35.665,162.4717 34.9277,164.20068 -0.6756,1.58427 -3.2309,1.65948 -4.3867,0.12911 z"

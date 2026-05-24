@@ -456,11 +456,6 @@ func _compute_evade_pitch() -> float:
 	elif alt < DANGER_ALTITUDE_ABOVE_GROUND:
 		return -0.8
 	elif pilots[0].incoming_bullet_timer > 0.0:
-		if pilots[0].flip_cooldown <= 0.0 and randf() < 0.6:
-			var av = _get_avatar()
-			if av:
-				biplane.do_flip(av)
-				pilots[0].flip_cooldown = 3.0
 		return -0.3
 	return -0.5
 

@@ -1387,7 +1387,7 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 		avatar.flight_state = FlightState.FLYING
 
 	avatar.refuel_timer += delta
-	if avatar.refuel_timer >= 1.5:
+	if avatar.refuel_timer >= 0.5:
 		var old_ammo  := avatar.ammo
 		var old_bombs := avatar.bombs
 		var old_fuel  := avatar.fuel

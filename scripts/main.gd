@@ -390,7 +390,7 @@ func _spawn_enemies_and_targets() -> void:
 	var num_birds: int = int(bird_count_map.get(GameManager.bird_count if GameManager else "Normal", 6) * lm)
 	for i in range(num_birds):
 		var flock: Node2D = BIRD_FLOCK_SCENE.instantiate()
-		flock.position = Vector2(200 + randf() * 16000, 150 + randf() * 200)
+		flock.position = Vector2(200 + randf() * 16000, 100 - randf() * 1200)
 		add_child(flock)
 
 func _get_target_half_width(target_type: String) -> float:
