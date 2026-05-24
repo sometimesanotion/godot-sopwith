@@ -614,54 +614,16 @@ func _stall_reflex() -> bool:
 # ---------------------------------------------------------------------------
 
 func _compute_patrol_throttle(avatar) -> float:
-	var alt = _get_altitude_above_ground()
-	if alt < PATROL_ALTITUDE - 30.0:
-		return 0.8
-	elif alt > PATROL_ALTITUDE + 50.0:
-		return 0.3
-	return 0.5
+	return 1.0
 
 func _compute_engage_throttle(avatar) -> float:
-	if not biplane or not target:
-		return 0.5
-	var damage_mod = _damage_throttle_modifier(avatar.damage_percent if avatar else 0.0)
-
-	if _has_energy_advantage():
-		return 0.7 * damage_mod   # ease back slightly in a dive
-	elif _is_low_energy():
-		return 1.0 * damage_mod   # full power to climb and regain energy
-
-	var dist = biplane.global_position.distance_to(target.global_position)
-	if dist < MAX_FIRE_RANGE:
-		var my_hdg    = Vector2(cos(biplane.rotation), sin(biplane.rotation))
-		var to_tgt    = (target.global_position - biplane.global_position).normalized()
-		var alignment = my_hdg.dot(to_tgt)
-		return (0.6 if alignment > 0.8 else 0.8) * damage_mod
-
-	return 1.0 * damage_mod
+	return 1.0
 
 func _compute_evade_throttle() -> float:
-	return 1.0 if _get_altitude_above_ground() < DANGER_ALTITUDE_ABOVE_GROUND else 0.8
+	return 1.0
 
 func _compute_return_throttle(avatar) -> float:
-	if not biplane:
-		return 0.3
-	var dist_home  = _get_wrapped_distance(biplane.global_position.x, home_base_x)
-	var damage_mod = _damage_throttle_modifier(avatar.damage_percent if avatar else 0.0)
-	if dist_home > 500.0:
-		return 0.5 * damage_mod
-	elif dist_home < HOME_PROXIMITY * 2.0:
-		return 0.3 * damage_mod
-	return 0.4 * damage_mod
-
-func _damage_throttle_modifier(damage_percent: float) -> float:
-	if damage_percent >= 0.8:
-		return 0.3
-	elif damage_percent >= 0.5:
-		return 0.5
-	elif damage_percent >= 0.25:
-		return 0.75
-	return 1.0
+	return 0.8
 
 # ---------------------------------------------------------------------------
 # ENERGY STATE
@@ -696,16 +658,11 @@ func _decision_takeoff(avatar) -> void:
 		stall_speed = avatar.model_params.get("stall_speed_ms", 21.4)
 	var speed = biplane.velocity.length()
 
-	# Throttle
-	var throttle := 1.0
-	if not _is_grounded():
-		if speed < stall_speed * 1.5:
-			throttle = 1.0
-		elif biplane.rotation < -0.3:
-			throttle = 0.5
-		elif biplane.rotation < 0.0:
-			throttle = 0.7
-	pilots[0].last_throttle = throttle
+	# Throttle — always full except on the ground to prevent over-speed.
+	if _is_grounded():
+		pilots[0].last_throttle = 1.0
+	else:
+		pilots[0].last_throttle = 1.0
 
 	# Pitch — never pitch hard while on the ground
 	if _is_grounded():
