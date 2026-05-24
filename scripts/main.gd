@@ -40,6 +40,7 @@ var minimap_instance: Control = null
 var is_vs_computer: bool = false
 var _showing_title_screen: bool = false
 var _respawn_guard: bool = false
+var respawn_cooldown_timer: float = 0.0
 
 func _get_plane_model_for_faction(faction: String) -> String:
 	match faction:
@@ -541,8 +542,13 @@ func _physics_process(delta: float) -> void:
 		if respawn_timer <= 0:
 			_respawn_biplane()
 
+	if respawn_cooldown_timer > 0.0:
+		respawn_cooldown_timer -= delta
+
 func _on_biplane_crashed() -> void:
 	if _respawn_guard:
+		return
+	if respawn_cooldown_timer > 0.0:
 		return
 	_respawn_guard = true
 	is_waiting_for_crash_land = true
@@ -565,6 +571,7 @@ func _respawn_biplane() -> void:
 		return
 	is_respawning = false
 	_respawn_guard = false
+	respawn_cooldown_timer = 5.0
 	if GameManager and GameManager.get_lives(0) > 0:
 		var ground_y: float = 650.0
 		if terrain and terrain.has_method("get_ground_height_at"):
@@ -584,7 +591,7 @@ func _respawn_biplane() -> void:
 			if avatar:
 				avatar.fuel = 100.0
 				avatar.ammo = 500
-				avatar.bombs = biplane.MAX_BOMBS
+				avatar.bombs = avatar.model_params.get("max_bombs", 0)
 				GameManager.fuel_changed.emit(0, avatar.fuel)
 				GameManager.ammo_changed.emit(0, avatar.ammo)
 				GameManager.bombs_changed.emit(0, avatar.bombs)
@@ -625,7 +632,7 @@ func _on_next_level() -> void:
 		if avatar:
 			avatar.fuel = 100.0
 			avatar.ammo = 500
-			avatar.bombs = biplane.MAX_BOMBS
+			avatar.bombs = avatar.model_params.get("max_bombs", 0)
 		biplane.set_game_active(true)
 		biplane.visible = true
 		if camera:
@@ -644,24 +651,23 @@ func _update_camera(delta: float) -> void:
 	if not biplane:
 		return
 
-	var is_crashed: bool = false
-	if biplane.has_method("get_avatar_data"):
-		var avatar = biplane.get_avatar_data(0)
-		if avatar:
-			is_crashed = avatar.flight_state == biplane.FlightState.CRASHED
+	var avatar = biplane.get_avatar_data(0) if biplane.has_method("get_avatar_data") else null
+
+	var is_crashed: bool = avatar and avatar.flight_state == biplane.FlightState.CRASHED
+	var is_landed: bool = avatar and avatar.flight_state == biplane.FlightState.LANDED
 
 	var speed_coeff: float = 1.0
-	var stall_speed_ms: float = 21.4 / 2.2
-	if biplane.has_method("get_avatar_speed"):
-		var speed_si: float = biplane.get_avatar_speed(null) / biplane.pixels_per_meter
-		if speed_si > stall_speed_ms:
-			speed_coeff = clampf(speed_si / stall_speed_ms, 1.0, 4.0)
-
 	var target_pos: Vector2
 
-	if is_crashed:
+	if is_crashed or is_landed:
 		target_pos = biplane.position
 	else:
+		var stall_speed_ms: float = 21.4 / 2.2
+		if biplane.has_method("get_avatar_speed"):
+			var speed_si: float = biplane.get_avatar_speed(null) / biplane.pixels_per_meter
+			if speed_si > stall_speed_ms:
+				speed_coeff = clampf(speed_si / stall_speed_ms, 1.0, 4.0)
+
 		var look_ahead_dist: float = 200.0 * speed_coeff
 		var look_ahead := Vector2(look_ahead_dist, 0)
 		if biplane.velocity.x < 0:
@@ -683,7 +689,7 @@ func _update_camera(delta: float) -> void:
 	var max_camera_y := ground_y - 0.3 * view_h / camera.zoom.y
 	target_pos.y = minf(target_pos.y, max_camera_y)
 
-	var lerp_rate: float = 0.4 * speed_coeff
+	var lerp_rate: float = 0.4 if is_landed else 0.4 * speed_coeff
 	camera.position = camera.position.lerp(target_pos, delta * lerp_rate)
 
 func _handle_wrap_around() -> void:
@@ -716,19 +722,18 @@ func _on_landed(delta: float) -> void:
 	if GameManager and biplane and biplane.has_method("get_avatar_data"):
 		var avatar = biplane.get_avatar_data(0)
 		if avatar:
-			if avatar.fuel < 100:
-				avatar.fuel = min(100.0, avatar.fuel + refuel_rate * delta)
+			var max_fuel := 100.0
+			var max_ammo := 500
+			var max_bombs: int = avatar.model_params.get("max_bombs", 0)
+			if avatar.fuel < max_fuel:
+				avatar.fuel = minf(max_fuel, avatar.fuel + refuel_rate * delta)
 				GameManager.fuel_changed.emit(0, avatar.fuel)
-			if avatar.ammo < 500:
-				avatar.ammo = min(500, avatar.ammo + int(25.0 * delta))
+			if avatar.ammo < max_ammo:
+				avatar.ammo = mini(max_ammo, avatar.ammo + maxi(1, int(25.0 * delta)))
 				GameManager.ammo_changed.emit(0, avatar.ammo)
-			if avatar.bombs < 5:
-				avatar.bombs = min(5, avatar.bombs + 1)
+			if avatar.bombs < max_bombs:
+				avatar.bombs = min(max_bombs, avatar.bombs + 1)
 				GameManager.bombs_changed.emit(0, avatar.bombs)
-			if avatar.fuel >= 100 and avatar.ammo >= 500 and avatar.bombs >= biplane.MAX_BOMBS \
-					and biplane.has_method("_perform_teleport_landing"):
-				biplane._perform_teleport_landing(avatar)
-
 func _create_minimap() -> void:
 	minimap_instance = MINIMAP_SCENE.instantiate()
 	ui.add_child(minimap_instance)

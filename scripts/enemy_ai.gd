@@ -16,11 +16,11 @@ const TERRAIN_LENGTH := 16384.0
 
 # Constants tuned for Godot scale
 const PATROL_ALTITUDE := 250.0
-const MIN_ALTITUDE_ABOVE_GROUND := 60.0
-const DANGER_ALTITUDE_ABOVE_GROUND := 40.0
+const MIN_ALTITUDE_ABOVE_GROUND := 80.0
+const DANGER_ALTITUDE_ABOVE_GROUND := 60.0
 const CRITICAL_ALTITUDE_ABOVE_GROUND := 20.0
 const PULL_UP_ALTITUDE := 200.0
-const DETECTION_RANGE := 2000.0
+const DETECTION_RANGE := 3000.0
 const ENGAGEMENT_RANGE := 1500.0
 const MAX_FIRE_RANGE := 400.0
 const MIN_FIRE_RANGE := 30.0
@@ -30,9 +30,15 @@ const ADVANTAGE_THRESHOLD := 50.0
 const ALTITUDE_OSCILLATION_SPEED := 1.5
 const ALTITUDE_OSCILLATION_AMP := 30.0
 const HOME_PROXIMITY := 100.0
-const PITCH_SENSITIVITY := 1.2
-const PITCH_DAMPING := 0.8
-const MAX_STEERING_ANGLE := 0.15
+# const PITCH_SENSITIVITY := 1.2	# Original
+# const PITCH_DAMPING := 0.8		# Revised
+const PITCH_SENSITIVITY := 2.4
+# const PITCH_SENSITIVITY := 0.6	# Original
+# const PITCH_DAMPING := 2.5		# Revised
+const PITCH_DAMPING := 3.0
+# const MAX_STEERING_ANGLE := 0.15	# Original
+# const MAX_STEERING_ANGLE := 0.12	# Revised
+const MAX_STEERING_ANGLE := 0.10
 const EVADE_DURATION_MIN := 0.5
 const EVADE_DURATION_MAX := 2.0
 const TERRAIN_LOOK_DISTANCES := [50.0, 100.0, 200.0]
@@ -40,9 +46,9 @@ const TERRAIN_RISE_THRESHOLD := 0.3
 const TAKEOFF_ROTATE_SPEED := 120.0
 const TAKEOFF_BUILD_SPEED := 90.0
 const TAKEOFF_PITCH := -0.05
-const TAKEOFF_CLIMB_PITCH := -0.08
-const RETURN_REENGAGE_RANGE := 300.0
-const MAX_ALTITUDE := 1000.0
+const TAKEOFF_CLIMB_PITCH := -0.10
+const RETURN_REENGAGE_RANGE := 400.0
+const MAX_ALTITUDE := 1600.0
 const GROUND_ATTACK_ALTITUDE := 300.0
 const BOMB_DROP_ADVANCE := 400.0
 const BOMB_OVERHEAD_X_THRESHOLD := 200.0
@@ -334,14 +340,14 @@ func _can_bomb_ground_target() -> bool:
 
 func _decision_takeoff() -> void:
 	var speed = biplane.velocity.length()
-	var stall_speed: float = 10.0
+	var stall_speed: float = 20.0
 	if biplane and "stall_speed_ms" in biplane:
 		stall_speed = biplane.stall_speed_ms
 
 	var throttle = 1.0
 	if not _is_grounded():
 		if speed < stall_speed * 1.5:
-			throttle = 0.3
+			throttle = 1.0
 		elif biplane.rotation < -0.3:
 			throttle = 0.5
 		elif biplane.rotation < 0.0:

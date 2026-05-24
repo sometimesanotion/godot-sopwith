@@ -19,7 +19,7 @@ var enemy_bombs: bool = true
 var enemy_homebases: int = 4
 var enemy_tanks: String = "Normal"
 var huge_explosions: bool = true
-var bird_count: String = "Normal"
+var bird_count: String = "None"
 var cow_count: String = "Normal"
 var sound_fx_volume: float = 0.2
 var music_volume: float = 0.2
@@ -119,11 +119,6 @@ func emit_signals_for_player(player_id: int) -> void:
 		fuel_changed.emit(player_id, avatar.fuel)
 		ammo_changed.emit(player_id, avatar.ammo)
 		bombs_changed.emit(player_id, avatar.bombs)
-	else:
-		# TODO - these should look up a single constant
-		fuel_changed.emit(player_id, 100.0)
-		ammo_changed.emit(player_id, 250)
-		bombs_changed.emit(player_id, 5)
 
 func get_lives(player_id: int) -> int:
 	return get_player_data(player_id).lives

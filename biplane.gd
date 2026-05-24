@@ -57,6 +57,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_inertia": 4.0,
 		"bullet_spawn_offset": Vector2(34, -15),
 		"bomb_spawn_offset": Vector2(0, 32),
+		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
@@ -79,6 +80,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_inertia": 4.0,
 		"bullet_spawn_offset": Vector2(34, -15),
 		"bomb_spawn_offset": Vector2(0, 32),
+		"max_bombs": 4,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
@@ -101,6 +103,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_inertia": 4.0,
 		"bullet_spawn_offset": Vector2(34, -15),
 		"bomb_spawn_offset": Vector2(0, 32),
+		"max_bombs": 3,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
@@ -123,6 +126,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_inertia": 4.0,
 		"bullet_spawn_offset": Vector2(34, -15),
 		"bomb_spawn_offset": Vector2(0, 32),
+		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
@@ -145,6 +149,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_inertia": 4.0,
 		"bullet_spawn_offset": Vector2(34, -15),
 		"bomb_spawn_offset": Vector2(0, 32),
+		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
@@ -166,7 +171,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"negative_rotation_speed": 2.8,   # Good but asymmetric pitch authority, as typical
 		"rotation_inertia": 5.0,
 		"bullet_spawn_offset": Vector2(32, -14),
-		"bomb_spawn_offset": Vector2(0, 24),
+		"bomb_spawn_offset": Vector2(0, 32),
+		"max_bombs": 0,
 		"visual_scale": Vector2(1.1, 1.1),
 		"bungee_time": 0.15,
 		"soft_landing_vperp": 80.0,
@@ -221,7 +227,6 @@ const THROTTLE_REPEAT_DELAY := 0.1
 const THROTTLE_RAMP_SPEED   := 5.0
 
 const MAX_AMMO  := 500
-const MAX_BOMBS := 4
 
 const FLIP_DURATION   := 0.35
 const FLIP_ARC_HEIGHT := 15.0
@@ -368,7 +373,7 @@ class AvatarData:
 
 	# Weapons
 	var ammo:             int   = MAX_AMMO
-	var bombs:            int   = MAX_BOMBS
+	var bombs:            int   = model_params.get("max_bombs", 0)
 	var fuel:             float = 100.0
 	var gun_timer:        float = 0.0
 	var bomb_timer:       float = 0.0
@@ -414,7 +419,7 @@ class AvatarData:
 		is_losing_control = false
 		has_hit_ground    = false
 		ammo  = MAX_AMMO
-		bombs = MAX_BOMBS
+		bombs = model_params.get("max_bombs", 0)
 		fuel  = 100.0
 		gun_timer  = 0.0
 		bomb_timer = 0.0
@@ -781,7 +786,6 @@ func _physics_process(delta: float) -> void:
 		_apply_physics(avatar, delta)
 		_check_obstacle_collision(avatar)
 		_check_fuel_consumption(avatar, delta)
-		_check_home_refuel(avatar, delta)
 
 ###############################################################################
 # UNIFIED PHYSICS LOOP
@@ -883,6 +887,8 @@ func _apply_physics(avatar: AvatarData, delta: float) -> void:
 		if speed_si > 0.01:
 			var mu       := _friction_coeff(gc.on_runway, avatar.throttle)
 			friction_vec  = -vel_si.normalized() * (maxf(0.0, into_gnd) * mu)
+
+		_check_home_refuel(avatar, delta)
 
 	# 5. INTEGRATE
 	var net_force := weight_vec + thrust_vec + lift_vec + drag_vec + normal_vec + friction_vec
@@ -1386,7 +1392,8 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 	avatar.refuel_timer += delta
 	if avatar.refuel_timer >= 1.5:
 		avatar.refuel_timer = 0.0
-		avatar.bombs = mini(MAX_BOMBS, avatar.bombs + 1)
+		var max_bombs = avatar.model_params.get("max_bombs", 0)
+		avatar.bombs = mini(max_bombs, avatar.bombs + 1)
 
 	if GameManager:
 		if avatar.ammo  != old_ammo:  GameManager.ammo_changed.emit(avatar.id, avatar.ammo)
@@ -1394,7 +1401,8 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 		if avatar.fuel  != old_fuel:  GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
 
 	## Teleport to spawn when fully resupplied and cooldown expired.
-	if avatar.fuel >= 100.0 and avatar.ammo >= MAX_AMMO and avatar.bombs >= MAX_BOMBS:
+	var max_bombs = avatar.model_params.get("max_bombs", 0)
+	if avatar.fuel >= 100.0 and avatar.ammo >= MAX_AMMO and avatar.bombs >= max_bombs:
 		if avatar.refuel_cooldown <= 0.0:
 			_perform_teleport_landing(avatar)
 			avatar.refuel_cooldown = 10.0
