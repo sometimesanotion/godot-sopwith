@@ -524,9 +524,11 @@ func _physics_process(delta: float) -> void:
 	# the plane never enters CRASHED flight state, e.g. destroyed while parked).
 	if biplane and biplane.has_method("get_avatar_data") and biplane.has_method("is_grounded"):
 		var avatar = biplane.get_avatar_data(0)
-		if avatar and avatar.damage_state == Biplane.DamageState.DESTROYED \
-				and not _respawn_queue.has(0):
-			if biplane.is_grounded(avatar) or avatar.has_hit_ground:
+		if avatar and avatar.damage_state == Biplane.DamageState.DESTROYED:
+			if _respawn_queue.has(0):
+				DLog.crash_guard(0, "_respawn_queue.has")
+			elif biplane.is_grounded(avatar) or avatar.has_hit_ground:
+				DLog.respawn_queue(0, "add", { "delay": RESPAWN_DELAY, "from": "destroyed_grounded" })
 				_queue_respawn(0)
 
 	# Process respawn queue (per-avatar, prevents duplicates).
@@ -534,13 +536,16 @@ func _physics_process(delta: float) -> void:
 	for avatar_id in _respawn_queue:
 		_respawn_queue[avatar_id] -= delta
 		if _respawn_queue[avatar_id] <= 0.0:
+			DLog.respawn_queue(avatar_id, "fire", { "lives_remaining": GameManager.get_lives(0) })
 			_respawn_biplane()
 			to_remove.append(avatar_id)
 	for id in to_remove:
+		DLog.respawn_queue(id, "remove", {})
 		_respawn_queue.erase(id)
 
 func _on_biplane_crashed() -> void:
 	if _respawn_queue.has(0):
+		DLog.crash_guard(0, "_respawn_queue.has")
 		return
 	if biplane and biplane.has_method("create_explosion"):
 		biplane.create_explosion()
@@ -548,6 +553,7 @@ func _on_biplane_crashed() -> void:
 	if SoundManager:
 		SoundManager.stop_engine()
 		SoundManager.play_sfx(SoundManager.SoundEvent.EXPLOSION)
+	DLog.respawn_queue(0, "add", { "delay": RESPAWN_DELAY, "from": "crashed_signal" })
 	_queue_respawn(0)
 
 func _on_biplane_damaged(impact_force: float, v_perp: float) -> void:
@@ -557,6 +563,7 @@ func _on_biplane_damaged(impact_force: float, v_perp: float) -> void:
 
 func _queue_respawn(avatar_id: int) -> void:
 	if _respawn_queue.has(avatar_id):
+		DLog.crash_guard(avatar_id, "_respawn_queue.has")
 		return
 	_respawn_queue[avatar_id] = RESPAWN_DELAY
 

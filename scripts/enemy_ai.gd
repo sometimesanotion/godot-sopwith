@@ -217,6 +217,7 @@ func _physics_process(delta: float) -> void:
 		if avatar and avatar.has_hit_ground:
 			pilots[0].is_waiting_for_crash_land = false
 			pilots[0].respawn_timer = respawn_delay
+			DLog.respawn_enemy(0, "timer_start", { "delay": respawn_delay })
 
 	_apply_input(pilots[0].last_pitch_input, pilots[0].last_throttle)
 
@@ -225,6 +226,7 @@ func _physics_process(delta: float) -> void:
 	if pilots[0].respawn_timer > 0.0:
 		pilots[0].respawn_timer -= delta
 		if pilots[0].respawn_timer <= 0.0:
+			DLog.respawn_enemy(0, "fire", {})
 			_do_respawn()
 		return
 
@@ -941,6 +943,7 @@ func _enable_autopilot_for_landing() -> void:
 
 func _on_enemy_crashed() -> void:
 	if pilots[0].crash_timer > 0.0:
+		DLog.crash_guard(0, "crash_timer>0")
 		return
 	pilots[0].crash_timer = crash_delay
 	pilots[0].is_waiting_for_crash_land = true
@@ -948,6 +951,7 @@ func _on_enemy_crashed() -> void:
 		biplane.create_explosion()
 
 func _do_respawn() -> void:
+	DLog.respawn_enemy(0, "fire", {})
 	if not biplane:
 		return
 

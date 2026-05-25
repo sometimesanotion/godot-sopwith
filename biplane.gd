@@ -869,6 +869,7 @@ func _apply_physics(avatar: AvatarData, delta: float) -> void:
 	if gc.is_grounded:
 		## Tilt crash: nose dug into ground at an angle.
 		if gc.tilt_angle >= deg_to_rad(model_params.get("max_landing_tilt_deg", 40.0)):
+			DLog.crash_enter(avatar.id, "tilt", { "tilt_angle": gc.tilt_angle })
 			_on_avatar_crashed(avatar)
 			return
 
@@ -958,6 +959,7 @@ func _process_landing_impact(avatar: AvatarData, v_perp: float,
 			SoundManager.play_sfx(SoundManager.SoundEvent.BUMP)
 
 	else:
+		DLog.crash_enter(avatar.id, "hard_landing", { "v_perp": v_perp })
 		_on_avatar_crashed(avatar)
 
 ###############################################################################
@@ -1177,6 +1179,7 @@ func _apply_crash_physics(avatar: AvatarData, delta: float) -> void:
 		velocity           = Vector2.ZERO
 		avatar.has_hit_ground = true
 		damaged.emit(1.0, 0.0)
+		DLog.crash_enter(avatar.id, "ground_ray", {})
 		_on_avatar_crashed(avatar)
 		return
 
@@ -1210,6 +1213,7 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 			if dist < hit_r:
 				if child.has_method("take_damage"):
 					child.take_damage(100.0, self)
+				DLog.crash_enter(avatar.id, "obstacle", { "collider": child.name })
 				_on_avatar_crashed(avatar)
 				return
 
@@ -1217,6 +1221,7 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 			var dist := global_position.distance_to(child.global_position)
 			if dist < 40.0:
 				take_damage(avatar, 100.0, child)
+				DLog.crash_enter(avatar.id, "midair", { "collider": child.name })
 				_on_avatar_crashed(avatar)
 				if child.has_method("force_crash"):
 					child.force_crash()
@@ -1507,6 +1512,7 @@ func _start_spinning_out(avatar: AvatarData) -> void:
 
 func _on_avatar_crashed(avatar: AvatarData) -> void:
 	if _crash_processed.has(avatar.id):
+		DLog.crash_guard(avatar.id, "_crash_processed")
 		return
 	_crash_processed[avatar.id] = true
 	avatar.flight_state          = FlightState.CRASHED
@@ -1671,6 +1677,7 @@ func force_crash() -> void:
 			avatar.damage_percent = 1.0
 			_refresh_damage_modifiers(avatar)
 			_start_spinning_out(avatar)
+			DLog.crash_enter(avatar.id, "force_crash", {})
 			_on_avatar_crashed(avatar)
 
 func _perform_teleport_landing(avatar: AvatarData) -> void:
