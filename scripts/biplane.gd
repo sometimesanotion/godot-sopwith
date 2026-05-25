@@ -770,7 +770,6 @@ func _physics_process(delta: float) -> void:
 		match avatar.flight_state:
 			FlightState.CRASHED:
 				_apply_crash_physics(avatar, delta)
-				_check_obstacle_collision(avatar)
 				continue
 
 			FlightState.FALLING:
@@ -868,7 +867,8 @@ func _apply_physics(avatar: AvatarData, delta: float) -> void:
 
 	if gc.is_grounded:
 		## Tilt crash: nose dug into ground at an angle.
-		if gc.tilt_angle >= deg_to_rad(model_params.get("max_landing_tilt_deg", 40.0)):
+		if avatar.damage_state != DamageState.DESTROYED and \
+		   gc.tilt_angle >= deg_to_rad(model_params.get("max_landing_tilt_deg", 40.0)):
 			DLog.crash_enter(avatar.id, "tilt", { "tilt_angle": gc.tilt_angle })
 			_on_avatar_crashed(avatar)
 			return
@@ -916,13 +916,14 @@ func _apply_physics(avatar: AvatarData, delta: float) -> void:
 	# 8. FLIGHT STATE TRANSITIONS
 	if gc.is_grounded:
 		if avatar.flight_state != FlightState.DAMAGED and \
-		   avatar.flight_state != FlightState.CRASHED:
+		   avatar.flight_state != FlightState.CRASHED and \
+		   avatar.damage_state != DamageState.DESTROYED:
 			avatar.flight_state = FlightState.LANDED
-	elif stalled:
+	elif stalled and avatar.damage_state != DamageState.DESTROYED:
 		if avatar.flight_state == FlightState.FLYING or \
 		   avatar.flight_state == FlightState.LANDED:
 			avatar.flight_state = FlightState.STALLED
-	else:
+	elif avatar.damage_state != DamageState.DESTROYED:
 		if avatar.flight_state == FlightState.STALLED or \
 		   avatar.flight_state == FlightState.LANDED:
 			avatar.flight_state = FlightState.FLYING
@@ -941,6 +942,7 @@ func _process_landing_impact(avatar: AvatarData, v_perp: float,
 	var mass_kg: float = model_params.get("mass_kg", 447.0)
 	var impact_force_calc: float = mass_kg * (v_perp / pixels_per_meter) / bungee_time
 
+	# Process landing impact - allow DESTROYED planes to transition to CRASHED state
 	if tilt_angle >= deg_to_rad(max_landing_tilt) and v_perp > 40.0:
 		_on_avatar_crashed(avatar)
 		return
@@ -1179,9 +1181,9 @@ func _apply_crash_physics(avatar: AvatarData, delta: float) -> void:
 		velocity           = Vector2.ZERO
 		avatar.has_hit_ground = true
 		damaged.emit(1.0, 0.0)
-		DLog.crash_enter(avatar.id, "ground_ray", {})
-		_on_avatar_crashed(avatar)
-		return
+		if avatar.damage_state != DamageState.DESTROYED:
+			DLog.crash_enter(avatar.id, "ground_ray", {})
+			_on_avatar_crashed(avatar)
 
 	var surf_y := _ground_y(global_position.x) - GROUND_SURFACE_OFFSET
 	if global_position.y > surf_y:
@@ -1194,6 +1196,10 @@ func _apply_crash_physics(avatar: AvatarData, delta: float) -> void:
 ###############################################################################
 
 func _check_obstacle_collision(avatar: AvatarData) -> void:
+	# Don't check obstacle collisions if already destroyed
+	if avatar.damage_state == DamageState.DESTROYED:
+		return
+		
 	var speed := velocity.length()
 	if speed < 5.0:
 		return
@@ -1516,9 +1522,10 @@ func _on_avatar_crashed(avatar: AvatarData) -> void:
 		return
 	_crash_processed[avatar.id] = true
 	avatar.flight_state          = FlightState.CRASHED
-	crashed.emit()
+	avatar.damage_state          = DamageState.DESTROYED
 	if avatar.is_player and GameManager:
 		GameManager.destroy_player(avatar.id)
+	crashed.emit()
 
 ###############################################################################
 # VISUAL HELPERS

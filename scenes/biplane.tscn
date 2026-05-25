@@ -1,6 +1,6 @@
 [gd_scene load_steps=4 format=3 uid="uid://biplane_scene"]
 
-[ext_resource type="Script" path="res://biplane.gd" id="1_biplane"]
+[ext_resource type="Script" path="res://scripts/biplane.gd" id="1_biplane"]
 [ext_resource type="Script" path="res://scripts/biplane_draw.gd" id="2_draw"]
 
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_1"]

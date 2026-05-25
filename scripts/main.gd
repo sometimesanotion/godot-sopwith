@@ -9,7 +9,8 @@ const TERRAIN_LENGTH := 16384.0
 const VIEWPORT_MIN_X := 0.0
 const VIEWPORT_MAX_X := 1280.0
 const HOME_BASE := Vector2(6500, 650)
-const RESPAWN_DELAY := 2.0
+const RESPAWN_DELAY := 3.0
+const MAX_RESPAWN_DELAY := 15.0	# 15 seconds for DESTROYED state
 
 const RUNWAY_START := 6500.0
 const RUNWAY_END := 7100.0
@@ -520,16 +521,35 @@ func _physics_process(delta: float) -> void:
 		_update_camera(delta)
 		_update_minimap()
 
-	# Check player for DESTROYED+grounded -> queue respawn (handles case where
-	# the plane never enters CRASHED flight state, e.g. destroyed while parked).
+	# Core respawn check: if DESTROYED, set 15-second respawn if no shorter respawn exists
+	if biplane and biplane.has_method("get_avatar_data"):
+		# Check all avatars (both player and AI)
+		for avatar_id in biplane._avatars:
+			var avatar = biplane._avatars[avatar_id]
+			if avatar and avatar.damage_state == Biplane.DamageState.DESTROYED:
+				# Check if we have a current respawn time
+				var current_respawn_time = _respawn_queue.get(avatar_id, 999.0)  # Default to high value if not queued
+				var new_respawn_time = MAX_RESPAWN_DELAY
+				
+				# Only set respawn if it's shorter than existing one or no respawn exists
+				if new_respawn_time < current_respawn_time:
+					if not _respawn_queue.has(avatar_id):
+						DLog.respawn_queue(avatar_id, "add", { "delay": new_respawn_time, "from": "destroyed_state" })
+					else:
+						# Replace existing respawn with shorter one
+						_respawn_queue[avatar_id] = new_respawn_time
+						DLog.respawn_queue(avatar_id, "replace", { "delay": new_respawn_time, "from": "destroyed_state" })
+					_queue_respawn(avatar_id, new_respawn_time)
+
+	# Legacy check for DESTROYED+grounded (handles edge cases like destroyed while parked)
 	if biplane and biplane.has_method("get_avatar_data") and biplane.has_method("is_grounded"):
-		var avatar = biplane.get_avatar_data(0)
-		if avatar and avatar.damage_state == Biplane.DamageState.DESTROYED:
-			if _respawn_queue.has(0):
-				DLog.crash_guard(0, "_respawn_queue.has")
-			elif biplane.is_grounded(avatar) or avatar.has_hit_ground:
-				DLog.respawn_queue(0, "add", { "delay": RESPAWN_DELAY, "from": "destroyed_grounded" })
-				_queue_respawn(0)
+		# Check all avatars (both player and AI)
+		for avatar_id in biplane._avatars:
+			var avatar = biplane._avatars[avatar_id]
+			if avatar and avatar.damage_state == Biplane.DamageState.DESTROYED and not _respawn_queue.has(avatar_id):
+				if biplane.is_grounded(avatar) or avatar.has_hit_ground:
+					DLog.respawn_queue(avatar_id, "add", { "delay": RESPAWN_DELAY, "from": "destroyed_grounded" })
+				_queue_respawn(avatar_id, RESPAWN_DELAY)
 
 	# Process respawn queue (per-avatar, prevents duplicates).
 	var to_remove: Array[int] = []
@@ -547,7 +567,7 @@ func _on_biplane_crashed() -> void:
 	if _respawn_queue.has(0):
 		DLog.crash_guard(0, "_respawn_queue.has")
 		return
-	if biplane and biplane.has_method("create_explosion"):
+	if biplane and biplane.has_method("create_explosion") and not _respawn_queue.has(0):
 		biplane.create_explosion()
 		GameManager.request_screen_shake(25.0)
 	if SoundManager:
@@ -561,14 +581,28 @@ func _on_biplane_damaged(impact_force: float, v_perp: float) -> void:
 	if SoundManager:
 		SoundManager.play_sfx(SoundManager.SoundEvent.BUMP)
 
-func _queue_respawn(avatar_id: int) -> void:
+func _queue_respawn(avatar_id: int, delay: float = RESPAWN_DELAY) -> void:
+	# Check if we already have a respawn time for this avatar
 	if _respawn_queue.has(avatar_id):
-		DLog.crash_guard(avatar_id, "_respawn_queue.has")
-		return
-	_respawn_queue[avatar_id] = RESPAWN_DELAY
+		var existing_delay = _respawn_queue[avatar_id]
+		if delay < existing_delay:
+			# Replace existing respawn with shorter one
+			_respawn_queue[avatar_id] = delay
+			DLog.respawn_queue(avatar_id, "replace", { "delay": delay, "from": "shorter_replace" })
+		else:
+			# Keep existing respawn, it's shorter or equal
+			DLog.crash_guard(avatar_id, "_respawn_queue.has")
+			return
+	else:
+		# No existing respawn, add new one
+		_respawn_queue[avatar_id] = delay
+		DLog.respawn_queue(avatar_id, "add", { "delay": delay, "from": "new_queue" })
 
-func _respawn_biplane() -> void:
-	if GameManager and GameManager.get_lives(0) > 0:
+func _respawn_biplane(avatar_id: int = 0) -> void:
+	# Handle player respawn
+	var avatar = biplane._avatars.get(avatar_id)
+
+	if avatar_id == 0 and GameManager and GameManager.get_lives(0) > 0:
 		var ground_y: float = 650.0
 		if terrain and terrain.has_method("get_ground_height_at"):
 			ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
@@ -582,15 +616,33 @@ func _respawn_biplane() -> void:
 			biplane.set_game_active(true)
 		if camera:
 			camera.position = Vector2(PLAYER_SPAWN_X, ground_y - 250)
-		if GameManager and biplane and biplane.has_method("get_avatar_data"):
-			var avatar = biplane.get_avatar_data(0)
-			if avatar:
-				avatar.fuel = 100.0
-				avatar.ammo = 500
-				avatar.bombs = avatar.model_params.get("max_bombs", 0)
-				GameManager.fuel_changed.emit(0, avatar.fuel)
-				GameManager.ammo_changed.emit(0, avatar.ammo)
-				GameManager.bombs_changed.emit(0, avatar.bombs)
+		GameManager.fuel_changed.emit(0, avatar.fuel)
+		GameManager.ammo_changed.emit(0, avatar.ammo)
+		GameManager.bombs_changed.emit(0, avatar.bombs)
+		if GameManager and biplane and avatar:
+			avatar.fuel = 100.0
+			avatar.ammo = 500
+			avatar.bombs = avatar.model_params.get("max_bombs", 0)
+	
+	# Handle AI respawn (avatar_id > 0)
+	elif avatar_id > 0 and biplane.has_method("get_avatar_data"):
+		if avatar:
+			var ground_y: float = 650.0
+			if terrain and terrain.has_method("get_ground_height_at"):
+				ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X + avatar_id * 100)  # Spread AI spawns
+			biplane.visible = true
+			biplane.position = Vector2(PLAYER_SPAWN_X + avatar_id * 100, ground_y - 12)
+			biplane.rotation = 0
+			biplane.velocity = Vector2.ZERO
+			if biplane.has_method("reset_flight_state"):
+				biplane.reset_flight_state()
+			# Reset specific avatar data
+			avatar.damage_state = Biplane.DamageState.INTACT
+			avatar.damage_percent = 0.0
+			avatar.flight_state = Biplane.FlightState.CRASHED
+			avatar.is_player = false
+			if biplane.has_method("set_game_active"):
+				biplane.set_game_active(true)
 	else:
 		_show_game_over()
 

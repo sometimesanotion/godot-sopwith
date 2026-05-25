@@ -2,7 +2,7 @@
 
 [ext_resource type="PackedScene" uid="uid://biplane_scene" path="res://scenes/biplane.tscn" id="1_biplane"]
 [ext_resource type="Script" path="res://scripts/enemy_ai.gd" id="2_ai"]
-[ext_resource type="Script" path="res://biplane.gd" id="3_biplane"]
+[ext_resource type="Script" path="res://scripts/biplane.gd" id="3_biplane"]
 [ext_resource type="Script" path="res://scripts/biplane_draw.gd" id="4_draw"]
 
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_enemy"]
