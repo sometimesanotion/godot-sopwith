@@ -208,7 +208,7 @@ static func _get_svg_path_from_params(model_params: Dictionary) -> String:
 @export var pixels_per_meter: float = 10.0
 
 @export_group("Aerodynamics")
-@export var air_density:         float = 1.225 * arcade_multiplier
+@export var air_density:         float = 1.225 * 2.0
 @export var stall_aoa:           float = 0.244
 
 @export_group("Throttle")
@@ -926,11 +926,15 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 			})
 			if impact_vel >= hard_landing:
 				_on_avatar_crashed(avatar)
+				if collider.has_method("take_damage"):
+					collider.take_damage(impact_vel / hard_landing * 400.0, self)
 				return
-			if impact_vel > soft_landing:
+			elif impact_vel > soft_landing:
 				var damage_pct: float = (impact_vel - soft_landing) / (hard_landing - soft_landing)
 				damage_pct = clampf(damage_pct, 0.0, 1.0)
 				take_damage(avatar, damage_pct * 100.0, collider)
+				if collider.has_method("take_damage"):
+					collider.take_damage(damage_pct * 200.0, self)
 			continue
 
 	if out.should_crash:
