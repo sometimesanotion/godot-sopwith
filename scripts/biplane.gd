@@ -892,19 +892,46 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 	# The analytical model checks center position vs terrain surface (pos_y >= ground_y - 2),
 	# missing contacts where only the collision shape's lower extent touches terrain.
 	# Physics contacts from state.get_contact_count() provide the real collision state.
-	if not inp.is_grounded:
-		var cc := state.get_contact_count()
-		for ci in range(cc):
-			var collider := state.get_contact_collider_object(ci)
-			if not collider:
-				continue
-			var ground_source := collider
-			if not ground_source.has_method("get_ground_height_at"):
-				ground_source = collider.get_parent()
-			if ground_source and ground_source.has_method("get_ground_height_at"):
+	var cc := state.get_contact_count()
+	for ci in range(cc):
+		var collider := state.get_contact_collider_object(ci)
+		if not collider:
+			continue
+		# Check if contact is terrain (has get_ground_height_at on itself or parent)
+		var ground_source: Node = collider
+		if not ground_source.has_method("get_ground_height_at"):
+			ground_source = collider.get_parent()
+		if ground_source and ground_source.has_method("get_ground_height_at"):
+			if not inp.is_grounded:
 				inp.is_grounded = true
 				out.v_perp = maxf(0.0, -inp.velocity.dot(inp.ground_normal))
-				break
+			continue
+		# Building/obstacle: StaticBody2D that isn't terrain
+		if collider is StaticBody2D:
+			var impulse: Vector2 = state.get_contact_impulse(ci)
+			var impulse_mag: float = impulse.length()
+			if impulse_mag <= 0.0:
+				continue
+			var model_params = avatar.model_params
+			var impact_vel: float = impulse_mag / model_params.get("mass_kg", 447.0)
+			var soft_landing: float = model_params.get("soft_landing_vperp", 80.0)
+			var hard_landing: float = model_params.get("hard_landing_vperp", 200.0)
+			_debug_forensic_log(avatar, "building_contact", {
+				"frame": _debug_frame_count,
+				"collider": collider.name,
+				"impulse": snapped(impulse_mag, 1.0),
+				"impact_vel": snapped(impact_vel, 1.0),
+				"soft": soft_landing,
+				"hard": hard_landing,
+			})
+			if impact_vel >= hard_landing:
+				_on_avatar_crashed(avatar)
+				return
+			if impact_vel > soft_landing:
+				var damage_pct: float = (impact_vel - soft_landing) / (hard_landing - soft_landing)
+				damage_pct = clampf(damage_pct, 0.0, 1.0)
+				take_damage(avatar, damage_pct * 100.0, collider)
+			continue
 
 	if out.should_crash:
 		DLog.crash_enter(avatar.id, out.crash_reason, {
