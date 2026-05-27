@@ -46,6 +46,13 @@ func _process(_delta: float) -> void:
 	_active_effects = _active_effects.filter(func(e): return is_instance_valid(e))
 	_effect_count = _active_effects.size()
 
+func _exit_tree() -> void:
+	for e in _active_effects:
+		if is_instance_valid(e):
+			e.queue_free()
+	_active_effects.clear()
+	_effect_count = 0
+
 func spawn_white_smoke(pos: Vector2, amount: int = 20) -> Node2D:
 	if _effect_count >= max_concurrent_effects:
 		return null

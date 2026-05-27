@@ -150,8 +150,10 @@ func _generate_terrain() -> void:
 		ground_points.append(Vector2(x, y))
 
 func get_ground_height_at(x: float) -> float:
+	if ground_points.size() < 2:
+		return BASE_Y
 	var index := int(x / SEGMENT_WIDTH)
-	index = clamp(index, 0, ground_points.size() - 2)
+	index = clampi(index, 0, ground_points.size() - 2)
 	var p1 := ground_points[index]
 	var p2 := ground_points[index + 1]
 	var t := (x - p1.x) / (p2.x - p1.x) if p2.x != p1.x else 0.0

@@ -1620,6 +1620,8 @@ func _start_spinning_out(avatar: AvatarData) -> void:
 
 func _on_avatar_crashed(avatar: AvatarData) -> void:
 	if _crash_processed.has(avatar.id):
+		return
+	else:
 		DLog.crash_guard(avatar.id, "_crash_processed", {
 			"px": snapped(global_position.x, 0.1),
 			"py": snapped(global_position.y, 0.1),
@@ -1627,7 +1629,7 @@ func _on_avatar_crashed(avatar: AvatarData) -> void:
 			"vy": snapped(velocity.y, 0.1),
 			"ground_y": snapped(_ground_y(global_position.x), 0.1),
 		})
-		return
+
 	_crash_processed[avatar.id] = true
 	var is_midair := avatar.is_airborne and avatar.flight_state != FlightState.LANDED and avatar.flight_state != FlightState.CRASHED
 	avatar.flight_state          = FlightState.CRASHED

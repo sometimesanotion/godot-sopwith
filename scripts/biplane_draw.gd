@@ -5,7 +5,7 @@ extends Node2D
 
 var _svg_sprite_name: String = "biplane"
 var _svg_size: Vector2 = Vector2(90, 54)
-var _draw_offset: Vector2 = Vector2(0, 6)
+var _draw_offset: Vector2 = Vector2(0, 4)
 
 func _ready() -> void:
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
