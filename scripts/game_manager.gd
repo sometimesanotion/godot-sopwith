@@ -7,9 +7,11 @@ signal bombs_changed(player_id: int, new_bombs: int)
 signal score_changed(player_id: int, new_score: int)
 signal screen_shake_requested(player_id: int, intensity: float)
 signal player_destroyed(player_id: int)
+signal model_changed(player_id: int, model_name: String)
 
 const MAX_LIVES := 5
 
+var game_fsm = null
 var game_state: String = "PLAYING"
 
 var terrain_seed: int = 0
@@ -31,34 +33,55 @@ var current_level: int = 1
 func get_level_multiplier() -> float:
 	return 1.0 + 0.1 * (current_level - 1)
 
-class PlayerData:
-	var avatar_id: int = 0
-	var lives: int = MAX_LIVES
-	var is_active: bool = false
-	var is_player: bool = true
-	var score: int = 0
-
-	func reset() -> void:
-		lives = MAX_LIVES
-		is_active = false
-		score = 0
-
-	func set_avatar_id(aid: int) -> void:
-		avatar_id = aid
-
 var _players: Dictionary = {}
+
+func is_player(avatar_id: int) -> bool:
+	return _players.has(avatar_id) and _players[avatar_id].is_player
 
 func _ready() -> void:
 	_load_settings()
 	reset_game()
+	_init_game_fsm()
+
+func _init_game_fsm() -> void:
+	var GameStateMachineClass = load("res://scripts/states/game/game_state_machine.gd")
+	game_fsm = GameStateMachineClass.new()
+	game_fsm.name = "GameStateMachine"
+
+	var state_scripts := {
+		"Title": load("res://scripts/states/game/title_state.gd"),
+		"Playing": load("res://scripts/states/game/playing_state.gd"),
+		"Paused": load("res://scripts/states/game/paused_state.gd"),
+		"GameOver": load("res://scripts/states/game/game_over_state.gd"),
+		"LevelComplete": load("res://scripts/states/game/level_complete_state.gd"),
+	}
+	var StateClass = load("res://scripts/state.gd")
+	for state_name in state_scripts:
+		var state_node = StateClass.new()
+		state_node.name = state_name
+		state_node.set_script(state_scripts[state_name])
+		game_fsm.add_child(state_node)
+
+	add_child(game_fsm)
+	game_fsm.start_state = game_fsm.get_node("Playing").get_path()
+	game_fsm.game_state_changed.connect(_on_game_state_changed)
+
+func _on_game_state_changed(state_name: String) -> void:
+	game_state = state_name
+
+func get_current_game_state() -> String:
+	if game_fsm and game_fsm.current_state:
+		return game_fsm.current_state.name
+	return game_state
 
 func get_player_data(player_id: int) -> PlayerData:
 	if not _players.has(player_id):
-		_players[player_id] = PlayerData.new()
+		var PlayerDataClass = load("res://scripts/player_data.gd")
+		_players[player_id] = PlayerDataClass.new()
 	return _players[player_id]
 
 func get_or_create_player(player_id: int) -> PlayerData:
-	var data := get_player_data(player_id)
+	var data = get_player_data(player_id)
 	data.is_active = true
 	return data
 
@@ -98,10 +121,13 @@ func reset_game() -> void:
 	for pid in _players:
 		_players[pid] = 0
 	emit_signal("score_changed", 0)
+	if game_fsm and game_fsm._active:
+		game_fsm.transition_to(&"playing")
 
 func register_player(player_id: int) -> PlayerData:
-	var data := get_or_create_player(player_id)
+	var data = get_or_create_player(player_id)
 	data.reset()
+	data.is_player = true
 	data.is_active = true
 	emit_signals_for_player(player_id)
 	return data
@@ -111,10 +137,11 @@ func unregister_player(player_id: int) -> void:
 		_players[player_id].is_active = false
 
 func emit_signals_for_player(player_id: int) -> void:
-	var data := get_player_data(player_id)
+	var data = get_player_data(player_id)
 	lives_changed.emit(player_id, data.lives)
 
-	var avatar: Biplane.AvatarData = Biplane.get_avatar(player_id)
+	var BiplaneClass = load("res://scripts/biplane.gd")
+	var avatar = BiplaneClass.get_avatar(player_id)
 	if avatar:
 		fuel_changed.emit(player_id, avatar.fuel)
 		ammo_changed.emit(player_id, avatar.ammo)
@@ -124,17 +151,17 @@ func get_lives(player_id: int) -> int:
 	return get_player_data(player_id).lives
 
 func set_lives(player_id: int, value: int) -> void:
-	var data := get_player_data(player_id)
+	var data = get_player_data(player_id)
 	data.lives = value
 	lives_changed.emit(player_id, data.lives)
 
 func add_score(player_id: int, points: int) -> void:
-	var data := get_player_data(player_id)
+	var data = get_player_data(player_id)
 	data.score += points
 	score_changed.emit(data.score)
 
 func destroy_player(player_id: int) -> void:
-	var data := get_player_data(player_id)
+	var data = get_player_data(player_id)
 	data.lives -= 1
 	lives_changed.emit(player_id, data.lives)
 	player_destroyed.emit(player_id)
@@ -143,6 +170,10 @@ func destroy_player(player_id: int) -> void:
 
 func game_over() -> void:
 	game_state = "GAME_OVER"
+	if game_fsm and game_fsm._active:
+		game_fsm.transition_to(&"game_over")
 
 func game_win() -> void:
 	game_state = "WINNER"
+	if game_fsm and game_fsm._active:
+		game_fsm.transition_to(&"level_complete")

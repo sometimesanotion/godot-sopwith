@@ -1,6 +1,6 @@
 extends StaticBody2D
 
-@export var health: float = 50.0
+var damage: DamageData = DamageData.new()
 @export var max_health: float = 50.0
 @export var target_type: String = "building"
 @export var has_aa: bool = false
@@ -13,19 +13,18 @@ var is_destroyed: bool = false
 var aa_timer: float = 0.0
 var polygon_points: PackedVector2Array = []
 var _collision_polygon: CollisionPolygon2D = null
-var original_health: float = 50.0
 var _svg_sprite_name: String = ""
 
 const AA_PROJECTILE := preload("res://scenes/bullet.tscn")
-const SHATTER_SCENE := preload("res://scenes/shatter_effect.tscn")
-const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
 
 func _ready() -> void:
 	add_to_group("destructible")
 	add_to_group("ground_target")
 	_svg_sprite_name = target_type
-	health = max_health
-	original_health = health
+	damage = DamageData.new()
+	if damage.damage_state_changed.is_connected(_on_ground_damage_state_changed):
+		damage.damage_state_changed.disconnect(_on_ground_damage_state_changed)
+	damage.damage_state_changed.connect(_on_ground_damage_state_changed)
 	_create_visuals()
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
@@ -73,6 +72,11 @@ func _create_visuals() -> void:
 		_create_building(_collision_polygon)
 	add_child(_collision_polygon)
 	polygon_points = _collision_polygon.polygon
+	var min_y := INF
+	var max_y := -INF
+	for pt in polygon_points:
+		min_y = min(min_y, pt.y)
+		max_y = max(max_y, pt.y)
 
 func _create_hangar(polygon: CollisionPolygon2D) -> void:
 	var points := PackedVector2Array([
@@ -202,8 +206,12 @@ func take_damage(amount: float, attacker: Node) -> void:
 	if is_destroyed:
 		return
 
-	health -= amount
-	if health <= 0:
+	if max_health <= 0:
+		return
+
+	var dmg_pct := amount / max_health
+	damage.take_damage(dmg_pct)
+	if damage.is_destroyed():
 		_destroy(attacker)
 		return
 
@@ -213,21 +221,28 @@ func take_damage(amount: float, attacker: Node) -> void:
 
 func _get_player_id_from_attacker(attacker: Node) -> int:
 	if attacker and attacker.has_method("is_player_plane"):
-		var avatar = Biplane.get_avatar(0)
-		if avatar and avatar.is_player:
-			return avatar.id
+		if GameManager and GameManager.is_player(0):
+			return 0
 	return -1
+
+func _on_ground_damage_state_changed(_from: DamageData.DamageState, _to: DamageData.DamageState) -> void:
+	if is_destroyed:
+		return
+	var pos := global_position
+	if EffectManager:
+		EffectManager.spawn_damage_effects(pos, damage.damage_state, damage.damage_percent)
 
 func _destroy(attacker: Node) -> void:
 	is_destroyed = true
 
-	var huge := GameManager.huge_explosions if GameManager else true
-	if target_type == "fuel_depot" and huge:
-		_create_fuel_depot_explosion()
-		if GameManager:
-			GameManager.request_screen_shake(50.0)
-	else:
-		_create_normal_explosion()
+	var pos := global_position
+
+	if EffectManager:
+		var huge := GameManager.huge_explosions if GameManager else true
+		if target_type == "fuel_depot" and huge:
+			EffectManager.spawn_explosion_style(pos, EffectManager.ExplosionStyle.FUEL_DEPOT, EffectManager.FireColorPreset.STANDARD, polygon_points)
+		else:
+			EffectManager.spawn_explosion_style(pos, EffectManager.ExplosionStyle.NORMAL, EffectManager.FireColorPreset.STANDARD, polygon_points)
 
 	_create_wreck()
 
@@ -242,79 +257,11 @@ func _destroy(attacker: Node) -> void:
 
 	queue_free()
 
-func _create_fuel_depot_explosion() -> void:
-	for i in range(5):
-		var explosion: Node = EXPLOSION_SCENE.instantiate()
-		explosion.global_position = global_position + Vector2(randf_range(-30, 30), randf_range(-40, 10))
-		get_parent().add_child(explosion)
-
-	for i in range(5):
-		var fire := GPUParticles2D.new()
-		fire.name = "WreckFire"
-		fire.emitting = true
-		fire.one_shot = false
-		fire.explosiveness = 0.0
-		fire.amount = 30
-		fire.lifetime = 4.0
-		fire.position = global_position + Vector2(randf_range(-20, 20), randf_range(-20, 0))
-
-		var fire_mat := ParticleProcessMaterial.new()
-		fire_mat.emission_shape = 1
-		fire_mat.emission_sphere_radius = 15.0
-		fire_mat.gravity = Vector3(0, -50, 0)
-		fire_mat.spread = 180.0
-		fire_mat.initial_velocity_min = 30.0
-		fire_mat.initial_velocity_max = 80.0
-		fire_mat.scale_min = 3.0
-		fire_mat.scale_max = 8.0
-		fire_mat.color = Color(1, 0.4, 0.1, 1)
-		fire.process_material = fire_mat
-		get_parent().add_child(fire)
-
-	for i in range(3):
-		var smoke := GPUParticles2D.new()
-		smoke.name = "WreckSmoke"
-		smoke.emitting = true
-		smoke.one_shot = false
-		smoke.amount = 20
-		smoke.lifetime = 6.0
-		smoke.position = global_position + Vector2(randf_range(-15, 15), randf_range(-15, 0))
-
-		var smoke_mat := ParticleProcessMaterial.new()
-		smoke_mat.emission_shape = 1
-		smoke_mat.emission_sphere_radius = 20.0
-		smoke_mat.gravity = Vector3(0, -15, 0)
-		smoke_mat.spread = 180.0
-		smoke_mat.initial_velocity_min = 20.0
-		smoke_mat.initial_velocity_max = 50.0
-		smoke_mat.scale_min = 4.0
-		smoke_mat.scale_max = 10.0
-		smoke_mat.color = Color(0.1, 0.1, 0.1, 0.8)
-		smoke.process_material = smoke_mat
-		get_parent().add_child(smoke)
-
-	if polygon_points.size() >= 3:
-		var shatter: Node = SHATTER_SCENE.instantiate()
-		shatter.setup(polygon_points, Color(0.2, 0.5, 0.2), global_position)
-		get_parent().add_child(shatter)
-
 func _create_fire_plume() -> Node2D:
-	var plume := Node2D.new()
-	plume.set_script(_get_fire_plume_script())
-	plume.setup(10.0)
-	return plume
-
-func _get_fire_plume_script() -> GDScript:
-	return load("res://scripts/fire_plume.gd")
+	return EffectManager.spawn_open_fire_with_smoke(global_position, 10.0) if EffectManager else null
 
 func _create_heavy_black_smoke() -> Node2D:
-	var smoke := Node2D.new()
-	smoke.set_script(_get_heavy_smoke_script())
-	smoke.setup(5.0, Color(0.05, 0.05, 0.05, 0.9))
-	return smoke
-
-func _get_heavy_smoke_script() -> GDScript:
-	return load("res://scripts/smoke_puff.gd")
+	return EffectManager.spawn_black_smoke(global_position, 30) if EffectManager else null
 
 func _damage_nearby_planes(radius: float) -> void:
 	var planes = get_tree().get_nodes_in_group("destructible")
@@ -323,40 +270,17 @@ func _damage_nearby_planes(radius: float) -> void:
 			if plane.global_position.distance_to(global_position) < radius:
 				plane.take_damage(50.0, self)
 
-func _create_normal_explosion() -> void:
-	var explosion: Node = EXPLOSION_SCENE.instantiate()
-	explosion.global_position = global_position
-	get_parent().add_child(explosion)
-
-	var color := Color(0.3, 0.3, 0.35)
-	if target_type == "hangar":
-		color = Color(0.4, 0.2, 0.2)
-	elif target_type == "tank":
-		color = Color(0.2, 0.3, 0.2)
-
-	if polygon_points.size() >= 3:
-		var shatter: Node = SHATTER_SCENE.instantiate()
-		shatter.setup(polygon_points, color, global_position)
-		get_parent().add_child(shatter)
-
-	if GameManager:
-		GameManager.request_screen_shake(15.0)
-
 func _create_building_smoke_puffs() -> void:
+	if not EffectManager:
+		return
 	for i in range(3):
-		var smoke_puff := _create_fading_smoke_puff()
-		smoke_puff.global_position = global_position + Vector2(randf_range(-15, 15), randf_range(-35, -10))
-		smoke_puff.scale = Vector2(5, 5)
-		get_parent().add_child(smoke_puff)
+		var smoke_pos := global_position + Vector2(randf_range(-15, 15), randf_range(-35, -10))
+		var smoke := EffectManager.spawn_black_smoke(smoke_pos, 20)
+		if smoke:
+			smoke.scale = Vector2(5, 5)
 
 func _create_fading_smoke_puff() -> Node2D:
-	var puff := Node2D.new()
-	puff.set_script(_get_smoke_puff_script())
-	puff.setup(2.0, Color(0.2, 0.2, 0.2, 0.8))
-	return puff
-
-func _get_smoke_puff_script() -> GDScript:
-	return load("res://scripts/smoke_puff.gd")
+	return EffectManager.spawn_black_smoke(global_position, 20) if EffectManager else null
 
 func _create_wreck() -> void:
 	var wreck: StaticBody2D = StaticBody2D.new()
@@ -378,7 +302,7 @@ func _create_wreck() -> void:
 	wreck_draw.set_meta("wreck_points", wrecked_points)
 	wreck.add_child(wreck_draw)
 
-	get_parent().add_child(wreck)
+	get_parent().call_deferred("add_child", wreck)
 
 func _get_wreck_color() -> Color:
 	var color := Color(0.15, 0.15, 0.18)
@@ -393,57 +317,56 @@ func _get_wreck_color() -> Color:
 func _get_wreck_draw_script() -> GDScript:
 	return load("res://scripts/wreck_draw.gd")
 
-func _spawn_violent_explosion() -> void:
-	var explosion: Node = EXPLOSION_SCENE.instantiate()
-	explosion.global_position = global_position + Vector2(randf_range(-20, 20), randf_range(-30, 10))
-	get_parent().add_child(explosion)
-
-	var fire := GPUParticles2D.new()
-	fire.emitting = true
-	fire.one_shot = true
-	fire.explosiveness = 1.0
-	fire.amount = 40
-	fire.lifetime = 0.8
-	fire.position = Vector2.ZERO
-
-	var fire_mat := ParticleProcessMaterial.new()
-	fire_mat.emission_shape = 1
-	fire_mat.emission_sphere_radius = 20.0
-	fire_mat.gravity = Vector3(0, -80, 0)
-	fire_mat.spread = 180.0
-	fire_mat.initial_velocity_min = 100.0
-	fire_mat.initial_velocity_max = 250.0
-	fire_mat.scale_min = 4.0
-	fire_mat.scale_max = 10.0
-	fire_mat.color = Color(1, 0.3, 0, 1)
-	fire.process_material = fire_mat
-	add_child(fire)
-
-	var smoke := GPUParticles2D.new()
-	smoke.emitting = true
-	smoke.one_shot = true
-	smoke.explosiveness = 0.8
-	smoke.amount = 30
-	smoke.lifetime = 1.5
-	smoke.position = Vector2.ZERO
-
-	var smoke_mat := ParticleProcessMaterial.new()
-	smoke_mat.emission_shape = 1
-	smoke_mat.emission_sphere_radius = 25.0
-	smoke_mat.gravity = Vector3(0, -20, 0)
-	smoke_mat.spread = 180.0
-	smoke_mat.initial_velocity_min = 50.0
-	smoke_mat.initial_velocity_max = 120.0
-	smoke_mat.scale_min = 5.0
-	smoke_mat.scale_max = 12.0
-	smoke_mat.color = Color(0.1, 0.1, 0.1, 1)
-	smoke.process_material = smoke_mat
-	add_child(smoke)
-
-	if polygon_points.size() >= 3:
-		var shatter: Node = SHATTER_SCENE.instantiate()
-		shatter.setup(polygon_points, Color(0.2, 0.5, 0.2), global_position)
-		get_parent().add_child(shatter)
-
 func get_health() -> float:
-	return health
+	return (1.0 - damage.damage_percent) * max_health
+
+func get_damage_percent() -> float:
+	return damage.damage_percent
+
+func get_damage_state() -> int:
+	return damage.damage_state
+
+func get_visual_top() -> float:
+	var min_y := INF
+	for pt in polygon_points:
+		min_y = min(min_y, pt.y)
+	return global_position.y + min_y
+
+func get_polygon_bounds() -> Dictionary:
+	var min_y := INF
+	var max_y := -INF
+	var min_x := INF
+	var max_x := -INF
+	for pt in polygon_points:
+		min_y = min(min_y, pt.y)
+		max_y = max(max_y, pt.y)
+		min_x = min(min_x, pt.x)
+		max_x = max(max_x, pt.x)
+	return {
+		"min_y": min_y,
+		"max_y": max_y,
+		"min_x": min_x,
+		"max_x": max_x,
+		"global_top_y": global_position.y + min_y,
+		"global_bottom_y": global_position.y + max_y,
+	}
+
+func get_collision_response(other: Node, other_avatar: Variant, other_speed: float) -> Biplane.CollisionResult:
+	var result := Biplane.CollisionResult.new()
+	if is_destroyed:
+		return result
+	var hit_r: float = _get_collision_radius()
+	var dist := global_position.distance_to(other.global_position)
+	result.impact_speed = other_speed
+
+	if dist < hit_r:
+		result.hit = true
+		result.damage = clampf(other_speed / 214.0, 0.3, 0.8)
+		result.is_midair = false
+	return result
+
+func _get_collision_radius() -> float:
+	var pbounds := get_polygon_bounds()
+	var horizontal_extent := maxf(abs(pbounds["min_x"]), abs(pbounds["max_x"]))
+	var vertical_extent := maxf(abs(pbounds["min_y"]), abs(pbounds["max_y"]))
+	return maxf(horizontal_extent, vertical_extent) + 5.0

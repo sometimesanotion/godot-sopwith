@@ -9,8 +9,6 @@ const TERRAIN_LENGTH := 16384.0
 const VIEWPORT_MIN_X := 0.0
 const VIEWPORT_MAX_X := 1280.0
 const HOME_BASE := Vector2(6500, 650)
-const RESPAWN_DELAY := 3.0
-const MAX_RESPAWN_DELAY := 15.0	# 15 seconds for DESTROYED state
 
 const RUNWAY_START := 6500.0
 const RUNWAY_END := 7100.0
@@ -37,7 +35,6 @@ var enemies: Array = []
 var minimap_instance: Control = null
 var is_vs_computer: bool = false
 var _showing_title_screen: bool = false
-var _respawn_queue: Dictionary[int, float] = {}
 
 func _get_plane_model_for_faction(faction: String) -> String:
 	match faction:
@@ -64,6 +61,10 @@ func _ready() -> void:
 	_load_keybindings()
 	if GameManager:
 		GameManager.screen_shake_requested.connect(_on_screen_shake)
+	if RespawnManager:
+		if RespawnManager.respawn_ready.is_connected(_respawn_biplane):
+			RespawnManager.respawn_ready.disconnect(_respawn_biplane)
+		RespawnManager.respawn_ready.connect(_respawn_biplane)
 	print("Main _ready: showing world with title overlay")
 	_show_startup_world()
 
@@ -117,15 +118,19 @@ func _abort_game() -> void:
 		return
 	_showing_title_screen = false
 	game_state = "TITLE"
+	if RespawnManager:
+		RespawnManager.clear_all()
 	is_paused = false
 	is_vs_computer = false
 	if biplane:
-		biplane.velocity = Vector2.ZERO
+		var ground_y := 650.0
+		if terrain and terrain.has_method("get_ground_height_at"):
+			ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
+		biplane.teleport_to(Vector2(PLAYER_SPAWN_X, ground_y - Biplane.GROUND_SURFACE_OFFSET))
 		biplane.visible = false
 		biplane.set_game_active(false)
-		var avatar = biplane.get_avatar_data(0)
-		if avatar:
-			avatar.is_player = true
+		if GameManager:
+			GameManager.get_player_data(0).is_player = true
 	if pause_menu:
 		pause_menu.queue_free()
 		pause_menu = null
@@ -180,8 +185,13 @@ func _on_screen_shake(intensity: float) -> void:
 	screen_shake_intensity = intensity
 
 func _show_startup_world() -> void:
-	if title_screen and is_instance_valid(title_screen):
-		return
+	if biplane:
+		var ground_y := 650.0
+		if terrain and terrain.has_method("get_ground_height_at"):
+			ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
+		biplane.teleport_to(Vector2(PLAYER_SPAWN_X, ground_y - Biplane.GROUND_SURFACE_OFFSET))
+		biplane.visible = false
+		biplane.set_game_active(false)
 	if terrain and terrain.has_method("generate"):
 		terrain.generate()
 		terrain.visible = true
@@ -190,11 +200,12 @@ func _show_startup_world() -> void:
 		camera.position = Vector2(TERRAIN_LENGTH * 0.5, 400)
 		camera.zoom = Vector2(0.3, 0.3)
 		camera.reset_smoothing()
-	if biplane:
-		biplane.visible = false
-		biplane.set_game_active(false)
 	if ui:
 		ui.visible = false
+	if title_screen and is_instance_valid(title_screen):
+		title_screen.queue_free()
+		title_screen = null
+		_showing_title_screen = false
 	_show_title_screen()
 
 func _show_title_screen() -> void:
@@ -237,36 +248,18 @@ func _start_playing() -> void:
 	if terrain and terrain.has_method("generate"):
 		terrain.visible = true
 
-	if biplane:
-		biplane.visible = true
-		biplane.set_game_active(true)
-		if SoundManager:
-			SoundManager.start_engine()
-			SoundManager.set_engine_rpm(0.0)
-	if camera:
-		camera.enabled = true
-		camera.zoom = Vector2(1, 1)
-		camera.position = Vector2(PLAYER_SPAWN_X, 400)
-	if ui:
-		ui.visible = true
+	var ground_y := 650.0
+	if terrain and terrain.has_method("get_ground_height_at"):
+		ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
+
+	biplane.visible = true
+	biplane.set_game_active(true)
 
 	if GameManager:
 		GameManager.reset_game()
 		var player_data := GameManager.register_player(0)
 		player_data.set_avatar_id(0)
-
-	var ground_y := 650.0
-	if terrain and terrain.has_method("get_ground_height_at"):
-		ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
-
-	if biplane:
-		biplane.position = Vector2(PLAYER_SPAWN_X, ground_y - 12)
-		biplane.rotation = 0
-		biplane.velocity = Vector2.ZERO
-		if biplane.has_method("reset_flight_state"):
-			biplane.reset_flight_state()
 		var avatar := biplane.get_avatar_data(0)
-		avatar.is_player = true
 		if biplane.has_method("assign_plane_model"):
 			var player_model := _get_plane_model_for_faction(GameManager.player_faction if GameManager else "British")
 			biplane.assign_plane_model(avatar, player_model)
@@ -277,19 +270,41 @@ func _start_playing() -> void:
 				player_faction_enum = Biplane.Faction.FRENCH
 			elif GameManager.player_faction == "German":
 				player_faction_enum = Biplane.Faction.GERMAN
-			biplane.setup_faction_homebase(0, PLAYER_SPAWN_X, 200.0, Vector2(PLAYER_SPAWN_X, ground_y - 12), 0.0, player_faction_enum)
+			biplane.setup_faction_homebase(0, PLAYER_SPAWN_X, 200.0, Vector2(PLAYER_SPAWN_X, ground_y - Biplane.GROUND_SURFACE_OFFSET), 0.0, player_faction_enum)
 		if biplane.has_method("set_home_base"):
 			biplane.set_home_base(avatar, 0)
-		biplane.add_to_group("player")
-		biplane.add_to_group("destructible")
-		if biplane.has_signal("crashed"):
-			if biplane.crashed.is_connected(_on_biplane_crashed):
-				biplane.crashed.disconnect(_on_biplane_crashed)
-			biplane.crashed.connect(_on_biplane_crashed)
-		if biplane.has_signal("damaged"):
-			if biplane.damaged.is_connected(_on_biplane_damaged):
-				biplane.damaged.disconnect(_on_biplane_damaged)
-			biplane.damaged.connect(_on_biplane_damaged)
+
+	if biplane.has_method("respawn"):
+		biplane.respawn(0, camera)
+	elif biplane.has_method("teleport_to"):
+		biplane.teleport_to(Vector2(PLAYER_SPAWN_X, ground_y - Biplane.GROUND_SURFACE_OFFSET))
+	else:
+		biplane.position = Vector2(PLAYER_SPAWN_X, ground_y - Biplane.GROUND_SURFACE_OFFSET)
+		biplane.rotation = 0
+		biplane.velocity = Vector2.ZERO
+
+	if SoundManager:
+		SoundManager.start_engine()
+		SoundManager.set_engine_rpm(0.0)
+	if camera:
+		camera.enabled = true
+		camera.zoom = Vector2(1, 1)
+		camera.position = Vector2(PLAYER_SPAWN_X, 400)
+	if ui:
+		ui.visible = true
+
+	biplane.add_to_group("player")
+	biplane.is_player_controlled = true
+	biplane.add_to_group("destructible")
+	if biplane.has_signal("crashed"):
+		if biplane.crashed.is_connected(_on_biplane_crashed):
+			biplane.crashed.disconnect(_on_biplane_crashed)
+		biplane.crashed.connect(_on_biplane_crashed)
+	if biplane.has_signal("damaged"):
+		if biplane.damaged.is_connected(_on_biplane_damaged):
+			biplane.damaged.disconnect(_on_biplane_damaged)
+		biplane.damaged.connect(_on_biplane_damaged)
+
 	if camera:
 		camera.position = Vector2(PLAYER_SPAWN_X, 400)
 	_create_minimap()
@@ -334,11 +349,11 @@ func _spawn_enemies_and_targets() -> void:
 		enemy_home_positions.append(base_x)
 		if not spawn_enemies:
 			continue
-		var enemy: CharacterBody2D = ENEMY_SCENE.instantiate()
+		var enemy: RigidBody2D = ENEMY_SCENE.instantiate()
 		var ground_y := 650.0
 		if terrain and terrain.has_method("get_ground_height_at"):
 			ground_y = terrain.get_ground_height_at(base_x)
-		enemy.position = Vector2(base_x + 50, ground_y - 12)
+		enemy.position = Vector2(base_x + 50, ground_y - Biplane.GROUND_SURFACE_OFFSET)
 		enemy.rotation = 0
 		enemy.add_to_group("destructible")
 		if enemy.has_node("EnemyAI"):
@@ -351,7 +366,6 @@ func _spawn_enemies_and_targets() -> void:
 			enemy.setup_faction_homebase(i, base_x, 200.0, Vector2(base_x + 50, 650 - 12), 0.0, enemy_faction_enum)
 		if enemy.has_method("get_avatar_data"):
 			var enemy_avatar = enemy.get_avatar_data(0)
-			enemy_avatar.is_player = false
 			if enemy.has_method("assign_plane_model") and enemy.has_method("get_default_plane_model"):
 				var enemy_model = enemy.get_default_plane_model(enemy_faction_enum)
 				enemy.assign_plane_model(enemy_avatar, enemy_model)
@@ -359,6 +373,7 @@ func _spawn_enemies_and_targets() -> void:
 			enemy.set_home_base(enemy.get_avatar_data(0), i)
 		if enemy.has_method("set_game_active"):
 			enemy.set_game_active(true)
+		enemy.is_player_controlled = false
 		if is_vs_computer:
 			var takeoff_delay := i * 1.5
 			if enemy.has_node("EnemyAI"):
@@ -413,12 +428,37 @@ func _is_position_occupied(x: float, half_width: float) -> bool:
 func _mark_position_occupied(x: float, half_width: float) -> void:
 	_occupied_positions.append(Vector2(x, half_width))
 
+func _log_target_hypoD(target: Node2D, target_x: float, ground_at_x: float) -> void:
+	var placed_y := target.global_position.y
+	var poly_max_y := 0.0
+	var poly_min_y := 0.0
+	if target.has_method("get_polygon_bounds"):
+		var bounds := target.get_polygon_bounds() as Dictionary
+		poly_min_y = bounds.get("min_y", 0.0)
+		poly_max_y = bounds.get("max_y", 0.0)
+	DLog.info("hypoD_target_placement", {
+		"type": target.target_type if "target_type" in target else "unknown",
+		"placed_x": snapped(target_x, 0.1),
+		"placed_y": snapped(placed_y, 0.1),
+		"ground_y_at_x": snapped(ground_at_x, 0.1),
+		"poly_min_y": snapped(poly_min_y, 0.1),
+		"poly_max_y": snapped(poly_max_y, 0.1),
+		"vis_top": snapped(placed_y + poly_min_y, 0.1),
+		"vis_bottom": snapped(placed_y + poly_max_y, 0.1),
+		"y_offset_from_ground": snapped(placed_y - ground_at_x, 0.1),
+		"hypoD": "placed_y=%.0f ground_y=%.0f vis_bottom_above_ground=%.0f needed_shift=%.0f" % [
+			placed_y, ground_at_x,
+			(placed_y + poly_max_y) - ground_at_x,
+			-ground_at_x + placed_y - poly_max_y
+		],
+	})
+
 func _create_home_base() -> void:
 	var ground_y := 650.0
 	if terrain and terrain.has_method("get_ground_height_at"):
 		ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
 
-	var runway_left = RUNWAY_START
+	var runway_left = RUNWAY_START - 150.0
 	var building_hw = _get_target_half_width("building")
 
 	for i in range(2):
@@ -429,6 +469,7 @@ func _create_home_base() -> void:
 		building.has_aa = false
 		building.is_enemy = false
 		add_child(building)
+		# _log_target_hypoD(building, building_x, ground_y)
 		_mark_position_occupied(building_x, building_hw)
 
 	var depot_hw = _get_target_half_width("fuel_depot")
@@ -442,6 +483,7 @@ func _create_home_base() -> void:
 		fuel_depot.has_aa = false
 		fuel_depot.is_enemy = false
 		add_child(fuel_depot)
+		# _log_target_hypoD(fuel_depot, depot_x, ground_y)
 		_mark_position_occupied(depot_x, depot_hw)
 
 func _create_enemy_bases() -> void:
@@ -466,6 +508,7 @@ func _create_enemy_bases() -> void:
 			building.is_enemy = true
 			building.add_to_group("enemy_target")
 			add_child(building)
+			# _log_target_hypoD(building, building_x, ground_y)
 			_mark_position_occupied(building_x, building_hw)
 
 		var depot_hw = _get_target_half_width("fuel_depot")
@@ -480,6 +523,7 @@ func _create_enemy_bases() -> void:
 			fuel_depot.is_enemy = true
 			fuel_depot.add_to_group("enemy_target")
 			add_child(fuel_depot)
+			# _log_target_hypoD(fuel_depot, depot_x, ground_y)
 			_mark_position_occupied(depot_x, depot_hw)
 
 		var tanks_setting: String = GameManager.enemy_tanks if GameManager else "Normal"
@@ -499,8 +543,10 @@ func _create_enemy_bases() -> void:
 				continue
 			var target: Node2D = GROUND_TARGET_SCENE.instantiate()
 			target.target_type = target_type
+			var target_ground_y := ground_y
 			if terrain and terrain.has_method("get_ground_height_at"):
-				target.position = Vector2(target_x, terrain.get_ground_height_at(target_x))
+				target_ground_y = terrain.get_ground_height_at(target_x)
+				target.position = Vector2(target_x, target_ground_y)
 			else:
 				target.position = Vector2(target_x, ground_y)
 			if target_type == "building":
@@ -510,6 +556,7 @@ func _create_enemy_bases() -> void:
 			target.is_enemy = true
 			target.add_to_group("enemy_target")
 			add_child(target)
+			# _log_target_hypoD(target, target_x, target_ground_y)
 			_mark_position_occupied(target_x, target_hw)
 
 func _physics_process(delta: float) -> void:
@@ -521,129 +568,37 @@ func _physics_process(delta: float) -> void:
 		_update_camera(delta)
 		_update_minimap()
 
-	# Core respawn check: if DESTROYED, set 15-second respawn if no shorter respawn exists
-	if biplane and biplane.has_method("get_avatar_data"):
-		# Check all avatars (both player and AI)
-		for avatar_id in biplane._avatars:
-			var avatar = biplane._avatars[avatar_id]
-			if avatar and avatar.damage_state == Biplane.DamageState.DESTROYED:
-				# Check if we have a current respawn time
-				var current_respawn_time = _respawn_queue.get(avatar_id, 999.0)  # Default to high value if not queued
-				var new_respawn_time = MAX_RESPAWN_DELAY
-				
-				# Only set respawn if it's shorter than existing one or no respawn exists
-				if new_respawn_time < current_respawn_time:
-					if not _respawn_queue.has(avatar_id):
-						DLog.respawn_queue(avatar_id, "add", { "delay": new_respawn_time, "from": "destroyed_state" })
-					else:
-						# Replace existing respawn with shorter one
-						_respawn_queue[avatar_id] = new_respawn_time
-						DLog.respawn_queue(avatar_id, "replace", { "delay": new_respawn_time, "from": "destroyed_state" })
-					_queue_respawn(avatar_id, new_respawn_time)
-
-	# Legacy check for DESTROYED+grounded (handles edge cases like destroyed while parked)
-	if biplane and biplane.has_method("get_avatar_data") and biplane.has_method("is_grounded"):
-		# Check all avatars (both player and AI)
-		for avatar_id in biplane._avatars:
-			var avatar = biplane._avatars[avatar_id]
-			if avatar and avatar.damage_state == Biplane.DamageState.DESTROYED and not _respawn_queue.has(avatar_id):
-				if biplane.is_grounded(avatar) or avatar.has_hit_ground:
-					DLog.respawn_queue(avatar_id, "add", { "delay": RESPAWN_DELAY, "from": "destroyed_grounded" })
-				_queue_respawn(avatar_id, RESPAWN_DELAY)
-
-	# Process respawn queue (per-avatar, prevents duplicates).
-	var to_remove: Array[int] = []
-	for avatar_id in _respawn_queue:
-		_respawn_queue[avatar_id] -= delta
-		if _respawn_queue[avatar_id] <= 0.0:
-			DLog.respawn_queue(avatar_id, "fire", { "lives_remaining": GameManager.get_lives(0) })
-			_respawn_biplane()
-			to_remove.append(avatar_id)
-	for id in to_remove:
-		DLog.respawn_queue(id, "remove", {})
-		_respawn_queue.erase(id)
-
-func _on_biplane_crashed() -> void:
-	if _respawn_queue.has(0):
-		DLog.crash_guard(0, "_respawn_queue.has")
-		return
-	if biplane and biplane.has_method("create_explosion") and not _respawn_queue.has(0):
-		biplane.create_explosion()
+func _on_biplane_crashed(is_midair: bool = false) -> void:
+	if biplane and biplane.has_method("create_explosion"):
+		biplane.create_explosion(is_midair)
 		GameManager.request_screen_shake(25.0)
 	if SoundManager:
 		SoundManager.stop_engine()
 		SoundManager.play_sfx(SoundManager.SoundEvent.EXPLOSION)
-	DLog.respawn_queue(0, "add", { "delay": RESPAWN_DELAY, "from": "crashed_signal" })
-	_queue_respawn(0)
+	var delay := RespawnManager.MAX_RESPAWN_DELAY if is_midair else RespawnManager.RESPAWN_DELAY
+	RespawnManager.queue_respawn(0, delay)
 
 func _on_biplane_damaged(impact_force: float, v_perp: float) -> void:
 	GameManager.request_screen_shake(10.0)
 	if SoundManager:
 		SoundManager.play_sfx(SoundManager.SoundEvent.BUMP)
 
-func _queue_respawn(avatar_id: int, delay: float = RESPAWN_DELAY) -> void:
-	# Check if we already have a respawn time for this avatar
-	if _respawn_queue.has(avatar_id):
-		var existing_delay = _respawn_queue[avatar_id]
-		if delay < existing_delay:
-			# Replace existing respawn with shorter one
-			_respawn_queue[avatar_id] = delay
-			DLog.respawn_queue(avatar_id, "replace", { "delay": delay, "from": "shorter_replace" })
-		else:
-			# Keep existing respawn, it's shorter or equal
-			DLog.crash_guard(avatar_id, "_respawn_queue.has")
-			return
-	else:
-		# No existing respawn, add new one
-		_respawn_queue[avatar_id] = delay
-		DLog.respawn_queue(avatar_id, "add", { "delay": delay, "from": "new_queue" })
-
 func _respawn_biplane(avatar_id: int = 0) -> void:
-	# Handle player respawn
-	var avatar = biplane._avatars.get(avatar_id)
+	if not biplane or not biplane.has_method("respawn"):
+		return
 
-	if avatar_id == 0 and GameManager and GameManager.get_lives(0) > 0:
-		var ground_y: float = 650.0
-		if terrain and terrain.has_method("get_ground_height_at"):
-			ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
-		biplane.visible = true
-		biplane.position = Vector2(PLAYER_SPAWN_X, ground_y - 12)
-		biplane.rotation = 0
-		biplane.velocity = Vector2.ZERO
-		if biplane.has_method("reset_flight_state"):
-			biplane.reset_flight_state()
-		if biplane.has_method("set_game_active"):
-			biplane.set_game_active(true)
-		if camera:
-			camera.position = Vector2(PLAYER_SPAWN_X, ground_y - 250)
-		GameManager.fuel_changed.emit(0, avatar.fuel)
-		GameManager.ammo_changed.emit(0, avatar.ammo)
-		GameManager.bombs_changed.emit(0, avatar.bombs)
-		if GameManager and biplane and avatar:
-			avatar.fuel = 100.0
-			avatar.ammo = 500
-			avatar.bombs = avatar.model_params.get("max_bombs", 0)
-	
-	# Handle AI respawn (avatar_id > 0)
-	elif avatar_id > 0 and biplane.has_method("get_avatar_data"):
-		if avatar:
-			var ground_y: float = 650.0
-			if terrain and terrain.has_method("get_ground_height_at"):
-				ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X + avatar_id * 100)  # Spread AI spawns
-			biplane.visible = true
-			biplane.position = Vector2(PLAYER_SPAWN_X + avatar_id * 100, ground_y - 12)
-			biplane.rotation = 0
-			biplane.velocity = Vector2.ZERO
-			if biplane.has_method("reset_flight_state"):
-				biplane.reset_flight_state()
-			# Reset specific avatar data
-			avatar.damage_state = Biplane.DamageState.INTACT
-			avatar.damage_percent = 0.0
-			avatar.flight_state = Biplane.FlightState.CRASHED
-			avatar.is_player = false
-			if biplane.has_method("set_game_active"):
-				biplane.set_game_active(true)
-	else:
+	if avatar_id == 0 and GameManager and GameManager.get_lives(0) <= 0:
+		_show_game_over()
+		return
+
+	var avatar = biplane._avatars.get(avatar_id)
+	if not avatar:
+		if avatar_id == 0:
+			_show_game_over()
+		return
+
+	var success := biplane.respawn(avatar_id, camera if avatar_id == 0 else null)
+	if not success and avatar_id == 0:
 		_show_game_over()
 
 func _win_game() -> void:
@@ -658,6 +613,8 @@ func _on_next_level() -> void:
 	game_state = "PLAYING"
 	if GameManager:
 		GameManager.current_level += 1
+	if RespawnManager:
+		RespawnManager.clear_all()
 	_clear_game_objects()
 	if biplane:
 		biplane.set_game_active(false)
@@ -668,23 +625,27 @@ func _on_next_level() -> void:
 	if minimap_instance and minimap_instance.has_method("clear"):
 		minimap_instance.clear()
 	if biplane:
-		var ground_y := 650.0
-		if terrain and terrain.has_method("get_ground_height_at"):
-			ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
-		biplane.position = Vector2(PLAYER_SPAWN_X, ground_y - 12)
-		biplane.rotation = 0
-		biplane.velocity = Vector2.ZERO
-		if biplane.has_method("reset_flight_state"):
-			biplane.reset_flight_state()
+		biplane.visible = true
+		biplane.set_game_active(true)
+		if biplane.has_method("respawn"):
+			biplane.respawn(0, camera)
+		elif biplane.has_method("teleport_to"):
+			var ground_y := 650.0
+			if terrain and terrain.has_method("get_ground_height_at"):
+				ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
+			biplane.teleport_to(Vector2(PLAYER_SPAWN_X, ground_y - Biplane.GROUND_SURFACE_OFFSET))
+		else:
+			var ground_y := 650.0
+			if terrain and terrain.has_method("get_ground_height_at"):
+				ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
+			biplane.position = Vector2(PLAYER_SPAWN_X, ground_y - Biplane.GROUND_SURFACE_OFFSET)
+			biplane.rotation = 0
+			biplane.velocity = Vector2.ZERO
 		var avatar := biplane.get_avatar_data(0) if biplane.has_method("get_avatar_data") else null
 		if avatar:
 			avatar.fuel = 100.0
 			avatar.ammo = 500
 			avatar.bombs = avatar.model_params.get("max_bombs", 0)
-		biplane.set_game_active(true)
-		biplane.visible = true
-		if camera:
-			camera.position = Vector2(PLAYER_SPAWN_X, ground_y - 250)
 
 func _show_game_over() -> void:
 	game_state = "GAME_OVER"

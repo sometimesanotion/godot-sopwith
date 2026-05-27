@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://enemy_biplane_scene"]
+[gd_scene load_steps=8 format=3 uid="uid://enemy_biplane_scene"]
 
 [ext_resource type="PackedScene" uid="uid://biplane_scene" path="res://scenes/biplane.tscn" id="1_biplane"]
 [ext_resource type="Script" path="res://scripts/enemy_ai.gd" id="2_ai"]
@@ -6,13 +6,22 @@
 [ext_resource type="Script" path="res://scripts/biplane_draw.gd" id="4_draw"]
 
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_enemy"]
-radius = 30.0
-height = 40.0
+radius = 27.0
+height = 36.0
 
-[node name="EnemyBiplane" type="CharacterBody2D"]
-motion_mode = 1
+[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_enemy"]
+bounce = 0.1
+friction = 1.0
+
+[node name="EnemyBiplane" type="RigidBody2D"]
+mass = 422.0
+gravity_scale = 0.0
+contact_monitor = true
+max_contacts_reported = 4
+continuous_cd = 1
 collision_layer = 2
 collision_mask = 3
+physics_material_override = SubResource("PhysicsMaterial_enemy")
 script = ExtResource("3_biplane")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]

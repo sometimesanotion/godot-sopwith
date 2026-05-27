@@ -38,7 +38,7 @@ func add_runway(x: float) -> void:
 func _create_terrain() -> void:
 	terrain_body = StaticBody2D.new()
 	terrain_body.name = "Terrain"
-	
+
 	var collision_poly := CollisionPolygon2D.new()
 	var poly_points := ground_points.duplicate()
 	poly_points.append(Vector2(TERRAIN_LENGTH, TERRAIN_LOW_BOUND))
@@ -47,12 +47,48 @@ func _create_terrain() -> void:
 	terrain_body.add_child(collision_poly)
 	terrain_body.collision_layer = 1
 	add_child(terrain_body)
-	
+
 	terrain_polygon = Polygon2D.new()
 	terrain_polygon.polygon = poly_points
 	terrain_polygon.color = ground_color
 	add_child(terrain_polygon)
-	
+
+	# Diagnostic: verify terrain body and visual are aligned
+	var terrain_min_y := INF
+	var terrain_max_y := -INF
+	for pt in ground_points:
+		terrain_min_y = min(terrain_min_y, pt.y)
+		terrain_max_y = max(terrain_max_y, pt.y)
+	var collision_poly_count := 0
+	for ch in terrain_body.get_children():
+		if ch is CollisionPolygon2D:
+			collision_poly_count += 1
+			var cpoly_min_y := INF
+			var cpoly_max_y := -INF
+			for pt in ch.polygon:
+				cpoly_min_y = min(cpoly_min_y, pt.y)
+				cpoly_max_y = max(cpoly_max_y, pt.y)
+			DLog.info("terrain_collision_poly", {
+				"poly_index": collision_poly_count - 1,
+				"poly_local_min_y": snapped(cpoly_min_y, 0.1),
+				"poly_local_max_y": snapped(cpoly_max_y, 0.1),
+				"poly_point_count": ch.polygon.size(),
+				"body_pos_y": snapped(terrain_body.global_position.y, 0.1),
+			})
+	DLog.info("terrain_created", {
+		"body_pos_y": snapped(terrain_body.global_position.y, 0.1),
+		"poly_pos_y": snapped(terrain_polygon.global_position.y, 0.1),
+		"node_pos_y": snapped(global_position.y, 0.1),
+		"ground_min_y": snapped(terrain_min_y, 0.1),
+		"ground_max_y": snapped(terrain_max_y, 0.1),
+		"collision_poly_count": collision_poly_count,
+		"hypoC": "terrain_vis=body_pos_y+%s coll_vis=poly_pos_y+%s aligned=%s" % [
+			snapped(terrain_body.global_position.y, 0.1),
+			snapped(terrain_polygon.global_position.y, 0.1),
+			"true" if snapped(terrain_body.global_position.y, 0.1) == snapped(terrain_polygon.global_position.y, 0.1) else "false"
+		],
+	})
+
 	for runway in runways:
 		_create_runway_visual(runway.x, runway.y)
 
@@ -129,6 +165,20 @@ func is_on_runway(x: float) -> bool:
 
 func get_ground_points() -> PackedVector2Array:
 	return ground_points
+
+func get_terrain_info_at(x: float) -> Dictionary:
+	var surface_y := get_ground_height_at(x)
+	var idx := int(x / SEGMENT_WIDTH)
+	idx = clamp(idx, 0, ground_points.size() - 1)
+	var body_pos_y := terrain_body.global_position.y if terrain_body else 0.0
+	var poly_pos_y := terrain_polygon.global_position.y if terrain_polygon else 0.0
+	return {
+		"surface_y": surface_y,
+		"terrain_body_pos_y": body_pos_y,
+		"terrain_poly_pos_y": poly_pos_y,
+		"terrain_node_pos_y": global_position.y,
+		"x": x,
+	}
 
 func get_visual_line() -> Line2D:
 	return null

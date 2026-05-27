@@ -8,7 +8,7 @@ var score_label: Label
 var speed_label: Label
 var altitude_label: Label
 
-var avatar: CharacterBody2D = null
+var avatar: RigidBody2D = null
 var display_player_id: int = 0
 
 var enemy_labels: Array[Label] = []
@@ -292,16 +292,16 @@ func _update_debug_entry(idx: int, entity: Node, base_ground_y: float, is_player
 
 	if not is_player:
 		var ai_node: Node = entity.get_node_or_null("EnemyAI") if entity.has_node("EnemyAI") else null
-		if ai_node and "pilots" in ai_node and ai_node.pilots.size() > 0:
-			var state_val: int = int(ai_node.pilots[0].ai_state)
+		if ai_node and ai_node.ai_fsm:
+			var state_val: int = ai_node.ai_fsm.get_ai_state_enum()
 			ai_state_text = AI_STATE_NAMES.get(state_val, "UNKNOWN")
 
 	if "flight_state" in avatar:
 		var state_val: int = int(avatar.flight_state)
 		flight_state_text = FLIGHT_STATE_NAMES.get(state_val, "UNKNOWN")
 
-	if "damage_state" in avatar:
-		var state_val: int = int(avatar.damage_state)
+	if "damage" in avatar and avatar.damage:
+		var state_val: int = int(avatar.damage.damage_state)
 		damage_state_text = DAMAGE_STATE_NAMES.get(state_val, "UNKNOWN")
 
 	enemy_labels[label_idx].text = "%s: AI=%s FST=%s" % [entity_id, ai_state_text, flight_state_text]

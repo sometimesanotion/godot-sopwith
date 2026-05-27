@@ -32,12 +32,12 @@ func _check_hazard() -> bool:
 		if child == self:
 			continue
 		if child.has_meta("bullet") and pos.distance_squared_to(child.global_position) < 400.0:
-			_destroy()
+			_do_destroy()
 			return true
 	var bombs = get_tree().get_nodes_in_group("bomb")
 	for b in bombs:
 		if is_instance_valid(b) and pos.distance_squared_to(b.global_position) < 10000.0:
-			_destroy()
+			_do_destroy()
 			return true
 	return false
 
@@ -95,9 +95,27 @@ func _draw() -> void:
 	draw_line(Vector2(4, 0), Vector2(10, -2), Color(0.2, 0.2, 0.2), 2)
 	draw_line(Vector2(4, 0), Vector2(10, 2), Color(0.2, 0.2, 0.2), 2)
 
-func take_damage(amount: float, attacker: Node) -> void:
-	_destroy()
+func take_damage(amount: float, attacker: Node = null) -> void:
+	_do_destroy()
 
-func _destroy() -> void:
+func _do_destroy() -> void:
 	bird_destroyed.emit(global_position)
 	queue_free()
+
+class BirdCollisionResult:
+	var hit: bool = false
+	var damage: float = 0.0
+	var is_midair: bool = false
+	var impact_speed: float = 0.0
+
+func get_collision_response(other: Node, _other_avatar: Variant, other_speed: float) -> BirdCollisionResult:
+	var result := BirdCollisionResult.new()
+	var hit_radius: float = 25.0
+	var dist := global_position.distance_to(other.global_position)
+	result.impact_speed = other_speed
+
+	if dist < hit_radius and other_speed > 5.0:
+		result.hit = true
+		result.damage = randf_range(0.1, 0.4)
+		result.is_midair = true
+	return result

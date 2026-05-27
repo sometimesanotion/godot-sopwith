@@ -100,25 +100,15 @@ func explode() -> void:
 		if distance > explosion_radius:
 			continue
 		var damage: float = explosion_damage * (1.0 - distance / explosion_radius)
-		if body.has_method("get_avatar_data") and body.get_avatar_data(0):
-			body.take_damage(body.get_avatar_data(0), damage, _bomb_owner)
-		else:
-			body.take_damage(damage, _bomb_owner)
+		body.take_damage(damage, _bomb_owner)
 
 	queue_free()
 
 func _spawn_explosion_effect() -> void:
-	var explosion: GPUParticles2D = EXPLOSION_SCENE.instantiate()
-	explosion.global_position = global_position
-
-	var scale_factor: float = explosion_radius / 150.0
-	explosion.amount = maxi(1, int(explosion.amount * scale_factor))
-	for child in explosion.get_children():
-		if child is GPUParticles2D:
-			child.amount = maxi(1, int(child.amount * scale_factor))
-
-	get_parent().add_child(explosion)
-
+	if EffectManager:
+		EffectManager.spawn_explosion(global_position, 100.0)
+		EffectManager.spawn_bomb_explosion_ring(global_position, explosion_radius, 0.1)
+		EffectManager.spawn_explosion_debris(global_position, Color(0.3, 0.3, 0.2), 12, 15.0)
 	if GameManager:
 		GameManager.request_screen_shake(20.0)
 

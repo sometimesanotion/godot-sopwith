@@ -458,6 +458,12 @@ func stop_music() -> void:
 	_music_player_a.stop()
 	_music_player_b.stop()
 
+## Fade out current music track to silence over `duration` seconds, then stop.
+func fade_out_music(duration: float = 0.1) -> void:
+	if _music_fade_tween and _music_fade_tween.is_valid():
+		_music_fade_tween.kill()
+	_fade_out_music(_music_active_player, maxf(duration, 0.0))
+
 # ---------------------------------------------------------------------------
 # Public — Global pause / resume
 # ---------------------------------------------------------------------------

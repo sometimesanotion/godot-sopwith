@@ -1,8 +1,14 @@
-[gd_scene load_steps=2 format=3 uid="uid://cow_scene"]
+[gd_scene load_steps=3 format=3 uid="uid://cow_scene"]
 
 [ext_resource type="Script" path="res://scripts/cow.gd" id="1_cow"]
 
-[node name="Cow" type="StaticBody2D"]
+[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_cow"]
+bounce = 0.4
+friction = 0.8
+
+[node name="Cow" type="RigidBody2D"]
+mass = 450.0
+physics_material_override = SubResource("PhysicsMaterial_cow")
 script = ExtResource("1_cow")
 
 [node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="."]

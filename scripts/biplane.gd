@@ -7,7 +7,9 @@
 ##
 ## FlightState is the single finite-state machine that controls all behaviours.
 ## Every per-entity value lives in AvatarData. The node itself is the view layer.
-## The physics loop _apply_physics() sums all forces in one pass every frame —
+## The physics loop uses Aerodynamics.calculate_forces() to compute all forces
+## in one pass every frame — via _integrate_forces() which delegates to the
+## static Aerodynamics module.
 ## weight, thrust, lift, drag, ground normal, and ground friction — then
 ## integrates once. There are no separate physics regimes or edge cases.
 ##
@@ -33,7 +35,7 @@
 ## Arcade feel: gravity multiplier and tuned propeller curve.
 
 class_name Biplane
-extends CharacterBody2D
+extends RigidBody2D
 
 ###############################################################################
 # PLANE MODEL CONFIGURATION
@@ -212,17 +214,27 @@ static func _get_svg_path_from_params(model_params: Dictionary) -> String:
 @export var bomb_cooldown: float = 0.3
 @export var bullet_speed:  float = 1600.0
 
+@export_group("Control")
+@export var is_player_controlled: bool = false
+
+func is_player_plane() -> bool:
+	return is_player_controlled
+
+func is_enemy_plane() -> bool:
+	return not is_player_controlled
+
 ###############################################################################
 # MODEL-SPECIFIC CONSTANTS (no longer hardcoded)
 ##############################################################################
 
 ## Distance from plane origin to ground surface when at rest.
-const GROUND_SURFACE_OFFSET := 12.0
+## Must equal the collision capsule radius so the capsule sits on the terrain
+## without overlap, preventing the physics solver from pushing the body upward.
+const GROUND_SURFACE_OFFSET := 0.0
 
 ## Grounded detection tolerance (px). Absorbs one-frame integration overshoot.
 const GROUND_TOLERANCE := 2.0
 
-const THROTTLE_STEP         := 0.15
 const THROTTLE_REPEAT_DELAY := 0.1
 const THROTTLE_RAMP_SPEED   := 5.0
 
@@ -236,12 +248,8 @@ const ENGINE_EFFICIENCY_START_ALTITUDE := 1800.0
 ## Altitude at which the engine cuts out entirely.
 const ENGINE_CUTOFF_ALTITUDE           := 2000.0
 
-## Ground friction coefficients μ used in F_friction = μ × |F_normal|.
-## Rolling = throttle applied; Braking = no throttle.
-const FRICTION_RUNWAY_ROLLING  := 0.03
-const FRICTION_RUNWAY_BRAKING  := 0.70
-const FRICTION_TERRAIN_ROLLING := 0.07
-const FRICTION_TERRAIN_BRAKING := 0.40
+## Ground friction coefficients — now in Aerodynamics static module.
+## Kept here as reference; actual values used are in aerodynamics.gd.
 
 ## World wrap length in pixels.
 const TERRAIN_LENGTH := 16384.0
@@ -259,18 +267,9 @@ enum FlightState {
 	FLYING  = 0,   ## Airborne and under aerodynamic control
 	STALLED = 1,   ## Airborne but below stall speed / excess AoA
 	FALLING = 2,   ## Spinning out of control; set by force_crash / heavy damage
-	DAMAGED = 3,   ## Rough-landed or hit; reduced performance, may still fly
-	LANDED  = 4,   ## On the ground, stationary or taxiing
+	LANDED  = 3,   ## On the ground, stationary or taxiing
+	DAMAGED = 4,   ## Crashed but not destroyed; partial damage
 	CRASHED = 5    ## Destroyed; post-crash tumble physics only
-}
-
-## Damage severity bands. Drives physics modifiers via _refresh_damage_modifiers().
-enum DamageState {
-	INTACT    = 0,   ##   0–24 %  — full performance
-	LIGHT     = 1,   ##  25–49 %  — white smoke, slight drag increase
-	MODERATE  = 2,   ##  50–79 %  — black smoke, reduced speed cap
-	SEVERE    = 3,   ##  80–99 %  — fire, losing control
-	DESTROYED = 4    ## 100 %     — crash
 }
 
 ## Faction for team/hostility checks.
@@ -305,7 +304,6 @@ class AvatarData:
 	var faction:      Faction = Faction.BRITISH
 	var team:         Team    = Team.ALLIED
 	var homebase_id:  int     = 0
-	var is_player:    bool    = false
 	var unlimited_fuel_ammo: bool = false
 	var bombs_disabled:      bool = false
 
@@ -340,8 +338,7 @@ class AvatarData:
 	var stall_speed_ms: float        = 21.4
 
 	# Damage
-	var damage_percent:  float       = 0.0
-	var damage_state:    DamageState = DamageState.INTACT
+	var damage:          DamageData  = DamageData.new()
 	var reliability:     float       = 1.0
 	var refuel_timer:    float       = 0.0
 	var refuel_cooldown: float       = 0.0
@@ -353,6 +350,7 @@ class AvatarData:
 	var pitch_angle:         float = 0.0
 	var angular_velocity:    float = 0.0
 	var control_effectiveness: float = 1.0
+	var is_airborne:         bool  = true
 
 	# Throttle & engine
 	var throttle:               float = 0.0
@@ -372,6 +370,7 @@ class AvatarData:
 	# Control flags
 	var is_losing_control: bool = false
 	var has_hit_ground:    bool = false
+	var crash_processed:    bool = false
 
 	# Weapons
 	var ammo:             int   = MAX_AMMO
@@ -382,10 +381,10 @@ class AvatarData:
 	var max_bullet_range: float = 1000.0
 	var last_shot_range:  float = 0.0
 
-	# View-layer particle handles
-	var smoke_particles:    GPUParticles2D = null
-	var fire_particles:     GPUParticles2D = null
-	var current_smoke_type: int = 0   ## 0=none, 1=white, 2=black
+	# View-layer particle handles (managed via EffectManager)
+	var continuous_fire_handles: Dictionary = {}  ## keys "core","glow","smoke" or empty
+	var continuous_smoke:       GPUParticles2D = null
+	var current_smoke_type:     int = 0         ## 0=none, 1=white, 2=black
 
 	var max_landing_tilt: float = model_params.get("max_landing_tilt_deg", 34.0)
 	var soft_landing: float = model_params.get("soft_landing_vperp", 80.0)
@@ -393,13 +392,12 @@ class AvatarData:
 	var bungee_time: float = model_params.get("bungee_time", 0.15)
 	var mass_kg: float = model_params.get("mass_kg", 447.0)
 
-	var bullet_spawn_offset: Vector2 = model_params.get("bullet_spawn_offset", Vector2(34, -15))
+	var bullet_spawn_offset: Vector2 = model_params.get("bullet_spawn_offset", Vector2(48, -12))
 	var bomb_spawn_offset: Vector2 = model_params.get("bomb_spawn_offset", Vector2(0, 32))
 
 	func reset() -> void:
 		flight_state = FlightState.FLYING
-		damage_percent   = 0.0
-		damage_state     = DamageState.INTACT
+		damage.reset()
 		reliability      = 1.0
 		drag_multiplier  = 1.0
 		thrust_multiplier = 1.0
@@ -408,6 +406,7 @@ class AvatarData:
 		pitch_angle      = 0.0
 		angular_velocity  = 0.0
 		control_effectiveness = 1.0
+		is_airborne           = true
 		throttle         = 0.0
 		throttle_target  = 0.0
 		throttle_repeat_timer = 0.0
@@ -418,21 +417,22 @@ class AvatarData:
 		is_flipping      = false
 		flip_progress    = 0.0
 		flip_direction   = 0
-		is_losing_control = false
+		is_airborne           = true
+		is_losing_control     = false
 		has_hit_ground    = false
 		ammo  = MAX_AMMO
 		fuel  = 100.0
 		gun_timer  = 0.0
 		bomb_timer = 0.0
 		last_shot_range = 0.0
-		if smoke_particles:
-			smoke_particles.emitting = false
-			smoke_particles.queue_free()
-			smoke_particles = null
-		if fire_particles:
-			fire_particles.emitting = false
-			fire_particles.queue_free()
-			fire_particles = null
+		if continuous_fire_handles.size() > 0:
+			if EffectManager:
+				EffectManager.detach_continuous_fire(continuous_fire_handles)
+			continuous_fire_handles.clear()
+		if continuous_smoke:
+			if EffectManager:
+				EffectManager.detach_continuous_smoke(continuous_smoke)
+			continuous_smoke = null
 		current_smoke_type = 0
 
 		# Initialize plane model parameters
@@ -448,86 +448,19 @@ var _crash_processed: Dictionary = {}
 ###############################################################################
 # DAMAGE MODIFIERS
 ## Called whenever damage_percent changes. Updates the cached modifier fields
-## so _apply_physics() reads a consistent table rather than branch-testing
+## so Aerodynamics.calculate_forces() reads a consistent table rather than branch-testing
 ## damage_percent repeatedly.
 ###############################################################################
 
 func _refresh_damage_modifiers(avatar: AvatarData) -> void:
-	var prev_state := avatar.damage_state
-	if avatar.damage_percent >= 1.0:
-		avatar.damage_state    = DamageState.DESTROYED
-		avatar.reliability     = 0.0
-		avatar.drag_multiplier   = 2.0
-		avatar.thrust_multiplier = 0.0
-	elif avatar.damage_percent >= 0.8:
-		avatar.damage_state    = DamageState.SEVERE
-		avatar.reliability     = 0.0
-		avatar.drag_multiplier   = 1.6
-		avatar.thrust_multiplier = 0.5
-	elif avatar.damage_percent >= 0.5:
-		avatar.damage_state    = DamageState.MODERATE
-		avatar.reliability     = 0.5
-		avatar.drag_multiplier   = 1.25
-		avatar.thrust_multiplier = 0.7
-	elif avatar.damage_percent >= 0.25:
-		avatar.damage_state    = DamageState.LIGHT
-		avatar.reliability     = 0.75
-		avatar.drag_multiplier   = 1.05
-		avatar.thrust_multiplier = 0.9
-	else:
-		avatar.damage_state    = DamageState.INTACT
-		avatar.reliability     = 1.0
-		avatar.drag_multiplier   = 1.0
-		avatar.thrust_multiplier = 1.0
+	var new_state := avatar.damage.get_damage_state()
+	var prev_state := avatar.damage.damage_state
+	avatar.damage.damage_state = new_state
 
-	# Sync particles whenever damage band changes.
-	if avatar.damage_state != prev_state:
-		_init_particle_materials()
-		_sync_damage_particles(avatar)
-
-###############################################################################
-# PARTICLE MATERIALS (static, shared across all instances)
-###############################################################################
-
-static var _white_smoke_mat: ParticleProcessMaterial
-static var _black_smoke_mat: ParticleProcessMaterial
-static var _fire_mat:        ParticleProcessMaterial
-
-static func _init_particle_materials() -> void:
-	if _white_smoke_mat:
-		return
-	_white_smoke_mat = ParticleProcessMaterial.new()
-	_white_smoke_mat.emission_shape         = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	_white_smoke_mat.emission_sphere_radius = 8.0
-	_white_smoke_mat.gravity                = Vector3(0, 30, 0)
-	_white_smoke_mat.spread                 = 30.0
-	_white_smoke_mat.initial_velocity_min   = 30.0
-	_white_smoke_mat.initial_velocity_max   = 60.0
-	_white_smoke_mat.scale_min              = 4.0
-	_white_smoke_mat.scale_max              = 10.0
-	_white_smoke_mat.color                  = Color(0.8, 0.8, 0.8, 0.5)
-
-	_black_smoke_mat = ParticleProcessMaterial.new()
-	_black_smoke_mat.emission_shape         = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	_black_smoke_mat.emission_sphere_radius = 8.0
-	_black_smoke_mat.gravity                = Vector3(0, 30, 0)
-	_black_smoke_mat.spread                 = 30.0
-	_black_smoke_mat.initial_velocity_min   = 30.0
-	_black_smoke_mat.initial_velocity_max   = 60.0
-	_black_smoke_mat.scale_min              = 4.0
-	_black_smoke_mat.scale_max              = 10.0
-	_black_smoke_mat.color                  = Color(0.05, 0.05, 0.05, 0.5)
-
-	_fire_mat = ParticleProcessMaterial.new()
-	_fire_mat.emission_shape         = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	_fire_mat.emission_sphere_radius = 5.0
-	_fire_mat.gravity                = Vector3(0, 30, 0)
-	_fire_mat.spread                 = 30.0
-	_fire_mat.initial_velocity_min   = 60.0
-	_fire_mat.initial_velocity_max   = 90.0
-	_fire_mat.scale_min              = 3.0
-	_fire_mat.scale_max              = 6.0
-	_fire_mat.color                  = Color(0.95, 0.5, 0.2, 0.9)
+	var mods := avatar.damage.get_modifiers()
+	avatar.reliability = mods["reliability"]
+	avatar.drag_multiplier = mods["drag_multiplier"]
+	avatar.thrust_multiplier = mods["thrust_multiplier"]
 
 ###############################################################################
 # SIGNALS
@@ -535,16 +468,27 @@ static func _init_particle_materials() -> void:
 
 signal fired_bullet(position: Vector2, direction: Vector2, speed: float, owner: Node, range_percent: float)
 signal dropped_bomb(position: Vector2, velocity: Vector2, owner: Node)
-signal crashed()
+signal crashed(is_midair: bool)
 signal damaged(impact_force: float, v_perp: float)
 
 ###############################################################################
 # NODE STATE
 ###############################################################################
 
+@export var current_flight_state_name: String = "Flying"
+
 var game_active: bool = false
 var _terrain: Node    = null   ## Cached in _ready(); null if terrain absent.
 var _active_bombs: Array[Node] = []   ## Bombs this plane dropped, tracking for whistle.
+var flight_fsm: FlightStateMachine = null
+
+var _pending_teleport: bool = false
+var _teleport_position: Vector2 = Vector2.ZERO
+var _teleport_rotation: float = 0.0
+
+var velocity: Vector2:
+	get: return linear_velocity
+	set(v): linear_velocity = v
 
 ###############################################################################
 # STATIC ACCESSOR
@@ -568,6 +512,9 @@ func get_avatar_data(player_id: int) -> AvatarData:
 		var av       := AvatarData.new()
 		av.id         = player_id
 		_avatars[player_id] = av
+		if av.damage.damage_state_changed.is_connected(_on_avatar_damage_state_changed):
+			av.damage.damage_state_changed.disconnect(_on_avatar_damage_state_changed)
+		av.damage.damage_state_changed.connect(_on_avatar_damage_state_changed.bind(av))
 	return _avatars[player_id]
 
 ## Convenience accessor used by obstacle-collision code in other nodes.
@@ -671,7 +618,7 @@ func _draw_debug_info(avatar: AvatarData) -> void:
 	debug_text += "Faction: %s\n" % ["British", "German", "Neutral"][avatar.faction]
 	debug_text += "Team: %s\n" % ["Allied", "Enemy", "Neutral"][avatar.team]
 	debug_text += "Flight State: %s\n" % ["Flying", "Stalled", "Falling", "Damaged", "Landed", "Crashed"][avatar.flight_state]
-	debug_text += "Damage: %.1f%%\n" % (avatar.damage_percent * 100)
+	debug_text += "Damage: %.1f%%\n" % (avatar.damage.damage_percent * 100)
 	debug_text += "Speed: %.1f px/s\n" % velocity.length()
 	debug_text += "Throttle: %.1f%%\n" % (avatar.throttle * 100)
 
@@ -698,9 +645,48 @@ func _update_debug_overlay(delta: float) -> void:
 	# Draw debug info for all avatars
 	for avatar_id in _avatars:
 		var avatar: AvatarData = _avatars[avatar_id]
-		if avatar.is_player:
+		if is_player_controlled:
 			_draw_debug_info(avatar)
 			break  # Only draw debug for primary player
+
+###############################################################################
+# COLLISION INTERFACE
+###############################################################################
+
+class CollisionResult:
+	var hit: bool = false
+	var damage: float = 0.0
+	var is_midair: bool = false
+	var impact_speed: float = 0.0
+
+###############################################################################
+# COLLISION RESPONSE (called by other biplanes via get_collision_response)
+###############################################################################
+
+func get_collision_response(other: Node, other_avatar: AvatarData, other_speed: float) -> CollisionResult:
+	var result := CollisionResult.new()
+	var dist := global_position.distance_to(other.global_position)
+	result.impact_speed = other_speed
+
+	if other is RigidBody2D and other.has_method("get_primary_entity"):
+		var relative_speed := velocity.length() + other_speed
+		var stall_speed: float = other_avatar.stall_speed_ms if other_avatar else 21.4
+		var damage_ratio: float = clampf(relative_speed / stall_speed, 0.0, 2.0)
+		if dist < 40.0 and other_speed > 10.0:
+			result.hit = true
+			result.damage = clampf(damage_ratio, 0.5, 1.0)
+			result.is_midair = true
+	return result
+
+func _get_hit_radius_for_body(body: Node) -> float:
+	if body.is_in_group("ground_target") or body.is_in_group("wreck"):
+		var pbounds := _get_collider_poly_bounds(body)
+		if pbounds["has_poly"]:
+			var horizontal_extent := maxf(abs(pbounds["min_x"]), abs(pbounds["max_x"]))
+			var vertical_extent := maxf(abs(pbounds["min_y"]), abs(pbounds["max_y"]))
+			return maxf(horizontal_extent, vertical_extent) + 5.0
+		return 85.0
+	return 25.0
 
 ###############################################################################
 # GROUND CONTACT
@@ -742,195 +728,220 @@ func _get_ground_contact(avatar: AvatarData) -> GroundContact:
 ###############################################################################
 
 func _ready() -> void:
-	motion_mode = MotionMode.MOTION_MODE_FLOATING
+	mass = 422.0
+	gravity_scale = 0.0
+	contact_monitor = true
+	max_contacts_reported = 4
+	continuous_cd = CCD_MODE_CAST_SHAPE
 
-	# Set default plane models based on faction for existing entities
+	_init_flight_fsm()
+
 	for avatar_id in _avatars:
 		var avatar: AvatarData = _avatars[avatar_id]
 		avatar.plane_model = get_default_plane_model(avatar.faction)
 		avatar.update_model_params()
 
-	# Set physics parameters based on primary entity's model
 	var primary_avatar = get_avatar_data(0)
 	if primary_avatar:
 		var model_params = primary_avatar.model_params
-		PhysicsServer2D.body_set_param(get_rid(), PhysicsServer2D.BODY_PARAM_MASS, model_params.get("mass_kg", 447.0))
+		mass = model_params.get("mass_kg", 447.0)
 
-	_init_particle_materials()
 	reset_visual_transform()
 	_terrain = get_parent().get_node_or_null("Terrain")
+
+func _init_flight_fsm() -> void:
+	var fsm_node = get_node_or_null("FlightStateMachine")
+	if not fsm_node:
+		fsm_node = _create_flight_fsm_nodes()
+	if fsm_node and fsm_node is FlightStateMachine:
+		flight_fsm = fsm_node
+		flight_fsm.set_biplane(self)
+		if flight_fsm.state_changed.is_connected(_on_flight_state_changed):
+			flight_fsm.state_changed.disconnect(_on_flight_state_changed)
+		flight_fsm.state_changed.connect(_on_flight_state_changed)
+		if get_avatar_data(0):
+			flight_fsm.transition_to(&"flying")
+
+func _create_flight_fsm_nodes() -> FlightStateMachine:
+	var fsm := FlightStateMachine.new()
+	fsm.name = "FlightStateMachine"
+
+	var state_scripts := {
+		"Flying": load("res://scripts/states/flight/flying_state.gd"),
+		"Stalling": load("res://scripts/states/flight/stalling_state.gd"),
+		"Falling": load("res://scripts/states/flight/falling_state.gd"),
+		"Damaged": load("res://scripts/states/flight/damaged_state.gd"),
+		"Landed": load("res://scripts/states/flight/landed_state.gd"),
+		"Crashed": load("res://scripts/states/flight/crashed_state.gd"),
+		"Refueling": load("res://scripts/states/flight/refueling_state.gd"),
+	}
+	for state_name in state_scripts:
+		var state_node := State.new()
+		state_node.name = state_name
+		state_node.set_script(state_scripts[state_name])
+		fsm.add_child(state_node)
+	add_child(fsm)
+	fsm.start_state = fsm.get_node("Flying").get_path()
+	return fsm
+
+func _on_flight_state_changed(new_state: State) -> void:
+	if new_state:
+		current_flight_state_name = new_state.name
+		var avatar = get_avatar_data(0)
+		if avatar:
+			avatar.flight_state = flight_fsm.get_flight_state_enum()
 
 func _physics_process(delta: float) -> void:
 	if not game_active:
 		return
 
+	if flight_fsm and flight_fsm._active:
+		for avatar_id in _avatars:
+			var avatar: AvatarData = _avatars[avatar_id]
+			if avatar.damage.damage_state == DamageData.DamageState.DESTROYED and \
+			   avatar.flight_state != FlightState.CRASHED and \
+			   current_flight_state_name != "Crashed":
+				_on_avatar_crashed(avatar)
+		return
+
 	for avatar_id in _avatars:
 		var avatar: AvatarData = _avatars[avatar_id]
+		if avatar.flight_state == FlightState.CRASHED:
+			continue
+		if avatar.flight_state == FlightState.FALLING:
+			avatar.is_airborne = true
+			avatar.velocity.y += gravity * pixels_per_meter * delta
+			_check_obstacle_collision(avatar)
+			continue
 
-		match avatar.flight_state:
-			FlightState.CRASHED:
-				_apply_crash_physics(avatar, delta)
-				continue
-
-			FlightState.FALLING:
-				avatar.angular_velocity = 4.0
-				avatar.pitch_angle += avatar.angular_velocity * delta
-				rotation = avatar.pitch_angle
-				_apply_physics(avatar, delta)
-				_check_obstacle_collision(avatar)
-				continue
-
-		## All other states go through the normal pipeline.
 		_handle_input(avatar, delta)
 		_handle_weapons(avatar, delta)
 		_check_altitude_engine_cutoff(avatar, delta)
-		_apply_physics(avatar, delta)
 		_check_obstacle_collision(avatar)
 		_check_fuel_consumption(avatar, delta)
 		_check_home_refuel(avatar, delta)
 
-###############################################################################
-# UNIFIED PHYSICS LOOP
-##
-## All forces are summed in one pass and integrated once. Ground contact is a
-## positional constraint applied after integration — not a separate regime.
-## This ensures buildings, vehicles, and planes all obey the same physics.
-##
-## Force budget (SI, Newtons):
-##   weight_vec    — always down
-##   thrust_vec    — along heading
-##   lift_vec      — perpendicular to velocity (zero for ground vehicles)
-##   drag_vec      — opposing velocity
-##   normal_vec    — perpendicular to slope, prevents ground penetration
-##   friction_vec  — opposing velocity, proportional to normal force
-###############################################################################
-
-func _apply_physics(avatar: AvatarData, delta: float) -> void:
-	var gc     := _get_ground_contact(avatar)
-	var model_params = avatar.model_params
-	var forward := Vector2(cos(avatar.pitch_angle), sin(avatar.pitch_angle))
-	## right = 90° CCW from forward = "up off the wings" for level right-flight.
-	var right  := Vector2(forward.y, -forward.x)
-
-	var vel_si   := velocity / pixels_per_meter
-	var speed_si := vel_si.length()
-
-	# 1. WEIGHT
-	var weight_vec := Vector2(0.0, model_params.get("mass_kg", 447.0) * gravity)
-
-	# 2. THRUST
-	var thrust_vec := forward * _calc_thrust(avatar, speed_si, gc.ground_y)
-
-	# 3. LIFT & AERODYNAMIC DRAG
-	var lift_vec := Vector2.ZERO
-	var drag_vec := Vector2.ZERO
-	var stalled  := false
-
-	var aoa: float = 0.0
-	if speed_si > 0.5:
-		aoa = forward.angle_to(vel_si.normalized())
-
-	## Planes cannot stall aerodynamically while on the ground.
-	stalled = (not gc.is_grounded) and (abs(aoa) > model_params.get("stall_aoa", 0.244) or speed_si < avatar.stall_speed_ms)
-
-	var cl: float = clampf(aoa * 2.0 * PI, -model_params.get("max_lift_coeff", 1.4), model_params.get("max_lift_coeff", 1.4))
-	if stalled:
-		cl *= 0.3
-
-	var altitude: float = maxf(0.0, gc.ground_y - global_position.y)
-	var density_factor: float = exp(-altitude / 2500.0)
-	var rho: float = air_density * density_factor
-
-	if speed_si > 0.5:
-		var lift_si: float = 0.5 * rho * speed_si * speed_si * model_params.get("wing_area", 21.46) * cl
-		lift_vec = right * lift_si
-
-	var para_drag: float = 0.5 * rho * speed_si * speed_si * model_params.get("zero_lift_drag_area", 0.811)
-	var induced_drag: float = 0.5 * rho * speed_si * speed_si * model_params.get("wing_area", 21.46) * (cl * cl) / model_params.get("ar_efficiency", 11.0)
-
-	## Speed-cap drag: exponential penalty above the effective max speed.
-	var eff_max_speed_ms: float = model_params.get("max_speed_ms", 300.0)
-	var speed_px: float = velocity.length()
-	var speed_lim_drag: float = 0.0
-	if speed_px > eff_max_speed_ms:
-		var over: float = speed_px - eff_max_speed_ms
-		speed_lim_drag = over * over * 0.5
-
-	var total_drag: float = (para_drag + induced_drag + speed_lim_drag / pixels_per_meter) \
-	                 * avatar.drag_multiplier
-	if speed_si > 0.01:
-		drag_vec = -vel_si.normalized() * total_drag
-
-	# 4. GROUND NORMAL FORCE & FRICTION
-	var normal_vec  := Vector2.ZERO
-	var friction_vec := Vector2.ZERO
-
-	if gc.is_grounded:
-		## Tilt crash: nose dug into ground at an angle.
-		if avatar.damage_state != DamageState.DESTROYED and \
-		   gc.tilt_angle >= deg_to_rad(model_params.get("max_landing_tilt_deg", 40.0)):
-			DLog.crash_enter(avatar.id, "tilt", { "tilt_angle": gc.tilt_angle })
-			_on_avatar_crashed(avatar)
+func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
+	if _pending_teleport:
+		var t := Transform2D(_teleport_rotation, _teleport_position)
+		state.set_transform(t)
+		state.set_linear_velocity(Vector2.ZERO)
+		state.set_angular_velocity(0.0)
+		_pending_teleport = false
+		if not game_active:
 			return
 
-		## Impact detection uses pre-integration velocity so we measure actual
-		## approach speed rather than speed after this frame's forces.
-		var v_perp := maxf(0.0, -velocity.dot(gc.ground_normal))
-		var impact_force_calc: float = avatar.mass_kg * (v_perp / pixels_per_meter) / avatar.bungee_time
-		_process_landing_impact(avatar, v_perp, impact_force_calc, gc.tilt_angle)
+	if not game_active:
+		state.set_linear_velocity(Vector2.ZERO)
+		state.set_angular_velocity(0.0)
+		return
+
+	var step := state.get_step()
+	var avatar = get_avatar_data(0)
+	if not avatar:
+		return
+
+	if avatar.flight_state == FlightState.CRASHED:
+		_integrate_crash_forces(state, avatar, step)
+		return
+
+	if avatar.flight_state == FlightState.FALLING:
+		avatar.angular_velocity = 4.0
+		avatar.pitch_angle += avatar.angular_velocity * step
+		state.set_angular_velocity(avatar.angular_velocity)
+
+	var inp := _build_flight_input(avatar, state)
+	var out := Aerodynamics.calculate_forces(inp)
+
+	if out.should_crash:
+		DLog.crash_enter(avatar.id, out.crash_reason, {
+			"px": snapped(global_position.x, 0.1),
+			"py": snapped(global_position.y, 0.1),
+			"vx": snapped(velocity.x, 0.1),
+			"vy": snapped(velocity.y, 0.1),
+			"ground_y": snapped(_ground_y(global_position.x), 0.1),
+		})
+		_on_avatar_crashed(avatar)
+		return
+
+	if inp.is_grounded and out.v_perp > 0.0:
+		_process_landing_impact(avatar, out.v_perp, out.impact_force, inp.tilt_angle)
 		if avatar.flight_state == FlightState.CRASHED:
 			return
+		if avatar.flight_state == FlightState.DAMAGED:
+			var current_vel := state.get_linear_velocity()
+			current_vel.x *= 0.5
+			state.set_linear_velocity(current_vel)
 
-		## Normal force: exactly opposes the net into-ground aero force.
-		var net_aero  := weight_vec + thrust_vec + lift_vec + drag_vec
-		var into_gnd  := -net_aero.dot(gc.ground_normal)
-		if into_gnd > 0.0:
-			normal_vec = gc.ground_normal * into_gnd
+	var current_vel := state.get_linear_velocity()
+	var mass: float = avatar.model_params.get("mass_kg", 447.0)
+	current_vel += (out.net_force / mass) * pixels_per_meter * step
+	state.set_linear_velocity(current_vel)
 
-		## Ground friction: F = μ × |F_normal|, opposing the velocity.
-		if speed_si > 0.01:
-			var mu       := _friction_coeff(gc.on_runway, avatar.throttle)
-			friction_vec  = -vel_si.normalized() * (maxf(0.0, into_gnd) * mu)
-
-	# 5. INTEGRATE
-	var net_force := weight_vec + thrust_vec + lift_vec + drag_vec + normal_vec + friction_vec
-	velocity      += (net_force / model_params.get("mass_kg", 447.0)) * pixels_per_meter * delta
-	global_position += velocity * delta
-
-	# 6. GROUND PENETRATION CLAMP
-	## The normal force prevents most penetration; this catches discrete overshoot.
+	var gc := _get_ground_contact(avatar)
 	if gc.is_grounded:
+		var transform := state.get_transform()
 		var surf_y := gc.ground_y - GROUND_SURFACE_OFFSET
-		if global_position.y > surf_y:
-			global_position.y = surf_y
-		## Cancel the into-ground component of velocity (slope-aware).
-		var into_v := velocity.dot(gc.ground_normal)
-		if into_v > 0.0:
-			velocity -= gc.ground_normal * into_v
+		if transform.origin.y > surf_y:
+			transform.origin.y = surf_y
+			state.set_transform(transform)
+		var vel_into_ground := -current_vel.dot(gc.ground_normal)
+		if vel_into_ground > 0.0:
+			current_vel += gc.ground_normal * vel_into_ground
+			state.set_linear_velocity(current_vel)
 
-	# 7. CONTROL EFFECTIVENESS (scales with dynamic pressure)
-	var sp_si := velocity.length() / pixels_per_meter
-	avatar.control_effectiveness = clampf(
-		(sp_si * sp_si) / (avatar.stall_speed_ms * avatar.stall_speed_ms * 50.0), 0.6, 1.8)
+	avatar.control_effectiveness = out.control_effectiveness
+	avatar.is_airborne = not gc.is_grounded
 
-	# 8. FLIGHT STATE TRANSITIONS
+	_update_flight_state(avatar, gc, out.is_stalled)
+
+func _build_flight_input(avatar: AvatarData, state: PhysicsDirectBodyState2D) -> Aerodynamics.FlightInput:
+	var gc := _get_ground_contact(avatar)
+	var inp := Aerodynamics.FlightInput.new()
+	inp.velocity = state.get_linear_velocity()
+	inp.pitch_angle = avatar.pitch_angle
+	inp.throttle = avatar.throttle
+	inp.is_grounded = gc.is_grounded
+	inp.ground_normal = gc.ground_normal
+	inp.on_runway = gc.on_runway
+	inp.tilt_angle = gc.tilt_angle
+	inp.global_position_y = global_position.y
+	inp.ground_y = gc.ground_y
+	inp.is_inverted = avatar.is_inverted
+	inp.engine_cutoff = avatar.engine_cutoff
+	inp.mass_kg = avatar.mass_kg
+	inp.model_params = avatar.model_params
+	inp.damage_drag_mult = avatar.drag_multiplier
+	inp.damage_thrust_mult = avatar.thrust_multiplier
+	inp.stall_speed_ms = avatar.stall_speed_ms
+	inp.pixels_per_meter = pixels_per_meter
+	inp.air_density = air_density
+	inp.gravity = gravity
+	inp.arcade_multiplier = arcade_multiplier
+	inp.bungee_time = avatar.bungee_time
+	inp.is_destroyed = avatar.damage.damage_state == DamageData.DamageState.DESTROYED
+	return inp
+
+func _update_flight_state(avatar: AvatarData, gc: GroundContact, stalled: bool) -> void:
 	if gc.is_grounded:
 		if avatar.flight_state != FlightState.DAMAGED and \
 		   avatar.flight_state != FlightState.CRASHED and \
-		   avatar.damage_state != DamageState.DESTROYED:
+		   avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
 			avatar.flight_state = FlightState.LANDED
-	elif stalled and avatar.damage_state != DamageState.DESTROYED:
+			if flight_fsm and flight_fsm._active and current_flight_state_name != "Landed":
+				flight_fsm.transition_to(&"landed")
+	elif stalled and avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
 		if avatar.flight_state == FlightState.FLYING or \
 		   avatar.flight_state == FlightState.LANDED:
 			avatar.flight_state = FlightState.STALLED
-	elif avatar.damage_state != DamageState.DESTROYED:
+			if flight_fsm and flight_fsm._active and current_flight_state_name != "Stalling":
+				flight_fsm.transition_to(&"stalling")
+	elif avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
 		if avatar.flight_state == FlightState.STALLED or \
 		   avatar.flight_state == FlightState.LANDED:
 			avatar.flight_state = FlightState.FLYING
-
-###############################################################################
-# LANDING IMPACT
-###############################################################################
+			if flight_fsm and flight_fsm._active and current_flight_state_name != "Flying":
+				flight_fsm.transition_to(&"flying")
 
 func _process_landing_impact(avatar: AvatarData, v_perp: float,
 		impact_force: float, tilt_angle: float) -> void:
@@ -938,66 +949,70 @@ func _process_landing_impact(avatar: AvatarData, v_perp: float,
 	var max_landing_tilt: float = model_params.get("max_landing_tilt_deg", 40.0)
 	var soft_landing: float = model_params.get("soft_landing_vperp", 80.0)
 	var hard_landing: float = model_params.get("hard_landing_vperp", 200.0)
-	var bungee_time: float = model_params.get("bungee_time", 0.15)
-	var mass_kg: float = model_params.get("mass_kg", 447.0)
-	var impact_force_calc: float = mass_kg * (v_perp / pixels_per_meter) / bungee_time
 
-	# Process landing impact - allow DESTROYED planes to transition to CRASHED state
-	if tilt_angle >= deg_to_rad(max_landing_tilt) and v_perp > 40.0:
-		_on_avatar_crashed(avatar)
+	var result := Aerodynamics.classify_landing_impact(
+		v_perp, tilt_angle, max_landing_tilt, soft_landing, hard_landing)
+
+	match result:
+		Aerodynamics.LandingImpact.CLEAN:
+			pass
+		Aerodynamics.LandingImpact.HARD:
+			var damage_pct: float = (v_perp - soft_landing) / (hard_landing - soft_landing)
+			damage_pct = clampf(damage_pct, 0.0, 1.0)
+			avatar.flight_state = FlightState.DAMAGED
+			if flight_fsm and flight_fsm._active:
+				flight_fsm.transition_to(&"damaged")
+			avatar.damage.take_damage(damage_pct)
+			_refresh_damage_modifiers(avatar)
+			damaged.emit(impact_force, v_perp)
+			if SoundManager:
+				SoundManager.play_sfx(SoundManager.SoundEvent.BUMP)
+		Aerodynamics.LandingImpact.CRASH:
+			DLog.crash_enter(avatar.id, "hard_landing", {
+				"v_perp": v_perp,
+				"px": snapped(global_position.x, 0.1),
+				"py": snapped(global_position.y, 0.1),
+				"vx": snapped(velocity.x, 0.1),
+				"vy": snapped(velocity.y, 0.1),
+				"ground_y": snapped(_ground_y(global_position.x), 0.1),
+			})
+			_on_avatar_crashed(avatar)
+
+func _integrate_crash_forces(state: PhysicsDirectBodyState2D, avatar: AvatarData, step: float) -> void:
+	var current_vel := state.get_linear_velocity()
+	if current_vel == Vector2.ZERO and avatar.has_hit_ground:
+		state.set_linear_velocity(Vector2.ZERO)
+		state.set_angular_velocity(0.0)
 		return
 
-	if v_perp <= soft_landing:
-		pass   ## Clean touch-down; flight state handled by the transition block.
+	current_vel.y += gravity * pixels_per_meter * step
+	var ang_vel = current_vel.x * 0.01
+	state.set_linear_velocity(current_vel)
+	state.set_angular_velocity(ang_vel)
 
-	elif v_perp <= hard_landing:
-		## Rough landing: add damage, slow the plane, emit feedback.
-		avatar.flight_state = FlightState.DAMAGED
-		avatar.damage_percent = minf(1.0, avatar.damage_percent + 0.2)
-		_refresh_damage_modifiers(avatar)
-		velocity.x *= 0.5
-		damaged.emit(impact_force_calc, v_perp)
-		if SoundManager:
-			SoundManager.play_sfx(SoundManager.SoundEvent.BUMP)
-
-	else:
-		DLog.crash_enter(avatar.id, "hard_landing", { "v_perp": v_perp })
+	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
+	if ground_ray and ground_ray.is_colliding():
+		state.set_linear_velocity(Vector2.ZERO)
+		state.set_angular_velocity(0.0)
+		avatar.has_hit_ground = true
+		damaged.emit(1.0, 0.0)
+		DLog.crash_enter(avatar.id, "ground_ray", {
+			"px": snapped(global_position.x, 0.1),
+			"py": snapped(global_position.y, 0.1),
+			"vx": snapped(velocity.x, 0.1),
+			"vy": snapped(velocity.y, 0.1),
+			"ground_y": snapped(_ground_y(global_position.x), 0.1),
+		})
 		_on_avatar_crashed(avatar)
 
-###############################################################################
-# THRUST
-###############################################################################
-
-func _calc_thrust(avatar: AvatarData, speed_si: float, ground_y: float) -> float:
-	if avatar.engine_cutoff:
-		return 0.0
-
-	var altitude    := ground_y - global_position.y
-	var alt_eff     := 1.0
-	if altitude > ENGINE_EFFICIENCY_START_ALTITUDE:
-		alt_eff = 1.0 - clampf(
-			(altitude - ENGINE_EFFICIENCY_START_ALTITUDE) /
-			(ENGINE_CUTOFF_ALTITUDE - ENGINE_EFFICIENCY_START_ALTITUDE),
-			0.0, 1.0)
-
-	var thr := avatar.throttle * avatar.thrust_multiplier * arcade_multiplier
-	var model_params = avatar.model_params
-
-	## Below 0.5 m/s the P×η/v formula diverges; use a static thrust value.
-	if speed_si < 0.5:
-		return 2000.0 * thr * alt_eff
-
-	var eta := maxf(0.0, 0.8 * (1.0 - pow((speed_si - 40.0) / 40.0, 2)))
-	return model_params.get("engine_power_watts", 96941.0) * eta / speed_si * thr * alt_eff
-
-###############################################################################
-# GROUND FRICTION LOOKUP
-###############################################################################
-
-func _friction_coeff(on_runway: bool, throttle: float) -> float:
-	if on_runway:
-		return FRICTION_RUNWAY_ROLLING if throttle >= THROTTLE_STEP else FRICTION_RUNWAY_BRAKING
-	return FRICTION_TERRAIN_ROLLING if throttle >= THROTTLE_STEP else FRICTION_TERRAIN_BRAKING
+	var transform := state.get_transform()
+	var surf_y := _ground_y(global_position.x) - GROUND_SURFACE_OFFSET
+	if transform.origin.y > surf_y:
+		transform.origin.y = surf_y
+		state.set_transform(transform)
+		if current_vel.y > 0.0:
+			current_vel.y = -current_vel.y * 0.1
+			state.set_linear_velocity(current_vel)
 
 ###############################################################################
 # ALTITUDE ENGINE CUTOFF
@@ -1015,17 +1030,15 @@ func _check_altitude_engine_cutoff(avatar: AvatarData, delta: float) -> void:
 			avatar.engine_restart_hold_time      = 0.0
 			avatar.engine_restart_required_time  = 4.0 + randf() * 4.0
 			avatar.sputtering_timer             = 0.0
-			if avatar.is_player and SoundManager:
+			if is_player_controlled and SoundManager:
 				SoundManager.set_engine_rpm(randf() * 0.2)
 	else:
-		## Sputtering sound while engine is cut off.
-		if avatar.is_player and SoundManager:
+		if is_player_controlled and SoundManager:
 			avatar.sputtering_timer += delta
 			if avatar.sputtering_timer >= 0.25:
 				avatar.sputtering_timer = 0.0
 				SoundManager.set_engine_rpm(randf() * 0.4)
-		## Hold throttle-up to restart the engine after descending.
-		if avatar.is_player and Input.is_action_pressed("throttle_up"):
+		if is_player_controlled and Input.is_action_pressed("throttle_up"):
 			avatar.engine_restart_hold_time += delta
 			if avatar.engine_restart_hold_time >= avatar.engine_restart_required_time:
 				avatar.engine_cutoff            = false
@@ -1039,10 +1052,9 @@ func _check_altitude_engine_cutoff(avatar: AvatarData, delta: float) -> void:
 ###############################################################################
 
 func _handle_input(avatar: AvatarData, delta: float) -> void:
-	if not avatar.is_player:
+	if not is_player_controlled:
 		return
 
-	## Pitch input: inverted flight reverses the control sense.
 	var pitch_input := 0.0
 	if Input.is_action_pressed("pull_up"):
 		pitch_input = -1.0
@@ -1052,7 +1064,6 @@ func _handle_input(avatar: AvatarData, delta: float) -> void:
 		pitch_input = -pitch_input
 	pitch_input *= avatar.control_effectiveness
 
-	## Throttle: step on key-repeat.
 	if not avatar.engine_cutoff:
 		var thr_up   := Input.is_action_pressed("throttle_up")
 		var thr_down := Input.is_action_pressed("throttle_down")
@@ -1060,25 +1071,23 @@ func _handle_input(avatar: AvatarData, delta: float) -> void:
 			avatar.throttle_repeat_timer -= delta
 			if avatar.throttle_repeat_timer <= 0.0:
 				if thr_up:
-					avatar.throttle_target = minf(max_throttle, avatar.throttle_target + THROTTLE_STEP)
+					avatar.throttle_target = minf(max_throttle, avatar.throttle_target + 0.15)
 				else:
-					avatar.throttle_target = maxf(min_throttle, avatar.throttle_target - THROTTLE_STEP)
-				avatar.throttle_repeat_timer = THROTTLE_REPEAT_DELAY
+					avatar.throttle_target = maxf(min_throttle, avatar.throttle_target - 0.15)
+				avatar.throttle_repeat_timer = 0.1
 		else:
 			avatar.throttle_repeat_timer = 0.0
 
-	avatar.throttle = move_toward(avatar.throttle, avatar.throttle_target, THROTTLE_RAMP_SPEED * delta)
+	avatar.throttle = move_toward(avatar.throttle, avatar.throttle_target, 5.0 * delta)
 
-	## Roll / flip.
 	if Input.is_action_just_pressed("roll") and not avatar.is_flipping and not is_grounded(avatar):
 		_start_flip(avatar)
 	elif Input.is_action_just_released("roll") and avatar.is_flipping:
 		_release_flip(avatar)
 
-	## Rotation: smooth angular velocity with inertia.
 	if not avatar.is_flipping:
 		var model_params = avatar.model_params
-		var eff_rot_speed: float = model_params.get("rotation_speed", 5.0) * (1.0 - avatar.damage_percent * 0.4)
+		var eff_rot_speed: float = model_params.get("rotation_speed", 5.0) * (1.0 - avatar.damage.damage_percent * 0.4)
 		var target_av: float = pitch_input * eff_rot_speed
 		avatar.angular_velocity = move_toward(
 			avatar.angular_velocity, target_av, model_params.get("rotation_inertia", 4.0) * delta)
@@ -1086,20 +1095,18 @@ func _handle_input(avatar: AvatarData, delta: float) -> void:
 
 	rotation = avatar.pitch_angle
 
-## Called by AI systems. Translates a pitch/throttle pair into the same
-## angular velocity integration used by the human-input path.
 func set_ai_input(pitch: float, throttle_amount: float) -> void:
 	for avatar_id in _avatars:
 		var avatar: AvatarData = _avatars[avatar_id]
-		if avatar.is_player or avatar.flight_state == FlightState.CRASHED:
+		if is_player_controlled or avatar.flight_state == FlightState.CRASHED:
 			continue
 		avatar.throttle_target = clampf(throttle_amount, min_throttle, max_throttle)
-		avatar.throttle = move_toward(avatar.throttle, avatar.throttle_target, THROTTLE_RAMP_SPEED * 0.016)
+		avatar.throttle = move_toward(avatar.throttle, avatar.throttle_target, 5.0 * 0.016)
 		var input_pitch: float = pitch * avatar.control_effectiveness
 		if avatar.is_inverted:
 			input_pitch = -input_pitch
 		var model_params = avatar.model_params
-		var eff_rot_speed: float = model_params.get("rotation_speed", 5.0) * (1.0 - avatar.damage_percent * 0.4)
+		var eff_rot_speed: float = model_params.get("rotation_speed", 5.0) * (1.0 - avatar.damage.damage_percent * 0.4)
 		avatar.angular_velocity = move_toward(
 			avatar.angular_velocity, input_pitch * eff_rot_speed, model_params.get("rotation_inertia", 4.0) * 0.016)
 		avatar.pitch_angle += avatar.angular_velocity * 0.016
@@ -1124,7 +1131,6 @@ func _start_flip(avatar: AvatarData) -> void:
 
 func _release_flip(avatar: AvatarData) -> void:
 	if avatar.flip_progress < 0.5:
-		## Not past halfway — spring back.
 		var prog := avatar.flip_progress
 		if _flip_tween and _flip_tween.is_valid():
 			_flip_tween.kill()
@@ -1133,7 +1139,6 @@ func _release_flip(avatar: AvatarData) -> void:
 		_flip_tween.tween_method(_update_flip.bind(avatar), prog, 0.0, FLIP_DURATION * prog)
 		_flip_tween.finished.connect(_on_flip_cancelled.bind(avatar))
 	else:
-		## Past halfway — commit to completion.
 		if _flip_tween and _flip_tween.is_valid():
 			_flip_tween.kill()
 		_apply_flip_transform(avatar, 1.0)
@@ -1164,42 +1169,122 @@ func _on_flip_cancelled(avatar: AvatarData) -> void:
 	_flip_tween = null
 
 ###############################################################################
-# CRASH PHYSICS
-## After entering CRASHED, the plane tumbles under gravity until the
-## RayCast2D detects ground contact, then stops.
-###############################################################################
-
-func _apply_crash_physics(avatar: AvatarData, delta: float) -> void:
-	if velocity == Vector2.ZERO:
-		return
-	velocity.y += gravity * pixels_per_meter * delta
-	rotation   += velocity.x * 0.01 * delta
-	move_and_slide()
-
-	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
-	if ground_ray and ground_ray.is_colliding():
-		velocity           = Vector2.ZERO
-		avatar.has_hit_ground = true
-		damaged.emit(1.0, 0.0)
-		if avatar.damage_state != DamageState.DESTROYED:
-			DLog.crash_enter(avatar.id, "ground_ray", {})
-			_on_avatar_crashed(avatar)
-
-	var surf_y := _ground_y(global_position.x) - GROUND_SURFACE_OFFSET
-	if global_position.y > surf_y:
-		global_position.y = surf_y
-		if velocity.y > 0.0:
-			velocity.y = -velocity.y * 0.1
-
-###############################################################################
 # OBSTACLE COLLISION
 ###############################################################################
 
+func _get_collider_poly_bounds(collider: Node) -> Dictionary:
+	var result := {"min_y": 0.0, "max_y": 0.0, "min_x": 0.0, "max_x": 0.0, "has_poly": false}
+	if collider.has_method("get_polygon_bounds"):
+		var bounds := collider.get_polygon_bounds() as Dictionary
+		result["min_y"] = bounds["min_y"]
+		result["max_y"] = bounds["max_y"]
+		result["min_x"] = bounds["min_x"]
+		result["max_x"] = bounds["max_x"]
+		result["has_poly"] = true
+		return result
+	for ch in collider.get_children():
+		if ch is CollisionPolygon2D:
+			var p_min_y := INF
+			var p_max_y := -INF
+			var p_min_x := INF
+			var p_max_x := -INF
+			for pt in (ch as CollisionPolygon2D).polygon:
+				p_min_y = min(p_min_y, pt.y)
+				p_max_y = max(p_max_y, pt.y)
+				p_min_x = min(p_min_x, pt.x)
+				p_max_x = max(p_max_x, pt.x)
+			result["min_y"] = p_min_y
+			result["max_y"] = p_max_y
+			result["min_x"] = p_min_x
+			result["max_x"] = p_max_x
+			result["has_poly"] = true
+			return result
+	return result
+
+func _compute_hypothesis_diagnostics(collider: Node, hit_r: float) -> Dictionary:
+	var data: Dictionary = {
+		"collider": collider.name,
+		"dist": snapped(global_position.distance_to(collider.global_position), 0.1),
+		"hit_r": hit_r,
+		"px": snapped(global_position.x, 0.1),
+		"py": snapped(global_position.y, 0.1),
+		"cx": snapped(collider.global_position.x, 0.1),
+		"cy": snapped(collider.global_position.y, 0.1),
+		"vx": snapped(velocity.x, 0.1),
+		"vy": snapped(velocity.y, 0.1),
+		"ground_y": snapped(_ground_y(global_position.x), 0.1),
+	}
+	var pbounds := _get_collider_poly_bounds(collider)
+	var cy: float = collider.global_position.y
+	var cx: float = collider.global_position.x
+	var ground_at_plane := _ground_y(global_position.x)
+	var ground_at_collider: float = _ground_y(cx)
+
+	if pbounds["has_poly"]:
+		var pmin_y: float = pbounds["min_y"]
+		var pmax_y: float = pbounds["max_y"]
+		var vis_top: float = cy + pmin_y
+		var vis_bottom: float = cy + pmax_y
+		var col_top: float = cy - hit_r
+		var col_bottom: float = cy + hit_r
+		data["hypoA"] = "hypoA poly_local=[%.0f..%.0f] vis_global=[%.0f..%.0f] col_sphere=[%.0f..%.0f] ground=%.0f gap_above=%.0f below_ground=%.0f" % [
+			pmin_y, pmax_y, vis_top, vis_bottom,
+			col_top, col_bottom, ground_at_collider,
+			vis_top - col_top,
+			vis_bottom - ground_at_collider
+		]
+		data["hypoD"] = "hypoD placed_y=%.0f ground_at_cx=%.0f poly_bottom_local=%.0f vis_bottom=%.0f ground=%.0f poly_extends_below=%.0f needed_y_shift=%.0f" % [
+			cy, ground_at_collider, pmax_y,
+			vis_bottom, ground_at_collider,
+			vis_bottom - ground_at_collider,
+			-ground_at_collider + cy - pmax_y
+		]
+	else:
+		data["hypoA"] = "no_poly col_sphere=[%.0f..%.0f] cy=%.0f ground=%.0f" % [
+			cy - hit_r, cy + hit_r, cy, ground_at_collider
+		]
+		data["hypoD"] = "no_poly cy=%.0f ground=%.0f" % [cy, ground_at_collider]
+
+	var plane_half_h := 24.0
+	var plane_col_r := 0.0
+	var plane_vis_top: float = global_position.y - plane_half_h
+	var plane_vis_bottom: float = global_position.y + plane_half_h
+	var gap_to_vis_top: float = plane_vis_top - cy
+	if pbounds["has_poly"]:
+		var pmin_y: float = pbounds["min_y"]
+		gap_to_vis_top = plane_vis_top - (cy + pmin_y)
+	data["hypoB"] = "hypoB plane_vis=[%.0f..%.0f] col_r=%.0f center_y=%.0f visual_half=%.0f gap_plane_vis_to_vis_top=%.0f" % [
+		plane_vis_top, plane_vis_bottom, plane_col_r,
+		global_position.y, plane_half_h,
+		gap_to_vis_top
+	]
+
+	data["hypoC"] = "hypoC terrain_surface_at_plane=%.0f terrain_surface_at_collider=%.0f plane_y=%.0f collider_y=%.0f ground_diff=%.0f" % [
+		ground_at_plane, ground_at_collider,
+		global_position.y, cy,
+		ground_at_plane - ground_at_collider
+	]
+
+	if _terrain and _terrain.has_method("get_terrain_info_at"):
+		var tinfo: Dictionary = _terrain.get_terrain_info_at(global_position.x)
+		var tbody_y: float = tinfo.get("terrain_body_pos_y", 0.0)
+		var tpoly_y: float = tinfo.get("terrain_poly_pos_y", 0.0)
+		var tnode_y: float = tinfo.get("terrain_node_pos_y", 0.0)
+		var tsurface_y: float = tinfo.get("surface_y", 0.0)
+		var taligned: String = "true" if tbody_y == tpoly_y else "false"
+		data["hypoC_terrain"] = "body_y=%.0f poly_y=%.0f node_y=%.0f surface_y=%.0f body_aligned=%s" % [
+			tbody_y, tpoly_y, tnode_y, tsurface_y, taligned
+		]
+
+	if pbounds["has_poly"]:
+		var child_vis_top: float = cy + pbounds["min_y"]
+		data["child_visual_top"] = snapped(child_vis_top, 0.1)
+		data["plane_visual_bottom"] = snapped(plane_vis_bottom, 0.1)
+		data["gap_visual"] = snapped(child_vis_top - plane_vis_bottom, 0.1)
+
+	return data
+
 func _check_obstacle_collision(avatar: AvatarData) -> void:
-	# Don't check obstacle collisions if already destroyed
-	if avatar.damage_state == DamageState.DESTROYED:
-		return
-		
 	var speed := velocity.length()
 	if speed < 5.0:
 		return
@@ -1210,40 +1295,39 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 	for child in parent.get_children():
 		if child == self:
 			continue
-
-		if child is StaticBody2D and (child.is_in_group("ground_target") or
-		   child.is_in_group("wreck") or child.is_in_group("obstacle")):
-			var dist   := global_position.distance_to(child.global_position)
-			var hit_r  := 35.0 if (child.is_in_group("ground_target") or
-			              child.is_in_group("wreck")) else 25.0
-			if dist < hit_r:
+		if child.has_method("get_collision_response"):
+			var collision_result = child.get_collision_response(self, avatar, speed)
+			if collision_result.hit:
 				if child.has_method("take_damage"):
-					child.take_damage(100.0, self)
-				DLog.crash_enter(avatar.id, "obstacle", { "collider": child.name })
-				_on_avatar_crashed(avatar)
+					child.take_damage(collision_result.damage * 50.0, self)
+				var actual_damage: float = collision_result.damage * 100.0
+				take_damage(avatar, actual_damage, child)
+				if collision_result.is_midair or avatar.flight_state == FlightState.FALLING:
+					if actual_damage >= 100.0:
+						_on_avatar_crashed(avatar)
+				elif not collision_result.is_midair and avatar.flight_state != FlightState.FALLING:
+					var model_params = avatar.model_params
+					var hard_landing: float = model_params.get("hard_landing_vperp", 200.0)
+					var impact_speed: float = collision_result.impact_speed
+					var plane_damage_pct: float = clampf(impact_speed / hard_landing, 0.0, 1.0)
+					if plane_damage_pct >= 1.0:
+						_on_avatar_crashed(avatar)
+					else:
+						take_damage(avatar, plane_damage_pct * 100.0, child)
 				return
-
-		elif child is CharacterBody2D and child.has_method("get_primary_entity") and speed > 10.0:
+		if child is RigidBody2D and child.has_method("get_primary_entity") and not child.has_method("get_collision_response"):
+			var other_speed: float = child.velocity.length()
 			var dist := global_position.distance_to(child.global_position)
-			if dist < 40.0:
-				take_damage(avatar, 100.0, child)
-				DLog.crash_enter(avatar.id, "midair", { "collider": child.name })
-				_on_avatar_crashed(avatar)
-				if child.has_method("force_crash"):
-					child.force_crash()
-					if is_in_group("player") and GameManager:
-						GameManager.add_score(0, 100)
-				elif child.has_method("take_damage"):
-					child.take_damage(100.0, self)
-				return
-
-		elif child.is_in_group("bird") and speed > 5.0:
-			var dist := global_position.distance_to(child.global_position)
-			if dist < 20.0:
-				var bird_damage := randi_range(10, 50)
-				take_damage(avatar, bird_damage, child)
+			if dist < 40.0 and speed > 10.0 and other_speed > 10.0:
+				var stall_speed: float = avatar.stall_speed_ms
+				var relative_speed: float = speed + other_speed
+				var damage_ratio: float = clampf(relative_speed / stall_speed * 0.5, 0.5, 1.0)
+				var actual_damage: float = damage_ratio * 100.0
+				take_damage(avatar, actual_damage, child)
 				if child.has_method("take_damage"):
-					child.take_damage(100.0, self)
+					child.take_damage(damage_ratio * 50.0, self)
+				if actual_damage >= 100.0:
+					_on_avatar_crashed(avatar)
 				return
 
 ###############################################################################
@@ -1254,7 +1338,7 @@ func _handle_weapons(avatar: AvatarData, delta: float) -> void:
 	avatar.gun_timer  = maxf(0.0, avatar.gun_timer  - delta)
 	avatar.bomb_timer = maxf(0.0, avatar.bomb_timer - delta)
 
-	if not avatar.is_player:
+	if not is_player_controlled:
 		return
 	if Input.is_action_pressed("fire") and avatar.gun_timer <= 0.0:
 		fire_gun(avatar)
@@ -1266,7 +1350,7 @@ func fire_gun(avatar: AvatarData) -> void:
 		return
 	avatar.gun_timer = gun_cooldown
 	avatar.ammo     -= 1
-	if avatar.is_player and GameManager:
+	if GameManager and is_player_controlled:
 		GameManager.ammo_changed.emit(avatar.id, avatar.ammo)
 
 	var inv: bool = avatar.is_inverted
@@ -1300,7 +1384,7 @@ func drop_bomb(avatar: AvatarData) -> void:
 		return
 	avatar.bomb_timer = bomb_cooldown
 	avatar.bombs     -= 1
-	if avatar.is_player and GameManager:
+	if GameManager and is_player_controlled:
 		GameManager.bombs_changed.emit(avatar.id, avatar.bombs)
 
 	var inv: bool = avatar.is_inverted
@@ -1352,20 +1436,21 @@ func _check_fuel_consumption(avatar: AvatarData, delta: float) -> void:
 	if avatar.fuel <= 0.0:
 		avatar.throttle        = 0.0
 		avatar.throttle_target = 0.0
-		if avatar.current_smoke_type == 0:
-			_ensure_smoke(avatar, 1, 10)
+		if avatar.current_smoke_type == 0 and EffectManager:
+			avatar.continuous_smoke = EffectManager.attach_continuous_smoke(self, Vector2(-15, 5), 1, 10)
+			avatar.current_smoke_type = 1
 		return
 
-	if avatar.throttle > 0.0 or avatar.damage_state >= DamageState.MODERATE:
+	if avatar.throttle > 0.0 or avatar.damage.damage_state >= DamageData.DamageState.MODERATE:
 		var loss := avatar.throttle * delta * 0.8
-		match avatar.damage_state:
-			DamageState.SEVERE:   loss *= 6.0
-			DamageState.MODERATE: loss *= 2.0
+		match avatar.damage.damage_state:
+			DamageData.DamageState.SEVERE:   loss *= 6.0
+			DamageData.DamageState.MODERATE: loss *= 2.0
 		avatar.fuel = maxf(0.0, avatar.fuel - loss)
-		if avatar.is_player and GameManager:
+		if GameManager and is_player_controlled:
 			GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
 
-	if SoundManager and avatar.is_player:
+	if SoundManager and is_player_controlled:
 		SoundManager.set_engine_rpm(avatar.throttle)
 
 ###############################################################################
@@ -1393,10 +1478,12 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 		return
 
 	## Repair damage instantly on landing at home.
-	if avatar.damage_state != DamageState.INTACT:
-		avatar.damage_percent = 0.0
+	if avatar.damage.damage_state != DamageData.DamageState.INTACT:
+		avatar.damage.repair(true)
 		_refresh_damage_modifiers(avatar)
 		avatar.flight_state = FlightState.FLYING
+		if flight_fsm and flight_fsm._active:
+			flight_fsm.transition_to(&"flying")
 
 	avatar.refuel_timer += delta
 	if avatar.refuel_timer >= 0.5:
@@ -1409,7 +1496,7 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 		avatar.bombs = mini(max_bombs, avatar.bombs + 1)
 		avatar.refuel_timer = 0.0
 
-		if avatar.is_player and GameManager:
+		if GameManager and is_player_controlled:
 			if avatar.ammo  != old_ammo:  GameManager.ammo_changed.emit(avatar.id, avatar.ammo)
 			if avatar.bombs != old_bombs: GameManager.bombs_changed.emit(avatar.id, avatar.bombs)
 			if avatar.fuel  != old_fuel:  GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
@@ -1444,67 +1531,80 @@ func take_damage(avatar_or_amount, amount_or_attacker = null, _attacker = null) 
 		if GameManager:
 			GameManager.add_score(0, int(amount))
 
-	avatar.damage_percent = minf(1.0, avatar.damage_percent + amount / 100.0)
+	avatar.damage.take_damage(amount / 100.0)
+	avatar.damage.damage_state = avatar.damage.get_damage_state()
 	_refresh_damage_modifiers(avatar)
 
-	if avatar.damage_state == DamageState.SEVERE and not avatar.is_losing_control:
+	if avatar.damage.damage_state == DamageData.DamageState.SEVERE and not avatar.is_losing_control:
 		_start_spinning_out(avatar)
 
-	if avatar.damage_state == DamageState.DESTROYED:
-		## Don't emit crashed yet — wait until hitting ground in FALLING state.
+	if avatar.damage.damage_state == DamageData.DamageState.DESTROYED:
 		avatar.flight_state = FlightState.FALLING
+		if flight_fsm and flight_fsm._active:
+			flight_fsm.transition_to(&"falling")
 
 ###############################################################################
-# PARTICLE HELPERS
+# PARTICLE HELPERS  (delegated to EffectManager)
 ###############################################################################
 
-## Sync particle effects to current damage state. Called by _refresh_damage_modifiers.
+func _on_avatar_damage_state_changed(_from: DamageData.DamageState, _to: DamageData.DamageState, avatar: AvatarData) -> void:
+	_sync_damage_particles(avatar)
+
+## Sync particle effects to current damage state using EffectManager continuous effects.
 func _sync_damage_particles(avatar: AvatarData) -> void:
-	match avatar.damage_state:
-		DamageState.DESTROYED, DamageState.SEVERE:
-			_ensure_fire(avatar, int(30.0 * avatar.damage_percent))
-			_ensure_smoke(avatar, 2, int(30.0 * avatar.damage_percent))
-		DamageState.MODERATE:
-			_disable_fire(avatar)
-			_ensure_smoke(avatar, 2, int(60.0 * avatar.damage_percent))
-		DamageState.LIGHT:
-			_disable_fire(avatar)
-			_ensure_smoke(avatar, 1, int(20.0 * avatar.damage_percent))
+	if not EffectManager:
+		return
+
+	match avatar.damage.damage_state:
+		DamageData.DamageState.DESTROYED, DamageData.DamageState.SEVERE:
+			if avatar.continuous_fire_handles.is_empty():
+				avatar.continuous_fire_handles = EffectManager.attach_continuous_fire(self, Vector2(15, -5), int(30.0 * avatar.damage.damage_percent))
+			else:
+				EffectManager.update_continuous_fire(avatar.continuous_fire_handles, int(30.0 * avatar.damage.damage_percent))
+
+			if not avatar.continuous_smoke or avatar.current_smoke_type != 2:
+				_detach_smoke(avatar)
+				avatar.continuous_smoke = EffectManager.attach_continuous_smoke(self, Vector2(-15, 5), 2, int(30.0 * avatar.damage.damage_percent))
+				avatar.current_smoke_type = 2
+			else:
+				EffectManager.update_continuous_smoke(avatar.continuous_smoke, int(30.0 * avatar.damage.damage_percent))
+
+		DamageData.DamageState.MODERATE:
+			_detach_fire(avatar)
+
+			if not avatar.continuous_smoke or avatar.current_smoke_type != 2:
+				_detach_smoke(avatar)
+				avatar.continuous_smoke = EffectManager.attach_continuous_smoke(self, Vector2(-15, 5), 2, int(60.0 * avatar.damage.damage_percent))
+				avatar.current_smoke_type = 2
+			else:
+				EffectManager.update_continuous_smoke(avatar.continuous_smoke, int(60.0 * avatar.damage.damage_percent))
+
+		DamageData.DamageState.LIGHT:
+			_detach_fire(avatar)
+
+			if not avatar.continuous_smoke or avatar.current_smoke_type != 1:
+				_detach_smoke(avatar)
+				avatar.continuous_smoke = EffectManager.attach_continuous_smoke(self, Vector2(-15, 5), 1, int(20.0 * avatar.damage.damage_percent))
+				avatar.current_smoke_type = 1
+			else:
+				EffectManager.update_continuous_smoke(avatar.continuous_smoke, int(20.0 * avatar.damage.damage_percent))
+
 		_:
-			_disable_fire(avatar)
-			_disable_smoke(avatar)
+			_detach_fire(avatar)
+			_detach_smoke(avatar)
 
-func _ensure_smoke(avatar: AvatarData, smoke_type: int, amount: int) -> void:
-	if not avatar.smoke_particles:
-		avatar.smoke_particles         = GPUParticles2D.new()
-		avatar.smoke_particles.name    = "SmokeParticles_%d" % avatar.id
-		avatar.smoke_particles.emitting = true
-		avatar.smoke_particles.lifetime = 1.5
-		add_child(avatar.smoke_particles)
-	avatar.smoke_particles.process_material = \
-		_white_smoke_mat if smoke_type == 1 else _black_smoke_mat
-	avatar.smoke_particles.amount     = amount
-	avatar.current_smoke_type         = smoke_type
+func _detach_fire(avatar: AvatarData) -> void:
+	if not avatar.continuous_fire_handles.is_empty():
+		if EffectManager:
+			EffectManager.detach_continuous_fire(avatar.continuous_fire_handles)
+		avatar.continuous_fire_handles.clear()
 
-func _disable_smoke(avatar: AvatarData) -> void:
-	if avatar.smoke_particles:
-		avatar.smoke_particles.emitting = false
-		avatar.current_smoke_type       = 0
-
-func _ensure_fire(avatar: AvatarData, amount: int) -> void:
-	if not avatar.fire_particles:
-		avatar.fire_particles                  = GPUParticles2D.new()
-		avatar.fire_particles.name             = "FireParticles_%d" % avatar.id
-		avatar.fire_particles.emitting         = true
-		avatar.fire_particles.lifetime         = 0.3
-		avatar.fire_particles.process_material = _fire_mat
-		add_child(avatar.fire_particles)
-	avatar.fire_particles.amount   = amount
-	avatar.fire_particles.emitting = true
-
-func _disable_fire(avatar: AvatarData) -> void:
-	if avatar.fire_particles:
-		avatar.fire_particles.emitting = false
+func _detach_smoke(avatar: AvatarData) -> void:
+	if avatar.continuous_smoke:
+		if EffectManager:
+			EffectManager.detach_continuous_smoke(avatar.continuous_smoke)
+		avatar.continuous_smoke = null
+	avatar.current_smoke_type = 0
 
 ###############################################################################
 # CRASH & SPIN-OUT
@@ -1515,17 +1615,29 @@ func _start_spinning_out(avatar: AvatarData) -> void:
 	avatar.throttle             = 0.0
 	avatar.throttle_target      = 0.0
 	avatar.flight_state         = FlightState.FALLING
+	if flight_fsm and flight_fsm._active:
+		flight_fsm.transition_to(&"falling")
 
 func _on_avatar_crashed(avatar: AvatarData) -> void:
 	if _crash_processed.has(avatar.id):
-		DLog.crash_guard(avatar.id, "_crash_processed")
+		DLog.crash_guard(avatar.id, "_crash_processed", {
+			"px": snapped(global_position.x, 0.1),
+			"py": snapped(global_position.y, 0.1),
+			"vx": snapped(velocity.x, 0.1),
+			"vy": snapped(velocity.y, 0.1),
+			"ground_y": snapped(_ground_y(global_position.x), 0.1),
+		})
 		return
 	_crash_processed[avatar.id] = true
+	var is_midair := avatar.is_airborne and avatar.flight_state != FlightState.LANDED and avatar.flight_state != FlightState.CRASHED
 	avatar.flight_state          = FlightState.CRASHED
-	avatar.damage_state          = DamageState.DESTROYED
-	if avatar.is_player and GameManager:
+	avatar.damage.damage_state   = DamageData.DamageState.DESTROYED
+	avatar.is_airborne           = false
+	if flight_fsm and flight_fsm._active:
+		flight_fsm.transition_to(&"crashed")
+	if GameManager and is_player_controlled:
 		GameManager.destroy_player(avatar.id)
-	crashed.emit()
+	crashed.emit(is_midair)
 
 ###############################################################################
 # VISUAL HELPERS
@@ -1557,14 +1669,14 @@ func update_visual_representation(avatar: AvatarData) -> void:
 		sprite.scale = model_params.get("visual_scale", Vector2.ONE)
 
 	# Update visual elements based on damage state
-	match avatar.damage_state:
-		DamageState.DESTROYED, DamageState.SEVERE:
+	match avatar.damage.damage_state:
+		DamageData.DamageState.DESTROYED, DamageData.DamageState.SEVERE:
 			# Add fire effect for heavily damaged planes
 			pass
-		DamageState.MODERATE:
+		DamageData.DamageState.MODERATE:
 			# Add smoke effect
 			pass
-		DamageState.LIGHT:
+		DamageData.DamageState.LIGHT:
 			# Light smoke effect
 			pass
 		_:
@@ -1577,18 +1689,14 @@ func _update_ground_ray(avatar: AvatarData) -> void:
 		var base_offset: float = 26.0
 		ground_ray.target_position = Vector2(0, -base_offset if avatar.is_inverted else base_offset)
 
-func create_explosion() -> void:
+func create_explosion(is_midair: bool = false) -> void:
 	var pos := global_position
-	var explosion_scene := load("res://scenes/explosion.tscn")
-	if explosion_scene:
-		var explosion: Node = explosion_scene.instantiate()
-		explosion.global_position = pos
-		get_parent().add_child(explosion)
-	var shatter_scene := load("res://scenes/shatter_effect.tscn")
-	if shatter_scene:
-		var shatter: Node = shatter_scene.instantiate()
-		shatter.setup(get_plane_polygon(), Color(0.5, 0.55, 0.5), pos, 20.0)
-		get_parent().add_child(shatter)
+	if EffectManager:
+		if is_midair:
+			EffectManager.spawn_explosion(pos, 100.0)
+			EffectManager.spawn_explosion_debris(pos, Color(0.5, 0.55, 0.5), 8, 10.0, get_plane_polygon())
+		else:
+			EffectManager.spawn_crash_effects(pos, get_plane_polygon(), Color(0.5, 0.55, 0.5))
 
 func get_plane_polygon() -> PackedVector2Array:
 	var model_params = get_primary_entity().model_params
@@ -1613,7 +1721,8 @@ func create_entity(faction: Faction, team: Team, model: String = "",
 	avatar.faction = faction
 	avatar.team = team
 	avatar.homebase_id = 0
-	avatar.is_player = (entity_id == 0)  # First entity is player by default
+	if GameManager:
+		GameManager.get_player_data(avatar.id).is_player = (entity_id == 0)
 
 	# Set plane model - use faction default if not specified
 	if model == "":
@@ -1666,26 +1775,37 @@ func apply_homebase_model(avatar: AvatarData) -> void:
 # RESET & RESPAWN
 ###############################################################################
 
-func reset_flight_state() -> void:
-	var avatar := get_avatar_data(0)
+func reset_flight_state(avatar_id: int = 0) -> void:
+	var avatar := get_avatar_data(avatar_id)
 	if avatar:
 		avatar.reset()
-		_crash_processed.erase(0)
+		_crash_processed.erase(avatar_id)
 		_update_ground_ray(avatar)
-		if avatar.is_player and SoundManager:
+		if is_player_controlled and SoundManager:
 			SoundManager.start_engine()
 			SoundManager.set_engine_rpm(0.0)
+	if flight_fsm:
+		if not flight_fsm._active:
+			flight_fsm._active = true
+		flight_fsm.transition_to(&"flying")
 	reset_visual_transform()
 
 func force_crash() -> void:
-	for avatar_id in _avatars:
-		var avatar: AvatarData = _avatars[avatar_id]
-		if avatar.flight_state != FlightState.CRASHED:
-			avatar.damage_percent = 1.0
-			_refresh_damage_modifiers(avatar)
-			_start_spinning_out(avatar)
-			DLog.crash_enter(avatar.id, "force_crash", {})
-			_on_avatar_crashed(avatar)
+	var avatar: AvatarData = get_primary_entity()
+	if not avatar:
+		return
+	if avatar.flight_state != FlightState.CRASHED:
+		avatar.damage.take_damage(1.0)
+		_refresh_damage_modifiers(avatar)
+		_start_spinning_out(avatar)
+		DLog.crash_enter(avatar.id, "force_crash", {
+			"px": snapped(global_position.x, 0.1),
+			"py": snapped(global_position.y, 0.1),
+			"vx": snapped(velocity.x, 0.1),
+			"vy": snapped(velocity.y, 0.1),
+			"ground_y": snapped(_ground_y(global_position.x), 0.1),
+		})
+		_on_avatar_crashed(avatar)
 
 func _perform_teleport_landing(avatar: AvatarData) -> void:
 	avatar.is_inverted = false
@@ -1693,20 +1813,49 @@ func _perform_teleport_landing(avatar: AvatarData) -> void:
 	avatar.flip_progress = 0.0
 	avatar.flip_direction = 0
 	avatar.pitch_angle = 0.0
-	velocity = Vector2.ZERO
+	linear_velocity = Vector2.ZERO
+	angular_velocity = 0.0
 	var spawn_pos := get_homebase_spawn_position(avatar)
 	var spawn_rot := get_homebase_spawn_rotation(avatar)
 	rotation = spawn_rot
 	avatar.pitch_angle = spawn_rot
 	global_position = Vector2(spawn_pos.x, spawn_pos.y)
+	_pending_teleport = true
+	_teleport_position = spawn_pos
+	_teleport_rotation = spawn_rot
 	reset_visual_transform(avatar)
-	if avatar.is_player and GameManager:
+	if GameManager and is_player_controlled:
 		GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
 		GameManager.ammo_changed.emit(avatar.id, avatar.ammo)
 		GameManager.bombs_changed.emit(avatar.id, avatar.bombs)
-	if avatar.is_player and SoundManager:
+	if is_player_controlled and SoundManager:
 		SoundManager.start_engine()
 		SoundManager.set_engine_rpm(0.0)
+
+###############################################################################
+# FSM HELPER METHODS
+## Public accessors for flight state scripts. These wrap the private methods
+## so the FSM states can call them on the biplane node.
+###############################################################################
+
+func _is_stalled_check(avatar: AvatarData, gc: GroundContact) -> bool:
+	return Aerodynamics.is_stalled(
+		avatar.pitch_angle, velocity, gc.is_grounded,
+		avatar.stall_speed_ms, pixels_per_meter, avatar.model_params)
+
+func _is_on_homebase(avatar: AvatarData) -> bool:
+	if not is_grounded(avatar):
+		return false
+	var hb := _get_homebase(avatar)
+	if not hb:
+		return false
+	if avatar.team != hb.team:
+		return false
+	return abs(global_position.x - hb.home_base_x) <= hb.home_base_width
+
+func transition_flight_state(state_name: String) -> void:
+	if flight_fsm and flight_fsm._active:
+		flight_fsm.transition_to(StringName(state_name))
 
 ###############################################################################
 # PUBLIC ACCESSORS
@@ -1738,20 +1887,24 @@ func get_ammo(avatar: AvatarData) -> int:
 func get_bombs(avatar: AvatarData) -> int:
 	return avatar.bombs
 
-func is_player_plane(avatar: AvatarData) -> bool:
-	return avatar.is_player
-
-func is_enemy_plane(avatar: AvatarData) -> bool:
-	return not avatar.is_player
-
 func is_inverted(avatar: AvatarData) -> bool:
 	return avatar.is_inverted if avatar else false
 
 func set_player(avatar: AvatarData, p: bool) -> void:
-	avatar.is_player = p
+	if GameManager:
+		GameManager.get_player_data(avatar.id).is_player = p
 
 func set_game_active(active: bool) -> void:
 	game_active = active
+
+func teleport_to(pos: Vector2, rot: float = 0.0) -> void:
+	global_position = pos
+	rotation = rot
+	linear_velocity = Vector2.ZERO
+	angular_velocity = 0.0
+	_pending_teleport = true
+	_teleport_position = pos
+	_teleport_rotation = rot
 
 func set_unlimited_fuel_ammo(avatar: AvatarData, val: bool) -> void:
 	avatar.unlimited_fuel_ammo = val
@@ -1761,6 +1914,29 @@ func disable_bombs(avatar: AvatarData) -> void:
 
 func set_home_base(avatar: AvatarData, id: int) -> void:
 	avatar.homebase_id = id
+
+func respawn(avatar_id: int, camera_ref: Camera2D = null) -> bool:
+	var avatar: AvatarData = _avatars.get(avatar_id)
+	if not avatar:
+		return false
+
+	var spawn_pos := get_homebase_spawn_position(avatar)
+	var spawn_rot := get_homebase_spawn_rotation(avatar)
+
+	visible = true
+	global_position = spawn_pos
+	linear_velocity = Vector2.ZERO
+	angular_velocity = 0.0
+	_pending_teleport = true
+	_teleport_position = spawn_pos
+	_teleport_rotation = spawn_rot
+
+	reset_flight_state(avatar_id)
+
+	if is_player_controlled and camera_ref:
+		camera_ref.position = Vector2(spawn_pos.x, spawn_pos.y - 250)
+
+	return true
 
 func do_flip(avatar: AvatarData) -> void:
 	if avatar and not avatar.is_flipping:
@@ -1811,7 +1987,7 @@ func switch_plane_model(avatar: AvatarData, new_model: String) -> bool:
 	avatar.update_model_params()
 
 	# Update visual representation
-	if avatar.is_player and has_node("Visual"):
+	if GameManager and is_player_controlled and has_node("Visual"):
 		update_visual_representation(avatar)
 
 	# Emit model changed event if needed

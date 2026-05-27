@@ -26,15 +26,18 @@ DLog="*res://scripts/dlog.gd"
 GameManager="*res://scripts/game_manager.gd"
 SoundManager="*res://scripts/sound_manager.gd"
 SvgManager="*res://scripts/svg_manager.gd"
+EffectManager="*res://scripts/effect_manager.gd"
+RespawnManager="*res://scripts/respawn_manager.gd"
 
 [display]
-;window/size/viewport_width=1920
-;window/size/viewport_width=2580
-;window/size/viewport_height=1080
-window/size/viewport_width=1720
-window/size/viewport_height=720
+
+;window/size/viewport_width=1720
+;window/size/viewport_height=720
 ;window/size/viewport_width=3440
 ;window/size/viewport_height=1440
+;window/size/viewport_width=1920
+window/size/viewport_width=2560
+window/size/viewport_height=1080
 window/size/mode=3
 window/stretch/mode="canvas_items"
 

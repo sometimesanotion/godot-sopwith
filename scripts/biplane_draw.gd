@@ -4,8 +4,8 @@ extends Node2D
 @export var wing_color: Color = Color(0.1, 0.1, 0.2)
 
 var _svg_sprite_name: String = "biplane"
-var _svg_size: Vector2 = Vector2(80, 48)
-var _draw_offset: Vector2 = Vector2(0, 0)
+var _svg_size: Vector2 = Vector2(90, 54)
+var _draw_offset: Vector2 = Vector2(0, 6)
 
 func _ready() -> void:
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
@@ -30,6 +30,8 @@ func _draw() -> void:
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
 		SvgManager.draw_sprite_centered(self, _svg_sprite_name, _draw_offset, _svg_size)
 		return
+
+	draw_set_transform(_draw_offset)
 
 	var body_points: PackedVector2Array = [
 		Vector2(20, 0),

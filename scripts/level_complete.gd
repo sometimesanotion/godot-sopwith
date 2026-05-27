@@ -105,7 +105,7 @@ func _update_layout_from_scratch() -> void:
 	var level_num: int = GameManager.current_level if GameManager else 1
 	var score_text: String = "Score: 0"
 	if GameManager:
-		var pd := GameManager.get_player_data(0)
+		var pd = GameManager.get_player_data(0)
 		score_text = "Score: %d" % pd.score
 
 	_level_label = Label.new()

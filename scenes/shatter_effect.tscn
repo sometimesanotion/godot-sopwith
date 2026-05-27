@@ -1,6 +1,0 @@
-[gd_scene load_steps=2 format=3 uid="uid://shatter_effect"]
-
-[ext_resource type="Script" path="res://scripts/shatter_effect.gd" id="1_shatter"]
-
-[node name="ShatterEffect" type="Node2D"]
-script = ExtResource("1_shatter")

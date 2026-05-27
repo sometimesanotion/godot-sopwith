@@ -1,13 +1,12 @@
 extends Node
 
 ## Enemy AI for Sopwith biplanes
-## Architecture: State Machine -> Pursuit Calculator -> Reflex Layer
+## Architecture: FSM State Machine -> Pursuit Calculator -> Reflex Layer
 ##
-## ENCAPSULATION
-##   All mutable per-pilot runtime state lives in PilotState.  The node itself
-##   holds only constants, the biplane/target references, and an Array[PilotState]
-##   (pilots).  This means multiple AI nodes never share mutable data,
-##   and a future multi-pilot manager can simply hold an Array[PilotState].
+## The AI now uses the project's reusable FSM (StateMachine/State) instead of
+## a manual enum + match pattern. State transitions are handled by individual
+## state scripts in scripts/states/ai/. The _physics_process loop delegates
+## to the FSM which in turn calls the appropriate state's update().
 ##
 ## PITCH CONTROL  (Options B + C)
 ##   B — State-aware damping profiles: ENGAGING uses a more aggressive budget
@@ -120,7 +119,7 @@ const BOMB_ANGLE_TOLERANCE      := 0.175
 # PILOT STATE  (all mutable runtime data for one AI pilot)
 # ---------------------------------------------------------------------------
 
-class PilotState:
+class AIData:
 	# FSM
 	var ai_state: int        = 0   # AIState.GROUNDED
 	var previous_state: int  = 2   # AIState.PATROLLING
@@ -136,14 +135,11 @@ class PilotState:
 	var flip_cooldown: float         = 0.0
 	var bomb_cooldown_timer: float   = 0.0
 	var evade_timer: float           = 0.0
-	var crash_timer: float           = 0.0
-	var respawn_timer: float         = 0.0
 	var patrol_time: float           = 0.0
 	var takeoff_timer: float         = 0.0
 
 	# Flags
 	var is_using_autopilot: bool        = false
-	var is_waiting_for_crash_land: bool = false
 
 	func reset_control_outputs() -> void:
 		last_pitch_input = 0.0
@@ -155,7 +151,7 @@ class PilotState:
 # ---------------------------------------------------------------------------
 
 @export var target: Node2D
-@export var biplane: CharacterBody2D
+@export var biplane: RigidBody2D
 
 # Configuration (set by spawner before _ready)
 @export var home_base_x: float  = 1400.0
@@ -164,16 +160,18 @@ class PilotState:
 @export var unlimited_fuel_ammo: bool = false
 
 var decision_interval: float = 0.05
-var crash_delay: float       = 2.0
-var respawn_delay: float     = 3.0
 
 var territory_left: float  = 0.0
 var territory_right: float = 16384.0
 
 var terrain_cache: Node2D = null
 
+var ai_fsm: AIStateMachine = null
+
 # The one pilot this node controls.
-var pilots: Array[PilotState] = [PilotState.new()]
+var pilots: Array[AIData] = [AIData.new()]
+
+var _respawn_id: int = -1
 
 # ---------------------------------------------------------------------------
 # LIFECYCLE
@@ -182,14 +180,56 @@ var pilots: Array[PilotState] = [PilotState.new()]
 func _ready() -> void:
 	add_to_group("enemy")
 	add_to_group("destructible")
+	_respawn_id = get_instance_id()
 	if biplane and biplane.has_signal("crashed"):
 		biplane.crashed.connect(_on_enemy_crashed)
+	if RespawnManager:
+		if RespawnManager.respawn_ready.is_connected(_on_enemy_respawn_ready):
+			RespawnManager.respawn_ready.disconnect(_on_enemy_respawn_ready)
+		RespawnManager.respawn_ready.connect(_on_enemy_respawn_ready)
 	_setup_territory()
+	_init_ai_fsm()
 
 func _setup_territory() -> void:
 	var half := patrol_range * 0.5
 	territory_left  = home_base_x - half
 	territory_right = home_base_x + half
+
+func _init_ai_fsm() -> void:
+	var fsm_node := AIStateMachine.new()
+	fsm_node.name = "AIStateMachine"
+
+	var state_scripts := {
+		"Grounded": load("res://scripts/states/ai/grounded_state.gd"),
+		"TakingOff": load("res://scripts/states/ai/taking_off_state.gd"),
+		"Patrolling": load("res://scripts/states/ai/patrolling_state.gd"),
+		"Engaging": load("res://scripts/states/ai/engaging_state.gd"),
+		"Evading": load("res://scripts/states/ai/evading_state.gd"),
+		"Returning": load("res://scripts/states/ai/returning_state.gd"),
+		"Destroyed": load("res://scripts/states/ai/destroyed_state.gd"),
+		"Refueling": load("res://scripts/states/ai/refueling_state.gd"),
+	}
+	for state_name in state_scripts:
+		var state_node := State.new()
+		state_node.name = state_name
+		state_node.set_script(state_scripts[state_name])
+		fsm_node.add_child(state_node)
+
+	fsm_node.set_ai_controller(self)
+	add_child(fsm_node)
+	fsm_node.start_state = fsm_node.get_node("Grounded").get_path()
+	ai_fsm = fsm_node
+	ai_fsm.initialize(ai_fsm.get_node("Grounded"))
+
+func _is_on_homebase_for_ai() -> bool:
+	if not biplane:
+		return false
+	var avatar = _get_avatar()
+	if not avatar:
+		return false
+	if not biplane.is_grounded(avatar):
+		return false
+	return abs(biplane.global_position.x - home_base_x) < 200.0
 
 # ---------------------------------------------------------------------------
 # PHYSICS LOOP
@@ -208,26 +248,15 @@ func _physics_process(delta: float) -> void:
 	pilots[0].bomb_cooldown_timer   = maxf(0.0, pilots[0].bomb_cooldown_timer - delta)
 	pilots[0].flip_cooldown         = maxf(0.0, pilots[0].flip_cooldown - delta)
 
-	if pilots[0].crash_timer > 0.0:
-		pilots[0].crash_timer -= delta
-		return
-
-	if pilots[0].is_waiting_for_crash_land:
-		var avatar = _get_avatar()
-		if avatar and avatar.has_hit_ground:
-			pilots[0].is_waiting_for_crash_land = false
-			pilots[0].respawn_timer = respawn_delay
-			DLog.respawn_enemy(0, "timer_start", { "delay": respawn_delay })
-
 	_apply_input(pilots[0].last_pitch_input, pilots[0].last_throttle)
 
 	_check_flip_needed()
 
-	if pilots[0].respawn_timer > 0.0:
-		pilots[0].respawn_timer -= delta
-		if pilots[0].respawn_timer <= 0.0:
-			DLog.respawn_enemy(0, "fire", {})
-			_do_respawn()
+	if ai_fsm and ai_fsm._active:
+		pilots[0].decision_timer -= delta
+		if pilots[0].decision_timer <= 0.0:
+			pilots[0].decision_timer = decision_interval
+			ai_fsm.current_state.update(delta)
 		return
 
 	pilots[0].decision_timer -= delta
@@ -296,7 +325,7 @@ func _update_state_machine() -> void:
 		return
 
 	var avatar        = _get_avatar()
-	var damage        = avatar.damage_percent if avatar else 0.0
+	var damage        = avatar.damage.damage_percent if avatar else 0.0
 	var my_dist_home  = _get_wrapped_distance(biplane.global_position.x, home_base_x)
 	var dist_to_tgt   = _get_wrapped_distance(biplane.global_position.x, target.global_position.x)
 
@@ -783,6 +812,9 @@ func _stalking_waypoint(target_pos: Vector2) -> Vector2:
 func _try_fire_weapon() -> void:
 	if not biplane or not target or not _is_target_alive():
 		return
+	var avatar = _get_avatar()
+	if not avatar or avatar.gun_timer > 0.0:
+		return
 	var my_pos    = biplane.global_position
 	var tgt_pos   = target.global_position
 	var dist      = my_pos.distance_to(tgt_pos)
@@ -941,40 +973,54 @@ func _enable_autopilot_for_landing() -> void:
 # CRASH / RESPAWN
 # ---------------------------------------------------------------------------
 
-func _on_enemy_crashed() -> void:
-	if pilots[0].crash_timer > 0.0:
-		DLog.crash_guard(0, "crash_timer>0")
-		return
-	pilots[0].crash_timer = crash_delay
-	pilots[0].is_waiting_for_crash_land = true
+func _on_enemy_crashed(is_midair: bool = false) -> void:
 	if biplane and biplane.has_method("create_explosion"):
-		biplane.create_explosion()
+		biplane.create_explosion(is_midair)
+	if RespawnManager:
+		var delay := RespawnManager.MAX_RESPAWN_DELAY if is_midair else RespawnManager.RESPAWN_DELAY
+		RespawnManager.queue_respawn(_respawn_id, delay)
+
+func _on_enemy_respawn_ready(avatar_id: int) -> void:
+	if avatar_id == _respawn_id:
+		_do_respawn()
 
 func _do_respawn() -> void:
-	DLog.respawn_enemy(0, "fire", {})
 	if not biplane:
 		return
 
 	# Reset all per-pilot mutable state so nothing leaks across lives.
-	pilots[0] = PilotState.new()
+	pilots[0] = AIData.new()
 
-	var ground_y = _get_ground_height(home_base_x)
-	biplane.position = Vector2(home_base_x + 50.0, ground_y - 12.0)
-	biplane.rotation = 0.0
-	biplane.velocity = Vector2.ZERO
-	biplane.visible  = true
+	# Use homebase as source of truth for spawn position and orientation
+	if biplane.has_method("get_avatar_data"):
+		var avatar = biplane.get_avatar_data(0)
+		if avatar:
+			var spawn_pos = biplane.get_homebase_spawn_position(avatar)
+			var spawn_rot = biplane.get_homebase_spawn_rotation(avatar)
+			var ground_y := _get_ground_height(spawn_pos.x)
+			if biplane.has_method("teleport_to"):
+				biplane.teleport_to(Vector2(spawn_pos.x, ground_y - 12.0), spawn_rot)
+			else:
+				biplane.position = Vector2(spawn_pos.x, ground_y - 12.0)
+				biplane.rotation = spawn_rot
+				biplane.velocity = Vector2.ZERO
+			biplane.visible = true
+			if biplane.has_method("apply_homebase_model"):
+				biplane.apply_homebase_model(avatar)
 
 	if biplane.has_method("reset_flight_state"):
 		biplane.reset_flight_state()
 	if biplane.has_method("get_avatar_data"):
 		var avatar = biplane.get_avatar_data(0)
-		avatar.is_player = false
-		if biplane.has_method("apply_homebase_model"):
-			biplane.apply_homebase_model(avatar)
+		if avatar:
+			avatar.pitch_angle = biplane.rotation
 	if biplane.has_method("set_game_active"):
 		biplane.set_game_active(true)
 
-	# PilotState initialises to AIState.GROUNDED — no explicit set needed.
+	if ai_fsm and ai_fsm._active:
+		ai_fsm.transition_to(&"grounded")
+
+	# AIData initialises to AIState.GROUNDED — no explicit set needed.
 
 # ---------------------------------------------------------------------------
 # EXTERNAL API
@@ -1003,14 +1049,12 @@ func take_damage(amount: float, attacker: Node) -> void:
 		owner = attacker.get_bullet_owner()
 	elif attacker.has_method("get_bomb_owner"):
 		owner = attacker.get_bomb_owner()
-	if owner and owner.has_method("is_player") and owner.is_player():
+	if owner and owner.is_in_group("player"):
 		notify_incoming_fire()
-		if biplane.has_method("get_avatar_data"):
-			var avatar = biplane.get_avatar_data(0)
-			if avatar and biplane.has_method("take_damage"):
-				biplane.take_damage(avatar, amount, attacker)
+	if biplane and biplane.has_method("take_damage"):
+		biplane.take_damage(amount, attacker)
 
-func get_biplane() -> CharacterBody2D:
+func get_biplane() -> RigidBody2D:
 	return biplane
 
 func is_enemy() -> bool:

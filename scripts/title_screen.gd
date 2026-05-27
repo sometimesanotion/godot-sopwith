@@ -155,7 +155,7 @@ func _clear_all() -> void:
 func _show_main_menu() -> void:
 	current_mode = Mode.MAIN
 	if SoundManager:
-		SoundManager.play_music("res://assets/music/title.ogg")
+		SoundManager.play_music("res://assets/music/title.ogg", 0.2)
 	if control_title:
 		control_title.text = ""
 	if control_content:
@@ -303,17 +303,20 @@ func _input(event: InputEvent) -> void:
 func _handle_main_input(ke: InputEventKey) -> void:
 	match ke.keycode:
 		KEY_S:
-			start_single_player.emit()
-			queue_free()
+			_fade_out_and_act(func():
+				start_single_player.emit()
+				queue_free())
 		KEY_N:
-			start_network_game.emit()
-			queue_free()
+			_fade_out_and_act(func():
+				start_network_game.emit()
+				queue_free())
 		KEY_C:
 			_show_configure_menu()
 		KEY_K:
 			_show_keys_menu()
 		KEY_ESCAPE:
-			get_tree().quit()
+			_fade_out_and_act(func():
+				get_tree().quit())
 
 func _handle_configure_input(ke: InputEventKey) -> void:
 	match ke.keycode:
@@ -405,6 +408,12 @@ func _save_bindings() -> void:
 			cfg.set_value("input", action_name + "_keycode", e.keycode)
 			cfg.set_value("input", action_name + "_physical", e.physical_keycode)
 	cfg.save("user://keybindings.cfg")
+
+func _fade_out_and_act(action: Callable) -> void:
+	if SoundManager:
+		SoundManager.fade_out_music(0.2)
+	var t := get_tree().create_timer(0.25)
+	t.timeout.connect(action)
 
 func _process(_delta: float) -> void:
 	if _last_known_size == Vector2(-1, -1):
