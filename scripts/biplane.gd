@@ -63,8 +63,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 100.0,
-		"hard_landing_vperp": 200.0,
+		"soft_landing_vperp": 10.0,
+		"hard_landing_vperp": 20.0,
 		"svg_sprite_name": "sopwith_camel"
 	},
 	"se5a": {
@@ -87,8 +87,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 100.0,
-		"hard_landing_vperp": 200.0,
+		"soft_landing_vperp": 10.0,
+		"hard_landing_vperp": 20.0,
 		"svg_sprite_name": "se5a"
 	},
 	"bristol_f2": {
@@ -111,8 +111,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 100.0,
-		"hard_landing_vperp": 200.0,
+		"soft_landing_vperp": 10.0,
+		"hard_landing_vperp": 20.0,
 		"svg_sprite_name": "bristol_f2b"
 	},
 	"p-51d": {
@@ -135,8 +135,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 100.0,
-		"hard_landing_vperp": 200.0,
+		"soft_landing_vperp": 10.0,
+		"hard_landing_vperp": 20.0,
 		"svg_sprite_name": "p-51"
 	},
 	"spad_s13": {
@@ -159,8 +159,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 100.0,
-		"hard_landing_vperp": 200.0,
+		"soft_landing_vperp": 10.0,
+		"hard_landing_vperp": 20.0,
 		"svg_sprite_name": "spad_s13"
 	},
 	"fokker_d7": {
@@ -183,8 +183,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2(1.1, 1.1),
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 100.0,
-		"hard_landing_vperp": 200.0,
+		"soft_landing_vperp": 10.0,
+		"hard_landing_vperp": 20.0,
 		"svg_sprite_name": "fokker_d7"
 	}
 }
@@ -335,8 +335,8 @@ class AvatarData:
 
 		stall_speed_ms = model_params.get("stall_speed_ms", 21.4)
 		max_landing_tilt = model_params.get("max_landing_tilt_deg", 34.0)
-		soft_landing = model_params.get("soft_landing_vperp", 100.0)
-		hard_landing = model_params.get("hard_landing_vperp", 200.0)
+		soft_landing = model_params.get("soft_landing_vperp", 10.0)
+		hard_landing = model_params.get("hard_landing_vperp", 20.0)
 
 	func get_plane_name() -> String:
 		return model_params.get("name", "Unknown")
@@ -851,6 +851,31 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 	if not avatar:
 		return
 
+	# FORENSIC: Log any physics contacts detected this frame
+	var contact_count := state.get_contact_count()
+	if contact_count > 0:
+		var contact_info: Array[Dictionary] = []
+		for ci in range(contact_count):
+			var collider := state.get_contact_collider_object(ci)
+			contact_info.append({
+				"idx": ci,
+				"collider": collider.name if collider else "null",
+				"local_pos": Vector2(
+					snapped(state.get_contact_local_position(ci).x, 1.0),
+					snapped(state.get_contact_local_position(ci).y, 1.0)
+				),
+				"normal": state.get_contact_local_normal(ci),
+			})
+		_debug_forensic_log(avatar, "physics_contact", {
+			"frame": _debug_frame_count,
+			"contact_count": contact_count,
+			"contacts": contact_info,
+			"pos_y": snapped(global_position.y, 1.0),
+			"ground_y": snapped(_ground_y(global_position.x), 1.0),
+			"flight_state": avatar.flight_state,
+			"speed": snapped(velocity.length(), 1.0),
+		})
+
 	if avatar.flight_state == FlightState.CRASHED:
 		_integrate_crash_forces(state, avatar, step)
 		return
@@ -862,6 +887,19 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 
 	var inp := _build_flight_input(avatar, state)
 	var out := Aerodynamics.calculate_forces(inp)
+
+	# Supplement analytical ground detection with physics contact data.
+	# The analytical model checks center position vs terrain surface (pos_y >= ground_y - 2),
+	# missing contacts where only the collision shape's lower extent touches terrain.
+	# Physics contacts from state.get_contact_count() provide the real collision state.
+	if not inp.is_grounded:
+		var cc := state.get_contact_count()
+		for ci in range(cc):
+			var collider := state.get_contact_collider_object(ci)
+			if collider and collider.has_method("get_ground_height_at"):
+				inp.is_grounded = true
+				out.v_perp = maxf(0.0, -inp.velocity.dot(inp.ground_normal))
+				break
 
 	if out.should_crash:
 		DLog.crash_enter(avatar.id, out.crash_reason, {
@@ -891,6 +929,9 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 	current_vel += (out.net_force / mass) * pixels_per_meter * step
 	state.set_linear_velocity(current_vel)
 
+	var pre_gc := _get_ground_contact(avatar)
+	_debug_check_ground_forensics(avatar, state, pre_gc, inp, out, "pre_clamp")
+
 	var gc := _get_ground_contact(avatar)
 	if gc.is_grounded:
 		var transform := state.get_transform()
@@ -902,6 +943,8 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 		if vel_into_ground > 0.0:
 			current_vel += gc.ground_normal * vel_into_ground
 			state.set_linear_velocity(current_vel)
+
+	_debug_check_ground_forensics(avatar, state, gc, inp, out, "post_clamp")
 
 	avatar.control_effectiveness = out.control_effectiveness
 	avatar.is_airborne = not gc.is_grounded
@@ -1221,6 +1264,8 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 	var parent := get_parent()
 	if not parent:
 		return
+
+	_debug_check_obstacle_forensics(avatar, speed, parent)
 
 	var model_params = avatar.model_params
 	var soft_landing: float = model_params.get("soft_landing_vperp", 100.0)
@@ -1875,6 +1920,115 @@ func respawn(avatar_id: int, camera_ref: Camera2D = null) -> bool:
 func do_flip(avatar: AvatarData) -> void:
 	if avatar and not avatar.is_flipping:
 		_start_flip(avatar)
+
+###############################################################################
+# DEBUG PHYSICS FORENSICS
+###############################################################################
+
+var _debug_frame_count: int = 0
+var _debug_last_ground_contact: String = ""
+var _debug_last_obstacle_key: String = ""
+var _debug_ground_penetration_logged: bool = false
+var _debug_printed_intro: bool = false
+
+func _debug_forensic_log(avatar: AvatarData, tag: String, data: Dictionary) -> void:
+	if not _debug_printed_intro:
+		_debug_printed_intro = true
+		print("[FORENSICS] Enabled - dive crashes and obstacle hits will be logged")
+	DLog.info("forensic_" + tag, data)
+
+func _debug_check_ground_forensics(avatar: AvatarData, state: PhysicsDirectBodyState2D,
+		gc: GroundContact, inp: Aerodynamics.FlightInput, out: Aerodynamics.FlightOutput,
+		phase: String) -> void:
+	_debug_frame_count += 1
+	var velocity := state.get_linear_velocity()
+	var speed := velocity.length()
+	var v_perp: float = out.v_perp if out else 0.0
+	var vert_speed := velocity.y
+
+	var ground_y_at_x := _ground_y(global_position.x)
+	var penetration_depth := ground_y_at_x - global_position.y
+
+	var should_log := false
+	var log_key := ""
+
+	# H1: Penetrating terrain at speed without being marked grounded
+	if penetration_depth > GROUND_TOLERANCE * 2 and speed > 50.0 and not _debug_ground_penetration_logged:
+		should_log = true
+		log_key = "ground_penetration"
+		_debug_ground_penetration_logged = true
+	elif penetration_depth <= 0.0:
+		_debug_ground_penetration_logged = false
+
+	# H1: High-speed approach to ground
+	if vert_speed > 80.0 and not gc.is_grounded and penetration_depth > 0 and penetration_depth < 80.0:
+		should_log = true
+		log_key = "approaching_ground_fast"
+
+	# H3: Tilt angle while grounded
+	if gc.is_grounded and gc.tilt_angle > 0.0 and (gc.tilt_angle > 0.5 or _debug_frame_count % 60 == 0):
+		should_log = true
+		log_key = "ground_tilt"
+
+	# Log every 30 frames while grounded for baseline
+	if gc.is_grounded and _debug_frame_count % 30 == 0:
+		should_log = true
+		log_key = "ground_baseline"
+
+	if should_log and log_key:
+		var state_name := ""
+		match avatar.flight_state:
+			FlightState.FLYING: state_name = "FLYING"
+			FlightState.STALLED: state_name = "STALLED"
+			FlightState.FALLING: state_name = "FALLING"
+			FlightState.LANDED: state_name = "LANDED"
+			FlightState.DAMAGED: state_name = "DAMAGED"
+			FlightState.CRASHED: state_name = "CRASHED"
+			_: state_name = str(avatar.flight_state)
+		_debug_forensic_log(avatar, log_key + "_" + phase, {
+			"frame": _debug_frame_count,
+			"phase": phase,
+			"state": state_name,
+			"pos_x": snapped(global_position.x, 1.0),
+			"pos_y": snapped(global_position.y, 1.0),
+			"ground_y": snapped(ground_y_at_x, 1.0),
+			"penetration": snapped(penetration_depth, 1.0),
+			"vel_x": snapped(velocity.x, 1.0),
+			"vel_y": snapped(velocity.y, 1.0),
+			"speed": snapped(speed, 1.0),
+			"vert_speed": snapped(vert_speed, 1.0),
+			"v_perp": snapped(v_perp, 1.0),
+			"gc_grounded": gc.is_grounded,
+			"gc_tilt_deg": snapped(rad_to_deg(gc.tilt_angle), 1.0),
+			"gc_slope_deg": snapped(rad_to_deg(gc.slope_angle), 1.0),
+			"pitch_deg": snapped(rad_to_deg(avatar.pitch_angle), 1.0),
+			"is_inverted": avatar.is_inverted,
+			"damage_pct": snapped(avatar.damage.damage_percent * 100.0, 1.0),
+		})
+
+func _debug_check_obstacle_forensics(avatar: AvatarData, speed: float, parent: Node) -> void:
+	if speed < 5.0:
+		return
+
+	var key := "%s_%.0f" % [parent.name, speed]
+	if key == _debug_last_obstacle_key:
+		return
+	_debug_last_obstacle_key = key
+
+	var with_response: Array[String] = []
+	var rigidbodies: Array[String] = []
+
+	for child in parent.get_children():
+		if child == self:
+			continue
+		if child.has_method("get_collision_response"):
+			with_response.append(child.name)
+		if child is RigidBody2D:
+			rigidbodies.append(child.name)
+
+# =============================================================================
+# END DEBUG PHYSICS FORENSICS
+# =============================================================================
 
 # =============================================================================
 # EXAMPLE USAGE

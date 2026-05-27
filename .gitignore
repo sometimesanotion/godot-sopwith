@@ -5,6 +5,7 @@
 # macOS
 ._*
 
+./archive
 .godot/*
 
 # Kate editor
