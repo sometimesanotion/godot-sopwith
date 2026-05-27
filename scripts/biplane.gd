@@ -896,7 +896,12 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 		var cc := state.get_contact_count()
 		for ci in range(cc):
 			var collider := state.get_contact_collider_object(ci)
-			if collider and collider.has_method("get_ground_height_at"):
+			if not collider:
+				continue
+			var ground_source := collider
+			if not ground_source.has_method("get_ground_height_at"):
+				ground_source = collider.get_parent()
+			if ground_source and ground_source.has_method("get_ground_height_at"):
 				inp.is_grounded = true
 				out.v_perp = maxf(0.0, -inp.velocity.dot(inp.ground_normal))
 				break
@@ -1932,6 +1937,12 @@ var _debug_ground_penetration_logged: bool = false
 var _debug_printed_intro: bool = false
 
 func _debug_forensic_log(avatar: AvatarData, tag: String, data: Dictionary) -> void:
+	if not is_player_controlled:
+		return
+	
+	if not (GameManager and GameManager.debug_hud):
+		return
+
 	if not _debug_printed_intro:
 		_debug_printed_intro = true
 		print("[FORENSICS] Enabled - dive crashes and obstacle hits will be logged")
@@ -1970,8 +1981,8 @@ func _debug_check_ground_forensics(avatar: AvatarData, state: PhysicsDirectBodyS
 		should_log = true
 		log_key = "ground_tilt"
 
-	# Log every 30 frames while grounded for baseline
-	if gc.is_grounded and _debug_frame_count % 30 == 0:
+	# Log every 300 frames while grounded for baseline
+	if gc.is_grounded and _debug_frame_count % 300 == 0:
 		should_log = true
 		log_key = "ground_baseline"
 
