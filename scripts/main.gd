@@ -428,31 +428,6 @@ func _is_position_occupied(x: float, half_width: float) -> bool:
 func _mark_position_occupied(x: float, half_width: float) -> void:
 	_occupied_positions.append(Vector2(x, half_width))
 
-func _log_target_hypoD(target: Node2D, target_x: float, ground_at_x: float) -> void:
-	var placed_y := target.global_position.y
-	var poly_max_y := 0.0
-	var poly_min_y := 0.0
-	if target.has_method("get_polygon_bounds"):
-		var bounds := target.get_polygon_bounds() as Dictionary
-		poly_min_y = bounds.get("min_y", 0.0)
-		poly_max_y = bounds.get("max_y", 0.0)
-	DLog.info("hypoD_target_placement", {
-		"type": target.target_type if "target_type" in target else "unknown",
-		"placed_x": snapped(target_x, 0.1),
-		"placed_y": snapped(placed_y, 0.1),
-		"ground_y_at_x": snapped(ground_at_x, 0.1),
-		"poly_min_y": snapped(poly_min_y, 0.1),
-		"poly_max_y": snapped(poly_max_y, 0.1),
-		"vis_top": snapped(placed_y + poly_min_y, 0.1),
-		"vis_bottom": snapped(placed_y + poly_max_y, 0.1),
-		"y_offset_from_ground": snapped(placed_y - ground_at_x, 0.1),
-		"hypoD": "placed_y=%.0f ground_y=%.0f vis_bottom_above_ground=%.0f needed_shift=%.0f" % [
-			placed_y, ground_at_x,
-			(placed_y + poly_max_y) - ground_at_x,
-			-ground_at_x + placed_y - poly_max_y
-		],
-	})
-
 func _create_home_base() -> void:
 	var ground_y := 650.0
 	if terrain and terrain.has_method("get_ground_height_at"):
@@ -469,7 +444,6 @@ func _create_home_base() -> void:
 		building.has_aa = false
 		building.is_enemy = false
 		add_child(building)
-		# _log_target_hypoD(building, building_x, ground_y)
 		_mark_position_occupied(building_x, building_hw)
 
 	var depot_hw = _get_target_half_width("fuel_depot")
@@ -483,7 +457,6 @@ func _create_home_base() -> void:
 		fuel_depot.has_aa = false
 		fuel_depot.is_enemy = false
 		add_child(fuel_depot)
-		# _log_target_hypoD(fuel_depot, depot_x, ground_y)
 		_mark_position_occupied(depot_x, depot_hw)
 
 func _create_enemy_bases() -> void:
@@ -508,7 +481,6 @@ func _create_enemy_bases() -> void:
 			building.is_enemy = true
 			building.add_to_group("enemy_target")
 			add_child(building)
-			# _log_target_hypoD(building, building_x, ground_y)
 			_mark_position_occupied(building_x, building_hw)
 
 		var depot_hw = _get_target_half_width("fuel_depot")
@@ -523,7 +495,6 @@ func _create_enemy_bases() -> void:
 			fuel_depot.is_enemy = true
 			fuel_depot.add_to_group("enemy_target")
 			add_child(fuel_depot)
-			# _log_target_hypoD(fuel_depot, depot_x, ground_y)
 			_mark_position_occupied(depot_x, depot_hw)
 
 		var tanks_setting: String = GameManager.enemy_tanks if GameManager else "Normal"
@@ -556,7 +527,6 @@ func _create_enemy_bases() -> void:
 			target.is_enemy = true
 			target.add_to_group("enemy_target")
 			add_child(target)
-			# _log_target_hypoD(target, target_x, target_ground_y)
 			_mark_position_occupied(target_x, target_hw)
 
 func _physics_process(delta: float) -> void:

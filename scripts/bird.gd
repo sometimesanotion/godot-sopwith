@@ -108,7 +108,8 @@ class BirdCollisionResult:
 	var is_midair: bool = false
 	var impact_speed: float = 0.0
 
-func get_collision_response(other: Node, _other_avatar: Variant, other_speed: float) -> BirdCollisionResult:
+func get_collision_response(other: Node, _other_avatar: Variant, other_speed: float,
+		_plane_soft_landing: float = 100.0, _plane_hard_landing: float = 200.0) -> BirdCollisionResult:
 	var result := BirdCollisionResult.new()
 	var hit_radius: float = 25.0
 	var dist := global_position.distance_to(other.global_position)

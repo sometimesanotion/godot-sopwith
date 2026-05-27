@@ -202,7 +202,7 @@ enum LandingImpact {
 
 static func classify_landing_impact(v_perp: float, tilt_angle: float,
 		max_landing_tilt_deg: float, soft_threshold: float, hard_threshold: float) -> int:
-	if tilt_angle >= deg_to_rad(max_landing_tilt_deg) and v_perp > 40.0:
+	if tilt_angle >= deg_to_rad(max_landing_tilt_deg):
 		return LandingImpact.CRASH
 	if v_perp <= soft_threshold:
 		return LandingImpact.CLEAN

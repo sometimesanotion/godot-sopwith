@@ -63,7 +63,8 @@ class CowCollisionResult:
 	var is_midair: bool = false
 	var impact_speed: float = 0.0
 
-func get_collision_response(other: Node, _other_avatar: Variant, other_speed: float) -> CowCollisionResult:
+func get_collision_response(other: Node, _other_avatar: Variant, other_speed: float,
+		_plane_soft_landing: float = 100.0, _plane_hard_landing: float = 200.0) -> CowCollisionResult:
 	var result := CowCollisionResult.new()
 	var hit_radius: float = 40.0
 	var dist := global_position.distance_to(other.global_position)

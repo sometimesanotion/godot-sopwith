@@ -82,11 +82,6 @@ func _create_terrain() -> void:
 		"ground_min_y": snapped(terrain_min_y, 0.1),
 		"ground_max_y": snapped(terrain_max_y, 0.1),
 		"collision_poly_count": collision_poly_count,
-		"hypoC": "terrain_vis=body_pos_y+%s coll_vis=poly_pos_y+%s aligned=%s" % [
-			snapped(terrain_body.global_position.y, 0.1),
-			snapped(terrain_polygon.global_position.y, 0.1),
-			"true" if snapped(terrain_body.global_position.y, 0.1) == snapped(terrain_polygon.global_position.y, 0.1) else "false"
-		],
 	})
 
 	for runway in runways:

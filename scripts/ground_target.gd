@@ -351,7 +351,8 @@ func get_polygon_bounds() -> Dictionary:
 		"global_bottom_y": global_position.y + max_y,
 	}
 
-func get_collision_response(other: Node, other_avatar: Variant, other_speed: float) -> Biplane.CollisionResult:
+func get_collision_response(other: Node, other_avatar: Variant, other_speed: float,
+		plane_soft_landing: float = 100.0, plane_hard_landing: float = 200.0) -> Biplane.CollisionResult:
 	var result := Biplane.CollisionResult.new()
 	if is_destroyed:
 		return result
@@ -361,8 +362,17 @@ func get_collision_response(other: Node, other_avatar: Variant, other_speed: flo
 
 	if dist < hit_r:
 		result.hit = true
-		result.damage = clampf(other_speed / 214.0, 0.3, 0.8)
-		result.is_midair = false
+		var plane_v_perp: float = plane_hard_landing
+		if other_speed <= plane_soft_landing:
+			result.damage = 0.0
+		elif other_speed < plane_hard_landing:
+			result.damage = (other_speed - plane_soft_landing) / (plane_hard_landing - plane_soft_landing)
+		else:
+			result.damage = 1.0
+		if other_avatar != null:
+			result.is_midair = other_avatar.is_airborne if "is_airborne" in other_avatar else false
+		else:
+			result.is_midair = other_speed > plane_soft_landing * 0.5
 	return result
 
 func _get_collision_radius() -> float:

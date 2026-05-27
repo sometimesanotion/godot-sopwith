@@ -62,6 +62,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
+		"max_landing_tilt_deg": 34.0,
 		"soft_landing_vperp": 100.0,
 		"hard_landing_vperp": 200.0,
 		"svg_sprite_name": "sopwith_camel"
@@ -85,6 +86,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 4,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
+		"max_landing_tilt_deg": 34.0,
 		"soft_landing_vperp": 100.0,
 		"hard_landing_vperp": 200.0,
 		"svg_sprite_name": "se5a"
@@ -108,6 +110,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 3,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
+		"max_landing_tilt_deg": 34.0,
 		"soft_landing_vperp": 100.0,
 		"hard_landing_vperp": 200.0,
 		"svg_sprite_name": "bristol_f2b"
@@ -131,6 +134,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
+		"max_landing_tilt_deg": 34.0,
 		"soft_landing_vperp": 100.0,
 		"hard_landing_vperp": 200.0,
 		"svg_sprite_name": "p-51"
@@ -154,6 +158,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
+		"max_landing_tilt_deg": 34.0,
 		"soft_landing_vperp": 100.0,
 		"hard_landing_vperp": 200.0,
 		"svg_sprite_name": "spad_s13"
@@ -177,6 +182,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"max_bombs": 0,
 		"visual_scale": Vector2(1.1, 1.1),
 		"bungee_time": 0.15,
+		"max_landing_tilt_deg": 34.0,
 		"soft_landing_vperp": 100.0,
 		"hard_landing_vperp": 200.0,
 		"svg_sprite_name": "fokker_d7"
@@ -324,11 +330,13 @@ class AvatarData:
 			model_params = model_data
 		else:
 			push_error("Unknown plane model: %s" % plane_model)
-			# Fallback to default
 			var plane_models = Biplane.get_plane_models()
 			model_params = plane_models["sopwith_camel"]
 
 		stall_speed_ms = model_params.get("stall_speed_ms", 21.4)
+		max_landing_tilt = model_params.get("max_landing_tilt_deg", 34.0)
+		soft_landing = model_params.get("soft_landing_vperp", 100.0)
+		hard_landing = model_params.get("hard_landing_vperp", 200.0)
 
 	func get_plane_name() -> String:
 		return model_params.get("name", "Unknown")
@@ -663,7 +671,8 @@ class CollisionResult:
 # COLLISION RESPONSE (called by other biplanes via get_collision_response)
 ###############################################################################
 
-func get_collision_response(other: Node, other_avatar: AvatarData, other_speed: float) -> CollisionResult:
+func get_collision_response(other: Node, other_avatar: AvatarData, other_speed: float,
+		_plane_soft_landing: float = 100.0, _plane_hard_landing: float = 200.0) -> CollisionResult:
 	var result := CollisionResult.new()
 	var dist := global_position.distance_to(other.global_position)
 	result.impact_speed = other_speed
@@ -730,6 +739,7 @@ func _get_ground_contact(avatar: AvatarData) -> GroundContact:
 func _ready() -> void:
 	mass = 422.0
 	gravity_scale = 0.0
+	can_sleep = false
 	contact_monitor = true
 	max_contacts_reported = 4
 	continuous_cd = CCD_MODE_CAST_SHAPE
@@ -872,6 +882,9 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 			var current_vel := state.get_linear_velocity()
 			current_vel.x *= 0.5
 			state.set_linear_velocity(current_vel)
+	if inp.is_grounded and inp.tilt_angle >= deg_to_rad(avatar.max_landing_tilt):
+		_on_avatar_crashed(avatar)
+		return
 
 	var current_vel := state.get_linear_velocity()
 	var mass: float = avatar.model_params.get("mass_kg", 447.0)
@@ -1201,89 +1214,6 @@ func _get_collider_poly_bounds(collider: Node) -> Dictionary:
 			return result
 	return result
 
-func _compute_hypothesis_diagnostics(collider: Node, hit_r: float) -> Dictionary:
-	var data: Dictionary = {
-		"collider": collider.name,
-		"dist": snapped(global_position.distance_to(collider.global_position), 0.1),
-		"hit_r": hit_r,
-		"px": snapped(global_position.x, 0.1),
-		"py": snapped(global_position.y, 0.1),
-		"cx": snapped(collider.global_position.x, 0.1),
-		"cy": snapped(collider.global_position.y, 0.1),
-		"vx": snapped(velocity.x, 0.1),
-		"vy": snapped(velocity.y, 0.1),
-		"ground_y": snapped(_ground_y(global_position.x), 0.1),
-	}
-	var pbounds := _get_collider_poly_bounds(collider)
-	var cy: float = collider.global_position.y
-	var cx: float = collider.global_position.x
-	var ground_at_plane := _ground_y(global_position.x)
-	var ground_at_collider: float = _ground_y(cx)
-
-	if pbounds["has_poly"]:
-		var pmin_y: float = pbounds["min_y"]
-		var pmax_y: float = pbounds["max_y"]
-		var vis_top: float = cy + pmin_y
-		var vis_bottom: float = cy + pmax_y
-		var col_top: float = cy - hit_r
-		var col_bottom: float = cy + hit_r
-		data["hypoA"] = "hypoA poly_local=[%.0f..%.0f] vis_global=[%.0f..%.0f] col_sphere=[%.0f..%.0f] ground=%.0f gap_above=%.0f below_ground=%.0f" % [
-			pmin_y, pmax_y, vis_top, vis_bottom,
-			col_top, col_bottom, ground_at_collider,
-			vis_top - col_top,
-			vis_bottom - ground_at_collider
-		]
-		data["hypoD"] = "hypoD placed_y=%.0f ground_at_cx=%.0f poly_bottom_local=%.0f vis_bottom=%.0f ground=%.0f poly_extends_below=%.0f needed_y_shift=%.0f" % [
-			cy, ground_at_collider, pmax_y,
-			vis_bottom, ground_at_collider,
-			vis_bottom - ground_at_collider,
-			-ground_at_collider + cy - pmax_y
-		]
-	else:
-		data["hypoA"] = "no_poly col_sphere=[%.0f..%.0f] cy=%.0f ground=%.0f" % [
-			cy - hit_r, cy + hit_r, cy, ground_at_collider
-		]
-		data["hypoD"] = "no_poly cy=%.0f ground=%.0f" % [cy, ground_at_collider]
-
-	var plane_half_h := 24.0
-	var plane_col_r := 0.0
-	var plane_vis_top: float = global_position.y - plane_half_h
-	var plane_vis_bottom: float = global_position.y + plane_half_h
-	var gap_to_vis_top: float = plane_vis_top - cy
-	if pbounds["has_poly"]:
-		var pmin_y: float = pbounds["min_y"]
-		gap_to_vis_top = plane_vis_top - (cy + pmin_y)
-	data["hypoB"] = "hypoB plane_vis=[%.0f..%.0f] col_r=%.0f center_y=%.0f visual_half=%.0f gap_plane_vis_to_vis_top=%.0f" % [
-		plane_vis_top, plane_vis_bottom, plane_col_r,
-		global_position.y, plane_half_h,
-		gap_to_vis_top
-	]
-
-	data["hypoC"] = "hypoC terrain_surface_at_plane=%.0f terrain_surface_at_collider=%.0f plane_y=%.0f collider_y=%.0f ground_diff=%.0f" % [
-		ground_at_plane, ground_at_collider,
-		global_position.y, cy,
-		ground_at_plane - ground_at_collider
-	]
-
-	if _terrain and _terrain.has_method("get_terrain_info_at"):
-		var tinfo: Dictionary = _terrain.get_terrain_info_at(global_position.x)
-		var tbody_y: float = tinfo.get("terrain_body_pos_y", 0.0)
-		var tpoly_y: float = tinfo.get("terrain_poly_pos_y", 0.0)
-		var tnode_y: float = tinfo.get("terrain_node_pos_y", 0.0)
-		var tsurface_y: float = tinfo.get("surface_y", 0.0)
-		var taligned: String = "true" if tbody_y == tpoly_y else "false"
-		data["hypoC_terrain"] = "body_y=%.0f poly_y=%.0f node_y=%.0f surface_y=%.0f body_aligned=%s" % [
-			tbody_y, tpoly_y, tnode_y, tsurface_y, taligned
-		]
-
-	if pbounds["has_poly"]:
-		var child_vis_top: float = cy + pbounds["min_y"]
-		data["child_visual_top"] = snapped(child_vis_top, 0.1)
-		data["plane_visual_bottom"] = snapped(plane_vis_bottom, 0.1)
-		data["gap_visual"] = snapped(child_vis_top - plane_vis_bottom, 0.1)
-
-	return data
-
 func _check_obstacle_collision(avatar: AvatarData) -> void:
 	var speed := velocity.length()
 	if speed < 5.0:
@@ -1292,28 +1222,30 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 	if not parent:
 		return
 
+	var model_params = avatar.model_params
+	var soft_landing: float = model_params.get("soft_landing_vperp", 100.0)
+	var hard_landing: float = model_params.get("hard_landing_vperp", 200.0)
+
 	for child in parent.get_children():
 		if child == self:
 			continue
 		if child.has_method("get_collision_response"):
-			var collision_result = child.get_collision_response(self, avatar, speed)
+			var collision_result = child.get_collision_response(self, avatar, speed, soft_landing, hard_landing)
 			if collision_result.hit:
-				if child.has_method("take_damage"):
-					child.take_damage(collision_result.damage * 50.0, self)
 				var actual_damage: float = collision_result.damage * 100.0
-				take_damage(avatar, actual_damage, child)
 				if collision_result.is_midair or avatar.flight_state == FlightState.FALLING:
+					if child.has_method("take_damage"):
+						child.take_damage(actual_damage * 0.5, self)
+					take_damage(avatar, actual_damage, child)
 					if actual_damage >= 100.0:
 						_on_avatar_crashed(avatar)
 				elif not collision_result.is_midair and avatar.flight_state != FlightState.FALLING:
-					var model_params = avatar.model_params
-					var hard_landing: float = model_params.get("hard_landing_vperp", 200.0)
-					var impact_speed: float = collision_result.impact_speed
-					var plane_damage_pct: float = clampf(impact_speed / hard_landing, 0.0, 1.0)
-					if plane_damage_pct >= 1.0:
+					if child.has_method("take_damage"):
+						child.take_damage(actual_damage * 0.5, self)
+					if collision_result.damage >= 1.0:
 						_on_avatar_crashed(avatar)
 					else:
-						take_damage(avatar, plane_damage_pct * 100.0, child)
+						take_damage(avatar, actual_damage, child)
 				return
 		if child is RigidBody2D and child.has_method("get_primary_entity") and not child.has_method("get_collision_response"):
 			var other_speed: float = child.velocity.length()
