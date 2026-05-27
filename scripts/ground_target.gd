@@ -236,13 +236,14 @@ func _destroy(attacker: Node) -> void:
 	is_destroyed = true
 
 	var pos := global_position
+	var debris_color := get_dominant_color()
 
 	if EffectManager:
 		var huge := GameManager.huge_explosions if GameManager else true
 		if target_type == "fuel_depot" and huge:
-			EffectManager.spawn_explosion_style(pos, EffectManager.ExplosionStyle.FUEL_DEPOT, EffectManager.FireColorPreset.STANDARD, polygon_points)
+			EffectManager.spawn_explosion_style(pos, 200.0, EffectManager.ExplosionStyle.FUEL_DEPOT, 12, debris_color, EffectManager.FireColorPreset.STANDARD, polygon_points)
 		else:
-			EffectManager.spawn_explosion_style(pos, EffectManager.ExplosionStyle.NORMAL, EffectManager.FireColorPreset.STANDARD, polygon_points)
+			EffectManager.spawn_explosion_style(pos, 100.0, EffectManager.ExplosionStyle.NORMAL, 8, debris_color, EffectManager.FireColorPreset.STANDARD, polygon_points)
 
 	_create_wreck()
 
@@ -275,9 +276,7 @@ func _create_building_smoke_puffs() -> void:
 		return
 	for i in range(3):
 		var smoke_pos := global_position + Vector2(randf_range(-15, 15), randf_range(-35, -10))
-		var smoke := EffectManager.spawn_black_smoke(smoke_pos, 20)
-		if smoke:
-			smoke.scale = Vector2(5, 5)
+		EffectManager.spawn_black_smoke(smoke_pos, 20)
 
 func _create_fading_smoke_puff() -> Node2D:
 	return EffectManager.spawn_black_smoke(global_position, 20) if EffectManager else null
@@ -325,6 +324,19 @@ func get_damage_percent() -> float:
 
 func get_damage_state() -> int:
 	return damage.damage_state
+
+func get_dominant_color() -> Color:
+	match target_type:
+		"building":
+			return Color(0.35, 0.35, 0.4)
+		"hangar":
+			return Color(0.4, 0.2, 0.2)
+		"tank":
+			return Color(0.2, 0.3, 0.2)
+		"fuel_depot":
+			return Color(0.2, 0.5, 0.2)
+		_:
+			return Color(0.3, 0.3, 0.35)
 
 func get_visual_top() -> float:
 	var min_y := INF

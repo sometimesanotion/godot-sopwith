@@ -219,7 +219,6 @@ func _show_title_screen() -> void:
 	title_screen.start_network_game.connect(_on_start_network_game)
 	title_screen.back_to_menu.connect(_on_back_to_menu)
 	add_child(title_screen)
-	print("Title screen added to scene")
 
 func _on_back_to_menu() -> void:
 	_showing_title_screen = false

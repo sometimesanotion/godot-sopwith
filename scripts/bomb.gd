@@ -108,7 +108,7 @@ func _spawn_explosion_effect() -> void:
 	if EffectManager:
 		EffectManager.spawn_explosion(global_position, 100.0)
 		EffectManager.spawn_bomb_explosion_ring(global_position, explosion_radius, 0.1)
-		EffectManager.spawn_explosion_debris(global_position, Color(0.3, 0.3, 0.2), 12, 15.0)
+		EffectManager.spawn_explosion_debris(global_position, 100.0, 8, Color(0.03, 0.03, 0.02))
 	if GameManager:
 		GameManager.request_screen_shake(20.0)
 

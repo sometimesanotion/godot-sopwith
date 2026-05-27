@@ -2,15 +2,15 @@ extends Node2D
 ## Explosion debris with collision-enabled RigidBody2D fragments.
 ## Spawns on crash/destroy events. Debris fragments collide and can damage other objects.
 
-@export var fragment_count: int = 8
+@export var fragment_count: int = 4
 @export var debris_damage: float = 10.0
-@export var debris_lifetime: float = 3.0
+@export var debris_lifetime: float = 2.0
 
 const DEBRIS_COLORS := [
-	Color(0.4, 0.45, 0.4),
-	Color(0.5, 0.5, 0.5),
-	Color(0.35, 0.4, 0.35),
-	Color(0.3, 0.3, 0.3),
+	Color(0.04, 0.015, 0.04),
+	Color(0.05, 0.05, 0.05),
+	Color(0.035, 0.04, 0.035),
+	Color(0.03, 0.03, 0.03),
 ]
 
 var _fire: GPUParticles2D = null
@@ -31,7 +31,7 @@ func _process(delta: float) -> void:
 	if _lifetime >= debris_lifetime:
 		_cleanup()
 
-func setup(pos: Vector2, color: Color = Color(0.5, 0.55, 0.5), count: int = -1, damage: float = -1.0) -> void:
+func setup(pos: Vector2, color: Color = Color(0.05, 0.055, 0.05), count: int = -1, damage: float = -1.0) -> void:
 	global_position = pos
 	if count > 0:
 		fragment_count = count

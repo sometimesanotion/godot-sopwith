@@ -23,6 +23,9 @@ const OPEN_FIRE_SCENE    := preload("res://scenes/particles/open_fire_with_smoke
 const EXPLOSION_SCENE    := preload("res://scenes/explosion.tscn")
 const DEBRIS_SCENE      := preload("res://scenes/particles/explosion_debris.tscn")
 
+## Energy→damage conversion: debris damage = energy * ENERGY_DAMAGE_SCALE
+const ENERGY_DAMAGE_SCALE: float = 0.1
+
 ## Explosion visual styles
 enum ExplosionStyle {
 	NORMAL,          ## Single explosion + shatter, brief screen shake
@@ -99,55 +102,50 @@ func spawn_open_fire_with_smoke(pos: Vector2, duration: float = 8.0, fire_amount
 	effect_spawned.emit("open_fire_with_smoke", pos)
 	return instance
 
-func spawn_explosion(pos: Vector2, energy: float = 100.0) -> Node2D:
+func spawn_explosion(pos: Vector2, energy: float) -> Node2D:
 	var instance: Node2D = EXPLOSION_SCENE.instantiate()
 	instance.global_position = pos
 	_get_world().add_child(instance)
 	_active_effects.append(instance)
 	effect_spawned.emit("explosion", pos)
+	if GameManager:
+		GameManager.request_screen_shake(energy / 3.0)
 	return instance
 
-func spawn_explosion_debris(pos: Vector2, color: Color = Color(0.5, 0.55, 0.5), count: int = 8, damage: float = 10.0, polygon: PackedVector2Array = PackedVector2Array()) -> Node2D:
+func spawn_explosion_debris(pos: Vector2, energy: float, count: int, color: Color, polygon: PackedVector2Array = PackedVector2Array()) -> Node2D:
 	if _effect_count >= max_concurrent_effects:
 		return null
 	var instance: Node2D = DEBRIS_SCENE.instantiate()
 	instance.global_position = pos
 	_get_world().add_child(instance)
-	instance.setup(pos, color, count, damage)
+	var dmg: float = energy * ENERGY_DAMAGE_SCALE
+	instance.setup(pos, color, count, dmg)
 	_active_effects.append(instance)
 	effect_spawned.emit("explosion_debris", pos)
 	return instance
 
-func spawn_crash_effects(pos: Vector2, polygon: PackedVector2Array = PackedVector2Array(), color: Color = Color(0.5, 0.55, 0.5)) -> void:
-	spawn_explosion(pos)
-	spawn_explosion_debris(pos, color, 8, 10.0, polygon)
+func spawn_crash_effects(pos: Vector2, energy: float, debris_count: int, debris_color: Color, polygon: PackedVector2Array = PackedVector2Array()) -> void:
+	spawn_explosion(pos, energy)
+	spawn_explosion_debris(pos, energy, debris_count, debris_color, polygon)
 	spawn_open_fire_with_smoke(pos, 6.0, 30, 20)
 
 func spawn_damage_effects(pos: Vector2, damage_state: int, damage_percent: float) -> void:
 	match damage_state:
 		1:  ## LIGHT
-			var smoke := spawn_white_smoke(pos, int(20.0 * damage_percent))
+			var smoke := spawn_white_smoke(pos, int(40.0 * damage_percent))
 		2:  ## MODERATE
 			spawn_black_smoke(pos, int(60.0 * damage_percent))
 		3:  ## SEVERE
 			spawn_black_smoke(pos, int(30.0 * damage_percent))
 			spawn_fire(pos, int(30.0 * damage_percent))
 		4:  ## DESTROYED
-			spawn_explosion(pos)
-			spawn_explosion_debris(pos, Color(0.5, 0.55, 0.5), 8, 10.0)
 			spawn_open_fire_with_smoke(pos, 6.0, 30, 20)
 
-func spawn_explosion_style(pos: Vector2, style: ExplosionStyle, fire_preset: FireColorPreset = FireColorPreset.STANDARD, polygon: PackedVector2Array = PackedVector2Array()) -> void:
+func spawn_explosion_style(pos: Vector2, energy: float, style: ExplosionStyle, debris_count: int = 0, debris_color: Color = Color(0.2, 0.3, 0.2), fire_preset: FireColorPreset = FireColorPreset.STANDARD, polygon: PackedVector2Array = PackedVector2Array()) -> void:
 	match style:
-		ExplosionStyle.NORMAL:
-			spawn_explosion(pos)
-			spawn_explosion_debris(pos, Color(0.2, 0.5, 0.2), 8, 10.0, polygon)
-			if GameManager:
-				GameManager.request_screen_shake(15.0)
-
 		ExplosionStyle.FUEL_DEPOT:
 			for i in range(5):
-				spawn_explosion(pos + Vector2(randf_range(-30, 30), randf_range(-40, 10)))
+				spawn_explosion(pos + Vector2(randf_range(-30, 30), randf_range(-40, 10)), energy * 0.3)
 			for i in range(5):
 				var fire := _spawn_fuel_depot_fire(pos, fire_preset)
 				if fire:
@@ -156,21 +154,25 @@ func spawn_explosion_style(pos: Vector2, style: ExplosionStyle, fire_preset: Fir
 				var smoke := _spawn_fuel_depot_smoke(pos)
 				if smoke:
 					_active_effects.append(smoke)
-			spawn_explosion_debris(pos, Color(0.2, 0.5, 0.2), 4, 10.0, polygon)
-			if GameManager:
-				GameManager.request_screen_shake(50.0)
 
 		ExplosionStyle.VIOLENT_BURST:
-			spawn_explosion(pos)
+			spawn_explosion(pos, energy)
 			var fire := _spawn_violent_fire(pos, fire_preset)
 			if fire:
 				_active_effects.append(fire)
 			var smoke := _spawn_violent_smoke(pos)
 			if smoke:
 				_active_effects.append(smoke)
-			spawn_explosion_debris(pos, Color(0.2, 0.5, 0.2), 8, 15.0, polygon)
-			if GameManager:
-				GameManager.request_screen_shake(30.0)
+
+		_:
+			spawn_explosion(pos, energy)
+
+	if debris_count > 0:
+		spawn_explosion_debris(pos, energy, debris_count, debris_color, polygon)
+
+	if GameManager:
+		GameManager.request_screen_shake(energy / 3.0)
+
 
 func _get_fire_colors(preset: FireColorPreset) -> Dictionary:
 	match preset:

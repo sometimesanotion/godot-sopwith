@@ -63,9 +63,10 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 10.0,
-		"hard_landing_vperp": 20.0,
-		"svg_sprite_name": "sopwith_camel"
+		"soft_landing_vperp": 60.0,
+		"hard_landing_vperp": 120.0,
+		"svg_sprite_name": "sopwith_camel",
+		"color": Color(0.3, 0.80, 0.06)
 	},
 	"se5a": {
 		"name": "S.E.5a",
@@ -87,9 +88,10 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 10.0,
-		"hard_landing_vperp": 20.0,
-		"svg_sprite_name": "se5a"
+		"soft_landing_vperp": 60.0,
+		"hard_landing_vperp": 120.0,
+		"svg_sprite_name": "se5a",
+		"color": Color(0.42, 0.38, 0.22)
 	},
 	"bristol_f2": {
 		"name": "Bristol F.2B",
@@ -111,9 +113,10 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 10.0,
-		"hard_landing_vperp": 20.0,
-		"svg_sprite_name": "bristol_f2b"
+		"soft_landing_vperp": 60.0,
+		"hard_landing_vperp": 120.0,
+		"svg_sprite_name": "bristol_f2b",
+		"color": Color(0.50, 0.42, 0.28)
 	},
 	"p-51d": {
 		"name": "P-51D Mustang",
@@ -135,9 +138,10 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 10.0,
-		"hard_landing_vperp": 20.0,
-		"svg_sprite_name": "p-51"
+		"soft_landing_vperp": 60.0,
+		"hard_landing_vperp": 120.0,
+		"svg_sprite_name": "p-51",
+		"color": Color(0.65, 0.63, 0.55)
 	},
 	"spad_s13": {
 		"name": "SPAD S.XIII",
@@ -159,9 +163,10 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 10.0,
-		"hard_landing_vperp": 20.0,
-		"svg_sprite_name": "spad_s13"
+		"soft_landing_vperp": 60.0,
+		"hard_landing_vperp": 120.0,
+		"svg_sprite_name": "spad_s13",
+		"color": Color(0.33, 0.46, 0.05)
 	},
 	"fokker_d7": {
 		"name": "Fokker D.VII",
@@ -183,9 +188,10 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2(1.1, 1.1),
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 10.0,
-		"hard_landing_vperp": 20.0,
-		"svg_sprite_name": "fokker_d7"
+		"soft_landing_vperp": 60.0,
+		"hard_landing_vperp": 120.0,
+		"svg_sprite_name": "fokker_d7",
+		"color": Color(0.60, 0.20, 0.20)
 	}
 }
 
@@ -201,14 +207,14 @@ static func _get_svg_path_from_params(model_params: Dictionary) -> String:
 ###############################################################################
 
 @export_group("Flight Parameters (SI Units)")
-@export var arcade_multiplier: float = 2.4
+@export var arcade_multiplier: float = 2.2
 @export var gravity:            float = 9.81
 
 @export_group("Scale & Arcade Tuning")
-@export var pixels_per_meter: float = 10.0
+@export var pixels_per_meter: float = 18.0
 
 @export_group("Aerodynamics")
-@export var air_density:         float = 1.225 * 2.0
+@export var air_density:         float = 1.225 * arcade_multiplier
 @export var stall_aoa:           float = 0.244
 
 @export_group("Throttle")
@@ -1706,12 +1712,13 @@ func _update_ground_ray(avatar: AvatarData) -> void:
 
 func create_explosion(is_midair: bool = false) -> void:
 	var pos := global_position
+	var debris_color := get_dominant_color()
 	if EffectManager:
 		if is_midair:
 			EffectManager.spawn_explosion(pos, 100.0)
-			EffectManager.spawn_explosion_debris(pos, Color(0.5, 0.55, 0.5), 8, 10.0, get_plane_polygon())
+			EffectManager.spawn_explosion_debris(pos, 100.0, 4, debris_color, get_plane_polygon())
 		else:
-			EffectManager.spawn_crash_effects(pos, get_plane_polygon(), Color(0.5, 0.55, 0.5))
+			EffectManager.spawn_crash_effects(pos, 100.0, 4, debris_color, get_plane_polygon())
 
 func get_plane_polygon() -> PackedVector2Array:
 	var model_params = get_primary_entity().model_params
@@ -1721,6 +1728,12 @@ func get_plane_polygon() -> PackedVector2Array:
 		Vector2(-15 * scale.x, -4 * scale.y), Vector2(-20 * scale.x, 0),
 		Vector2(-15 * scale.x, 4 * scale.y), Vector2(10 * scale.x, 4 * scale.y)
 	])
+
+func get_dominant_color() -> Color:
+	var avatar := get_primary_entity()
+	if avatar:
+		return avatar.model_params.get("color", Color(0.36, 0.32, 0.18))
+	return Color(0.36, 0.32, 0.18)
 
 ###############################################################################
 # ENTITY CREATION UTILITIES

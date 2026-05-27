@@ -150,7 +150,9 @@ func _input(event: InputEvent) -> void:
 	match ke.keycode:
 		KEY_ENTER, KEY_SPACE:
 			restart_game.emit()
+			get_viewport().set_input_as_handled()
 			queue_free()
+			return
 	get_viewport().set_input_as_handled()
 
 func _process(_delta: float) -> void:
