@@ -63,8 +63,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 60.0,
-		"hard_landing_vperp": 120.0,
+		"soft_landing_vperp": 40.0,
+		"hard_landing_vperp": 80.0,
 		"svg_sprite_name": "sopwith_camel",
 		"color": Color(0.3, 0.80, 0.06)
 	},
@@ -88,8 +88,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 60.0,
-		"hard_landing_vperp": 120.0,
+		"soft_landing_vperp": 40.0,
+		"hard_landing_vperp": 80.0,
 		"svg_sprite_name": "se5a",
 		"color": Color(0.42, 0.38, 0.22)
 	},
@@ -113,8 +113,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 60.0,
-		"hard_landing_vperp": 120.0,
+		"soft_landing_vperp": 40.0,
+		"hard_landing_vperp": 80.0,
 		"svg_sprite_name": "bristol_f2b",
 		"color": Color(0.50, 0.42, 0.28)
 	},
@@ -138,8 +138,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 60.0,
-		"hard_landing_vperp": 120.0,
+		"soft_landing_vperp": 40.0,
+		"hard_landing_vperp": 80.0,
 		"svg_sprite_name": "p-51",
 		"color": Color(0.65, 0.63, 0.55)
 	},
@@ -163,8 +163,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 60.0,
-		"hard_landing_vperp": 120.0,
+		"soft_landing_vperp": 40.0,
+		"hard_landing_vperp": 80.0,
 		"svg_sprite_name": "spad_s13",
 		"color": Color(0.33, 0.46, 0.05)
 	},
@@ -188,8 +188,8 @@ static var _PLANE_MODELS: Dictionary = {
 		"visual_scale": Vector2(1.1, 1.1),
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,
-		"soft_landing_vperp": 60.0,
-		"hard_landing_vperp": 120.0,
+		"soft_landing_vperp": 40.0,
+		"hard_landing_vperp": 80.0,
 		"svg_sprite_name": "fokker_d7",
 		"color": Color(0.60, 0.20, 0.20)
 	}
@@ -207,7 +207,7 @@ static func _get_svg_path_from_params(model_params: Dictionary) -> String:
 ###############################################################################
 
 @export_group("Flight Parameters (SI Units)")
-@export var arcade_multiplier: float = 2.2
+@export var arcade_multiplier: float = 2.3
 @export var gravity:            float = 9.81
 
 @export_group("Scale & Arcade Tuning")

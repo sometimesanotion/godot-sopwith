@@ -154,14 +154,14 @@ static func _calc_thrust(inp: FlightInput, speed_si: float, ground_y: float) -> 
 			(ENGINE_CUTOFF_ALTITUDE - ENGINE_EFFICIENCY_START_ALTITUDE),
 			0.0, 1.0)
 
-	var thr := inp.throttle * inp.damage_thrust_mult * inp.arcade_multiplier
+	var thr := inp.throttle * inp.damage_thrust_mult
 	var engine_power: float = inp.model_params.get("engine_power_watts", 96941.0)
 
 	if speed_si < 0.5:
 		return 2000.0 * thr * alt_eff
 
 	var eta := maxf(0.0, 0.8 * (1.0 - pow((speed_si - 40.0) / 40.0, 2)))
-	return engine_power * eta / speed_si * thr * alt_eff
+	return engine_power * eta / speed_si * thr * alt_eff * inp.arcade_multiplier
 
 ## ── Ground friction lookup ──────────────────────────────────────────────────
 
