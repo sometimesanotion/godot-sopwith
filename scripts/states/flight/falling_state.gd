@@ -6,7 +6,7 @@ func enter() -> void:
 		return
 	var avatar = plane.get_avatar_data(0)
 	if avatar:
-		avatar.angular_velocity = 4.0
+		avatar.angular_velocity = 1.0
 
 func exit() -> void:
 	pass

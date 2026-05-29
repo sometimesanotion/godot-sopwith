@@ -211,7 +211,7 @@ static func _get_svg_path_from_params(model_params: Dictionary) -> String:
 @export var gravity:            float = 9.81
 
 @export_group("Scale & Arcade Tuning")
-@export var pixels_per_meter: float = 18.0
+@export var pixels_per_meter: float = 16.0
 
 @export_group("Aerodynamics")
 @export var air_density:         float = 1.225 * arcade_multiplier
@@ -887,7 +887,7 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 		return
 
 	if avatar.flight_state == FlightState.FALLING:
-		avatar.angular_velocity = 4.0
+		avatar.angular_velocity = 1.22
 		avatar.pitch_angle += avatar.angular_velocity * step
 		state.set_angular_velocity(avatar.angular_velocity)
 
