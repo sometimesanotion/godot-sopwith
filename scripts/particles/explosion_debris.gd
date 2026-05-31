@@ -112,6 +112,8 @@ func _create_fragments_with_color(base_color: Color) -> void:
 		rb.gravity_scale = 1.0
 		rb.linear_damp = 0.5
 		rb.angular_damp = 0.5
+		rb.mass = 0.2
+		# rb.inertia = 0.5
 
 		var random_dir := Vector2(randf_range(-1, 1), randf_range(-1, -0.3)).normalized()
 		var force := random_dir * randf_range(200, 500)

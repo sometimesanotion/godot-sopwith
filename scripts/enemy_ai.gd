@@ -1010,10 +1010,12 @@ func _do_respawn() -> void:
 
 	if biplane.has_method("reset_flight_state"):
 		biplane.reset_flight_state()
+
 	if biplane.has_method("get_avatar_data"):
 		var avatar = biplane.get_avatar_data(0)
 		if avatar:
 			avatar.pitch_angle = biplane.rotation
+			pilots[0].desired_heading = biplane.rotation
 	if biplane.has_method("set_game_active"):
 		biplane.set_game_active(true)
 

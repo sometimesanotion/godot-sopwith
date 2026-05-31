@@ -431,7 +431,6 @@ class AvatarData:
 		is_flipping      = false
 		flip_progress    = 0.0
 		flip_direction   = 0
-		is_airborne           = true
 		is_losing_control     = false
 		has_hit_ground    = false
 		ammo  = MAX_AMMO
@@ -825,7 +824,6 @@ func _physics_process(delta: float) -> void:
 		if avatar.flight_state == FlightState.CRASHED:
 			continue
 		if avatar.flight_state == FlightState.FALLING:
-			avatar.is_airborne = true
 			avatar.velocity.y += gravity * pixels_per_meter * delta
 			_check_obstacle_collision(avatar)
 			continue
@@ -872,15 +870,7 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 				),
 				"normal": state.get_contact_local_normal(ci),
 			})
-		_debug_forensic_log(avatar, "physics_contact", {
-			"frame": _debug_frame_count,
-			"contact_count": contact_count,
-			"contacts": contact_info,
-			"pos_y": snapped(global_position.y, 1.0),
-			"ground_y": snapped(_ground_y(global_position.x), 1.0),
-			"flight_state": avatar.flight_state,
-			"speed": snapped(velocity.length(), 1.0),
-		})
+
 
 	if avatar.flight_state == FlightState.CRASHED:
 		_integrate_crash_forces(state, avatar, step)
@@ -959,9 +949,7 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 		if avatar.flight_state == FlightState.CRASHED:
 			return
 		if avatar.flight_state == FlightState.DAMAGED:
-			var current_vel := state.get_linear_velocity()
-			current_vel.x *= 0.5
-			state.set_linear_velocity(current_vel)
+			pass
 	if inp.is_grounded and inp.tilt_angle >= deg_to_rad(avatar.max_landing_tilt):
 		_on_avatar_crashed(avatar)
 		return
@@ -1194,20 +1182,21 @@ func _handle_input(avatar: AvatarData, delta: float) -> void:
 	rotation = avatar.pitch_angle
 
 func set_ai_input(pitch: float, throttle_amount: float) -> void:
+	var dt = get_physics_process_delta_time()
 	for avatar_id in _avatars:
 		var avatar: AvatarData = _avatars[avatar_id]
 		if is_player_controlled or avatar.flight_state == FlightState.CRASHED:
 			continue
 		avatar.throttle_target = clampf(throttle_amount, min_throttle, max_throttle)
-		avatar.throttle = move_toward(avatar.throttle, avatar.throttle_target, 5.0 * 0.016)
+		avatar.throttle = move_toward(avatar.throttle, avatar.throttle_target, 5.0 * dt)
 		var input_pitch: float = pitch * avatar.control_effectiveness
 		if avatar.is_inverted:
 			input_pitch = -input_pitch
 		var model_params = avatar.model_params
 		var eff_rot_speed: float = model_params.get("rotation_speed", 5.0) * (1.0 - avatar.damage.damage_percent * 0.4)
 		avatar.angular_velocity = move_toward(
-			avatar.angular_velocity, input_pitch * eff_rot_speed, model_params.get("rotation_inertia", 4.0) * 0.016)
-		avatar.pitch_angle += avatar.angular_velocity * 0.016
+			avatar.angular_velocity, input_pitch * eff_rot_speed, model_params.get("rotation_inertia", 4.0) * dt)
+		avatar.pitch_angle += avatar.angular_velocity * dt
 		rotation = avatar.pitch_angle
 
 ###############################################################################
@@ -1650,7 +1639,8 @@ func _on_avatar_crashed(avatar: AvatarData) -> void:
 		})
 
 	_crash_processed[avatar.id] = true
-	var is_midair := avatar.is_airborne and avatar.flight_state != FlightState.LANDED and avatar.flight_state != FlightState.CRASHED
+	var gc := _get_ground_contact(avatar)
+	var is_midair := not gc.is_grounded and avatar.flight_state != FlightState.LANDED
 	avatar.flight_state          = FlightState.CRASHED
 	avatar.damage.damage_state   = DamageData.DamageState.DESTROYED
 	avatar.is_airborne           = false
@@ -1795,6 +1785,7 @@ func setup_faction_homebase(id: int, x: float, width: float, spawn_pos: Vector2,
 func apply_homebase_model(avatar: AvatarData) -> void:
 	var hb := _get_homebase(avatar)
 	if not hb:
+		push_warning("apply_homebase_model: no homebase for avatar %d (homebase_id=%d)" % [avatar.id, avatar.homebase_id])
 		return
 	var default_model := get_default_plane_model(hb.faction)
 	assign_plane_model(avatar, default_model)

@@ -136,7 +136,7 @@ static func calculate_forces(inp: FlightInput) -> FlightOutput:
 ## ── Crash / destroyed physics ─────────────────────────────────────────────
 
 static func _calculate_crash_forces(inp: FlightInput, out: FlightOutput) -> void:
-	out.weight_force = Vector2(0.0, inp.mass_kg * inp.gravity * inp.pixels_per_meter)
+	out.weight_force = Vector2(0.0, inp.mass_kg * inp.gravity / inp.pixels_per_meter)
 	out.net_force = out.weight_force
 	out.control_effectiveness = 0.0
 

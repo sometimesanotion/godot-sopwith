@@ -404,7 +404,7 @@ func play_music(path: String, fade_duration: float = 0.1) -> void:
 		push_error("SoundManager: could not load music '%s'" % path)
 		return
 
-	if GameManager.music_volume >= 0.0:
+	if GameManager.music_volume <= 0.0:
 		return
 
 	incoming.stream = stream

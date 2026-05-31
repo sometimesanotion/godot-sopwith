@@ -3,7 +3,7 @@ extends Node
 ## Autoload singleton. Sole authority for respawn timing and positioning.
 
 const MAX_RESPAWN_DELAY := 10.0
-const RESPAWN_DELAY := 3.0
+const RESPAWN_DELAY := 2.0
 
 var _queue: Dictionary[int, float] = {}
 
