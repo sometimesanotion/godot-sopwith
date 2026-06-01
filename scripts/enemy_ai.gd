@@ -78,23 +78,34 @@ const ALTITUDE_OSCILLATION_SPEED := 1.5
 const ALTITUDE_OSCILLATION_AMP   := 30.0
 
 # Pitch control — ENGAGE profile (aggressive, combat authority)
-const PITCH_SENS_ENGAGE_BASE  := 2.2   # gain at cruise speed in combat
-const PITCH_SENS_ENGAGE_LOW   := 0.9   # gain near stall in combat
+# const PITCH_SENS_ENGAGE_BASE  := 2.2-3.0   # gain at cruise speed in combat
+# const PITCH_SENS_ENGAGE_LOW   := 0.9-1.0   # gain near stall in combat
+const PITCH_SENS_ENGAGE_BASE  := 2.8   # gain at cruise speed in combat
+const PITCH_SENS_ENGAGE_LOW   := 1.0   # gain near stall in combat
 const PITCH_DAMP_ENGAGE_MAX   := 2.2   # speed-damping at low speed in combat
 const PITCH_DAMP_ENGAGE_MIN   := 0.4   # speed-damping at cruise in combat
-const ANG_VEL_DAMP_ENGAGE     := 0.25  # flat ang-vel coefficient in combat
+# const ANG_VEL_DAMP_ENGAGE     := 0.25  # flat ang-vel coefficient in combat
+const ANG_VEL_DAMP_ENGAGE     := 0.22  # flat ang-vel coefficient in combat
 
 # Pitch control — CRUISE profile (conservative, patrol / return / takeoff)
-const PITCH_SENS_CRUISE_BASE  := 1.8
-const PITCH_SENS_CRUISE_LOW   := 0.7
+# const PITCH_SENS_CRUISE_BASE  := 1.8-2.2
+# const PITCH_SENS_CRUISE_LOW   := 0.7-0.8
+const PITCH_SENS_CRUISE_BASE  := 2.0
+const PITCH_SENS_CRUISE_LOW   := 0.8
 const PITCH_DAMP_CRUISE_MAX   := 3.0
 const PITCH_DAMP_CRUISE_MIN   := 0.6
-const ANG_VEL_DAMP_CRUISE     := 0.50
+# const ANG_VEL_DAMP_CRUISE     := 0.30-0.50
+const ANG_VEL_DAMP_CRUISE     := 0.40
 
 # Heading smoothing (lerp factor per decision tick)
-const HEADING_LERP_FACTOR     := 0.30  # 0 = never turns, 1 = instant snap
+# const HEADING_LERP_FACTOR     := 0.30-0.45  # 0 = never turns, 1 = instant snap
+const HEADING_LERP_FACTOR     := 0.32  # 0 = never turns, 1 = instant snap
 # Deadband: angle error below this is treated as "on heading"
 const HEADING_DEADBAND        := 0.10  # radians (~6°)
+
+# Ground attack
+const GROUND_ATTACK_DIVE_ALT  := 300.0
+const GROUND_ATTACK_PULL_ALT  := 150.0
 
 # Evade
 const EVADE_DURATION_MIN := 0.5
@@ -412,10 +423,10 @@ func _compute_engage(avatar) -> Array:
 		_try_decide_bomb_drop()
 		return [_compute_bomb_pitch(), _compute_engage_throttle(avatar)]
 
-	# Ground target, no bombs → gentle approach only; do not kamikaze.
+	# Ground target, no bombs → dive to strafe, then pull up.
 	if _is_target_on_ground():
 		_try_fire_weapon()
-		return [_compute_patrol_pitch(), _compute_patrol_throttle(avatar)]
+		return [_compute_ground_attack_pitch(), _compute_engage_throttle(avatar)]
 
 	# Airborne target → energy-state air combat.
 	_try_fire_weapon()
@@ -461,6 +472,53 @@ func _compute_engage_pitch() -> float:
 
 	_steer_toward(aim)
 	return _compute_pitch_from_heading(true)   # ENGAGE profile
+
+func _compute_ground_attack_pitch() -> float:
+	if not biplane or not target:
+		return 0.0
+
+	var my_pos     = biplane.global_position
+	var tgt_pos    = target.global_position
+	var alt        = _get_altitude_above_ground()
+	var to_target  = tgt_pos - my_pos
+	var x_dist     = absf(to_target.x)
+	var rel_x      = to_target.x
+
+	# Emergency pull up if critically low
+	if alt < CRITICAL_ALTITUDE_ABOVE_GROUND:
+		return -1.0
+
+	# Pull up if below safe dive recovery altitude
+	if alt < GROUND_ATTACK_PULL_ALT:
+		return -0.8
+
+	# Check if past the target (passed overhead)
+	var going_past = (biplane.velocity.x > 0 and rel_x < -50.0) or \
+	                 (biplane.velocity.x < 0 and rel_x > 50.0)
+	if going_past:
+		var climb_aim = Vector2(
+			my_pos.x + sign(biplane.velocity.x) * 300.0,
+			my_pos.y - 200.0
+		)
+		_steer_toward(climb_aim)
+		return _compute_pitch_from_heading(true)
+
+	# Overhead — shallow dive / level
+	if x_dist < 100.0:
+		var aim = Vector2(tgt_pos.x + rel_x, tgt_pos.y - 20.0)
+		_steer_toward(aim)
+		return _compute_pitch_from_heading(true)
+
+	# Above dive altitude — steep dive toward target
+	if alt > GROUND_ATTACK_DIVE_ALT:
+		var aim := Vector2(tgt_pos.x, tgt_pos.y + 30.0)
+		_steer_toward(aim)
+		return _compute_pitch_from_heading(true)
+
+	# Medium altitude — shallow dive
+	var aim = Vector2(tgt_pos.x, my_pos.y + 80.0)
+	_steer_toward(aim)
+	return _compute_pitch_from_heading(true)
 
 func _compute_bomb_pitch() -> float:
 	if not biplane or not target:
@@ -999,9 +1057,9 @@ func _do_respawn() -> void:
 			var spawn_rot = biplane.get_homebase_spawn_rotation(avatar)
 			var ground_y := _get_ground_height(spawn_pos.x)
 			if biplane.has_method("teleport_to"):
-				biplane.teleport_to(Vector2(spawn_pos.x, ground_y - 12.0), spawn_rot)
+				biplane.teleport_to(Vector2(spawn_pos.x, ground_y - Biplane.GROUND_SURFACE_OFFSET), spawn_rot)
 			else:
-				biplane.position = Vector2(spawn_pos.x, ground_y - 12.0)
+				biplane.position = Vector2(spawn_pos.x, ground_y - Biplane.GROUND_SURFACE_OFFSET)
 				biplane.rotation = spawn_rot
 				biplane.velocity = Vector2.ZERO
 			biplane.visible = true

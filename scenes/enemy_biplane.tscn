@@ -46,7 +46,7 @@ scale_amount_max = 4.0
 color = Color(0.8, 0.8, 0.8, 0.5)
 
 [node name="GroundRay" type="RayCast2D" parent="."]
-target_position = Vector2(0, 25)
+target_position = Vector2(0, 26)
 collision_mask = 1
 
 [node name="EnemyAI" type="Node" parent="."]
