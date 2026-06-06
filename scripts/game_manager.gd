@@ -25,7 +25,7 @@ var bird_count: String = "Normal"
 var cow_count: String = "Normal"
 var sound_fx_volume: float = 0.2
 var music_volume: float = 0.2
-var debug_hud: bool = true
+var debug_hud: bool = false
 var player_faction: String = "British"
 
 var current_level: int = 1

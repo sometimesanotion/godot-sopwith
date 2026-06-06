@@ -281,7 +281,7 @@ func play_sfx(event: SoundEvent, overrides: Dictionary = {}) -> void:
 	var cfg: Dictionary = EVENT_CONFIG.get(event, {})
 
 	var vol_db: float = overrides.get("volume_db",
-		randf_range(cfg.get("volume_db_min", 0.0), cfg.get("volume_db_max", 0.0)))
+		randf_range(cfg.get("volume_db_min", 0.0), cfg.get("volume_db_max", 0.0))) - 10.0
 	var pitch: float = overrides.get("pitch",
 		randf_range(cfg.get("pitch_min", 1.0), cfg.get("pitch_max", 1.0)))
 	var pan: float = overrides.get("pan",

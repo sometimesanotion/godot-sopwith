@@ -406,6 +406,8 @@ class AvatarData:
 	var bungee_time: float = model_params.get("bungee_time", 0.15)
 	var mass_kg: float = model_params.get("mass_kg", 447.0)
 
+	var last_flight_output: Aerodynamics.FlightOutput = null
+
 	var bullet_spawn_offset: Vector2 = model_params.get("bullet_spawn_offset", Vector2(48, -12))
 	var bomb_spawn_offset: Vector2 = model_params.get("bomb_spawn_offset", Vector2(0, 32))
 
@@ -438,6 +440,7 @@ class AvatarData:
 		gun_timer  = 0.0
 		bomb_timer = 0.0
 		last_shot_range = 0.0
+		last_flight_output = null
 		if continuous_fire_handles.size() > 0:
 			if EffectManager:
 				EffectManager.detach_continuous_fire(continuous_fire_handles)
@@ -619,14 +622,86 @@ func _on_runway(x: float) -> bool:
 # DEBUG VISUALIZATION
 ###############################################################################
 
-func _draw_debug_info(avatar: AvatarData) -> void:
+func _process(_delta: float) -> void:
 	if not OS.is_debug_build():
 		return
+	if not GameManager or not GameManager.debug_hud:
+		return
+	queue_redraw()
 
-	# Draw debug info overlay
+func _draw() -> void:
+	if not OS.is_debug_build():
+		return
+	if not GameManager or not GameManager.debug_hud:
+		return
+
+	for avatar_id in _avatars:
+		var avatar: AvatarData = _avatars[avatar_id]
+		_draw_debug_lines(avatar)
+
+func _draw_debug_lines(avatar: AvatarData) -> void:
+	const MAX_LEN := 200.0
+	const ALPHA := 0.5
+
+	# All lines are drawn from the plane origin (local Vector2.ZERO) in local
+	# coordinates.  We convert world-space directions to local so lines stay
+	# anchored to the plane but point in the correct world-relative direction.
+
+	# 1. Forward / Pitch axis (white) — the nose always points along local +X
+	draw_line(Vector2.ZERO, Vector2(MAX_LEN, 0.0), Color(1.0, 1.0, 1.0, ALPHA), 1.5)
+
+	# 2. Velocity (green)
+	if velocity.length_squared() > 1.0:
+		var vel_local := to_local(global_position + velocity.normalized() * MAX_LEN)
+		draw_line(Vector2.ZERO, vel_local, Color(0.0, 1.0, 0.0, ALPHA), 1.5)
+
+	# 3. Gravity / Weight (yellow) — always world-down
+	# var grav_local := to_local(global_position + Vector2(0.0, MAX_LEN))
+	# draw_line(Vector2.ZERO, grav_local, Color(1.0, 1.0, 0.0, ALPHA), 1.5)
+
+	# 4. Force vectors from the last physics frame (FlightOutput)
+	var out := avatar.last_flight_output
+	if out:
+		var lift_local := to_local(global_position + out.lift_force.normalized() * MAX_LEN) \
+				if out.lift_force.length_squared() > 0.01 else Vector2.ZERO
+		if lift_local != Vector2.ZERO:
+			draw_line(Vector2.ZERO, lift_local, Color(0.2, 0.5, 1.0, ALPHA), 1.5)
+
+		var thrust_local := to_local(global_position + out.thrust_force.normalized() * MAX_LEN) \
+				if out.thrust_force.length_squared() > 0.01 else Vector2.ZERO
+		if thrust_local != Vector2.ZERO:
+			draw_line(Vector2.ZERO, thrust_local, Color(1.0, 0.0, 0.0, ALPHA), 1.5)
+
+		var drag_local := to_local(global_position + out.drag_force.normalized() * MAX_LEN) \
+				if out.drag_force.length_squared() > 0.01 else Vector2.ZERO
+		if drag_local != Vector2.ZERO:
+			draw_line(Vector2.ZERO, drag_local, Color(1.0, 0.6, 0.0, ALPHA), 1.5)
+
+		# var normal_local := to_local(global_position + out.normal_force.normalized() * MAX_LEN) \
+		# 		if out.normal_force.length_squared() > 0.01 else Vector2.ZERO
+		# if normal_local != Vector2.ZERO:
+		# 	draw_line(Vector2.ZERO, normal_local, Color(0.6, 0.0, 0.8, ALPHA), 1.5)
+
+		# var net_local := to_local(global_position + out.net_force.normalized() * MAX_LEN) \
+		# 		if out.net_force.length_squared() > 0.01 else Vector2.ZERO
+		# if net_local != Vector2.ZERO:
+		# 	draw_line(Vector2.ZERO, net_local, Color(0.8, 0.2, 0.8, ALPHA), 1.5)
+
+	# # 5. Ground normal (cyan) from terrain slope
+	# var gc := _get_ground_contact(avatar)
+	# if gc.is_grounded:
+	# 	var gn_local := to_local(global_position + gc.ground_normal * MAX_LEN)
+	# 	draw_line(Vector2.ZERO, gn_local, Color(0.0, 0.8, 0.8, ALPHA), 1.5)
+
+	# 6. Ground ray (cyan, thinner) from RayCast2D collision point
+	# var ground_ray := $GroundRay if has_node("GroundRay") else null
+	# if ground_ray and ground_ray.is_colliding():
+	# 	var hit_local := to_local(ground_ray.get_collision_point())
+	# 	draw_line(Vector2.ZERO, hit_local, Color(0.0, 1.0, 1.0, ALPHA * 0.6), 1.0)
+
+func _draw_debug_info(avatar: AvatarData) -> void:
 	var font = Control.new().get_font("font")
 
-	# Flight state and model info
 	var debug_text = "Model: %s\n" % avatar.get_plane_name()
 	debug_text += "Faction: %s\n" % ["British", "German", "Neutral"][avatar.faction]
 	debug_text += "Team: %s\n" % ["Allied", "Enemy", "Neutral"][avatar.team]
@@ -635,32 +710,7 @@ func _draw_debug_info(avatar: AvatarData) -> void:
 	debug_text += "Speed: %.1f px/s\n" % velocity.length()
 	debug_text += "Throttle: %.1f%%\n" % (avatar.throttle * 100)
 
-	# Draw in top-left corner
 	draw_string(font, Vector2(10, 25), debug_text, HORIZONTAL_ALIGNMENT_LEFT)
-
-	# Draw velocity vector
-	var vel_normalized = velocity.normalized() * 30
-	draw_line(global_position, global_position + vel_normalized, Color.GREEN, 2)
-
-	# Draw thrust vector
-	var model_params = avatar.model_params
-	if avatar.throttle > 0 and not avatar.engine_cutoff:
-		var thrust_dir = Vector2(cos(avatar.pitch_angle), sin(avatar.pitch_angle))
-		var thrust_vec = thrust_dir * (avatar.throttle * 40)
-		draw_line(global_position, global_position + thrust_vec, Color.RED, 2)
-
-	# Draw ground contact point
-	var gc := _get_ground_contact(avatar)
-	if gc.is_grounded:
-		draw_line(global_position, Vector2(global_position.x, gc.ground_y), Color.YELLOW, 1)
-
-func _update_debug_overlay(delta: float) -> void:
-	# Draw debug info for all avatars
-	for avatar_id in _avatars:
-		var avatar: AvatarData = _avatars[avatar_id]
-		if is_player_controlled:
-			_draw_debug_info(avatar)
-			break  # Only draw debug for primary player
 
 ###############################################################################
 # COLLISION INTERFACE
@@ -842,6 +892,10 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 		state.set_linear_velocity(Vector2.ZERO)
 		state.set_angular_velocity(0.0)
 		_pending_teleport = false
+		var avatar := get_avatar_data(0)
+		if avatar:
+			avatar.pitch_angle = _teleport_rotation
+			rotation = _teleport_rotation
 		if not game_active:
 			return
 
@@ -883,6 +937,7 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 
 	var inp := _build_flight_input(avatar, state)
 	var out := Aerodynamics.calculate_forces(inp)
+	avatar.last_flight_output = out
 
 	# Supplement analytical ground detection with physics contact data.
 	# The analytical model checks center position vs terrain surface (pos_y >= ground_y - 2),
