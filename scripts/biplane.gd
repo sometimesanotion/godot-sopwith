@@ -895,6 +895,7 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 		var avatar := get_avatar_data(0)
 		if avatar:
 			avatar.pitch_angle = _teleport_rotation
+			avatar.is_inverted = absf(_teleport_rotation) > PI / 2.0
 			rotation = _teleport_rotation
 		if not game_active:
 			return
@@ -1997,6 +1998,12 @@ func respawn(avatar_id: int, camera_ref: Camera2D = null) -> bool:
 	var spawn_pos := get_homebase_spawn_position(avatar)
 	var spawn_rot := get_homebase_spawn_rotation(avatar)
 
+	reset_flight_state(avatar_id)
+
+	avatar.is_inverted = absf(spawn_rot) > PI / 2.0
+	apply_homebase_model(avatar)
+	reset_visual_transform(avatar)
+
 	visible = true
 	global_position = spawn_pos
 	linear_velocity = Vector2.ZERO
@@ -2005,7 +2012,7 @@ func respawn(avatar_id: int, camera_ref: Camera2D = null) -> bool:
 	_teleport_position = spawn_pos
 	_teleport_rotation = spawn_rot
 
-	reset_flight_state(avatar_id)
+	game_active = true
 
 	if is_player_controlled and camera_ref:
 		camera_ref.position = Vector2(spawn_pos.x, spawn_pos.y - 250)

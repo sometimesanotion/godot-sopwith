@@ -1049,38 +1049,29 @@ func _do_respawn() -> void:
 	# Reset all per-pilot mutable state so nothing leaks across lives.
 	pilots[0] = AIData.new()
 
-	# Use homebase as source of truth for spawn position and orientation
-	if biplane.has_method("get_avatar_data"):
-		var avatar = biplane.get_avatar_data(0)
+	if biplane.has_method("respawn"):
+		biplane.respawn(0)
+	else:
+		# Fallback if respawn isn't available
+		var avatar = biplane.get_avatar_data(0) if biplane.has_method("get_avatar_data") else null
 		if avatar:
-			var spawn_pos = biplane.get_homebase_spawn_position(avatar)
-			var spawn_rot = biplane.get_homebase_spawn_rotation(avatar)
+			var spawn_pos = biplane.get_homebase_spawn_position(avatar) if biplane.has_method("get_homebase_spawn_position") else Vector2(7000, 500)
+			var spawn_rot = biplane.get_homebase_spawn_rotation(avatar) if biplane.has_method("get_homebase_spawn_rotation") else 0.0
 			var ground_y := _get_ground_height(spawn_pos.x)
-			if biplane.has_method("teleport_to"):
-				biplane.teleport_to(Vector2(spawn_pos.x, ground_y - Biplane.GROUND_SURFACE_OFFSET), spawn_rot)
-			else:
-				biplane.position = Vector2(spawn_pos.x, ground_y - Biplane.GROUND_SURFACE_OFFSET)
-				biplane.rotation = spawn_rot
-				biplane.velocity = Vector2.ZERO
+			biplane.global_position = Vector2(spawn_pos.x, ground_y - 12)
+			biplane.rotation = spawn_rot
+			biplane.linear_velocity = Vector2.ZERO
+			biplane.angular_velocity = 0.0
 			biplane.visible = true
-			if biplane.has_method("apply_homebase_model"):
-				biplane.apply_homebase_model(avatar)
 
-	if biplane.has_method("reset_flight_state"):
-		biplane.reset_flight_state()
-
+	# Sync AI heading to the spawn orientation
 	if biplane.has_method("get_avatar_data"):
 		var avatar = biplane.get_avatar_data(0)
 		if avatar:
-			avatar.pitch_angle = biplane.rotation
-			pilots[0].desired_heading = biplane.rotation
-	if biplane.has_method("set_game_active"):
-		biplane.set_game_active(true)
+			pilots[0].desired_heading = avatar.pitch_angle
 
 	if ai_fsm and ai_fsm._active:
 		ai_fsm.transition_to(&"grounded")
-
-	# AIData initialises to AIState.GROUNDED — no explicit set needed.
 
 # ---------------------------------------------------------------------------
 # EXTERNAL API
