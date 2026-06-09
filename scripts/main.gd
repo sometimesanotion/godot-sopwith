@@ -341,7 +341,14 @@ func _spawn_enemies_and_targets() -> void:
 	var spawn_enemies: bool = GameManager.enemy_planes if GameManager else true
 
 	var enemy_faction_str := _get_enemy_faction(GameManager.player_faction if GameManager else "British")
-	var enemy_faction_enum = Biplane.Faction.GERMAN if enemy_faction_str == "German" else Biplane.Faction.BRITISH
+	var enemy_faction_enum: int
+	match enemy_faction_str:
+		"German":
+			enemy_faction_enum = Biplane.Faction.GERMAN
+		"French":
+			enemy_faction_enum = Biplane.Faction.FRENCH
+		_:
+			enemy_faction_enum = Biplane.Faction.BRITISH
 
 	for i in range(possible_bases.size()):
 		var base_x: float = possible_bases[i]

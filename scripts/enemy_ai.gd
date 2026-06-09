@@ -1064,11 +1064,13 @@ func _do_respawn() -> void:
 			biplane.angular_velocity = 0.0
 			biplane.visible = true
 
-	# Sync AI heading to the spawn orientation
-	if biplane.has_method("get_avatar_data"):
+	# Sync AI heading to the spawn orientation.
+	# pitch_angle is still 0 (reset by reset_flight_state) until the teleport
+	# processes, so read spawn_rot from the homebase directly.
+	if biplane.has_method("get_homebase_spawn_rotation") and biplane.has_method("get_avatar_data"):
 		var avatar = biplane.get_avatar_data(0)
 		if avatar:
-			pilots[0].desired_heading = avatar.pitch_angle
+			pilots[0].desired_heading = biplane.get_homebase_spawn_rotation(avatar)
 
 	if ai_fsm and ai_fsm._active:
 		ai_fsm.transition_to(&"grounded")

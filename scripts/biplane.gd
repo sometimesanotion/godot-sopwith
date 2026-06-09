@@ -1823,7 +1823,14 @@ func spawn_british_ally(position: Vector2 = Vector2.ZERO, rotation: float = 0.0)
 ## Configure a homebase with specific faction and model
 func setup_faction_homebase(id: int, x: float, width: float, spawn_pos: Vector2,
 		spawn_rot: float, faction: Faction) -> void:
-	var team = Team.ALLIED if faction == Faction.BRITISH else Team.ENEMY
+	var team: Team
+	match faction:
+		Faction.BRITISH, Faction.FRENCH:
+			team = Team.ALLIED
+		Faction.GERMAN:
+			team = Team.ENEMY
+		_:
+			team = Team.NEUTRAL
 	setup_homebase(id, x, width, spawn_pos, spawn_rot, team)
 	_homebases[id].faction = faction
 
@@ -2001,6 +2008,8 @@ func respawn(avatar_id: int, camera_ref: Camera2D = null) -> bool:
 	reset_flight_state(avatar_id)
 
 	avatar.is_inverted = absf(spawn_rot) > PI / 2.0
+	avatar.pitch_angle = spawn_rot
+	rotation = spawn_rot
 	apply_homebase_model(avatar)
 	reset_visual_transform(avatar)
 
