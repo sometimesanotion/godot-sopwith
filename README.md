@@ -1,9 +1,6 @@
-# godot-sopwith
-A simple vector-graphics clone of Sopwith in Godot's GDScript
-=======
 # Godot Sopwith
 
-A modern tribute to the 1984 classic Sopwith, built with Godot 4.x using vector aesthetics and realistic physics.
+A modern vector-graphics tribute to the 1984 classic Sopwith, built with Godot 4.x using vector aesthetics and realistic physics.
 
 ## Controls
 
