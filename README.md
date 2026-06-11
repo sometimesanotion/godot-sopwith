@@ -37,7 +37,19 @@ The features of the original Sopwith, with touches of physics simulation.
 
 ## Test Run
 
-To take it for a spin:
+To take it for a spin, get a copy of the Godot 4.6 runtime for your platform:
+
+https://godotengine.org/download/windows
+
+From a command line:
+```
+godot .
+```
+
+Or set an shortcut to run godot to the absolute path you've checked this repo out to.
+
+Or use *make*:
+
 ```bash
 make clean
 make run
