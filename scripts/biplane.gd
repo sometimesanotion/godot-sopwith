@@ -887,6 +887,7 @@ func _physics_process(delta: float) -> void:
 
 func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 	if _pending_teleport:
+		var pre_av := state.get_angular_velocity()
 		var t := Transform2D(_teleport_rotation, _teleport_position)
 		state.set_transform(t)
 		state.set_linear_velocity(Vector2.ZERO)
@@ -897,6 +898,13 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 			avatar.pitch_angle = _teleport_rotation
 			avatar.is_inverted = absf(_teleport_rotation) > PI / 2.0
 			rotation = _teleport_rotation
+			DLog.info("teleport", {
+				"pre_angvel": snapped(pre_av, 4),
+				"post_rot": snapped(rotation, 4),
+				"post_pitch": snapped(avatar.pitch_angle, 4),
+				"post_av": snapped(avatar.angular_velocity, 4),
+				"game_active": game_active,
+			})
 		if not game_active:
 			return
 
@@ -1250,10 +1258,24 @@ func set_ai_input(pitch: float, throttle_amount: float) -> void:
 			input_pitch = -input_pitch
 		var model_params = avatar.model_params
 		var eff_rot_speed: float = model_params.get("rotation_speed", 5.0) * (1.0 - avatar.damage.damage_percent * 0.4)
+		var pre_av := avatar.angular_velocity
+		var pre_pitch := avatar.pitch_angle
 		avatar.angular_velocity = move_toward(
 			avatar.angular_velocity, input_pitch * eff_rot_speed, model_params.get("rotation_inertia", 4.0) * dt)
 		avatar.pitch_angle += avatar.angular_velocity * dt
 		rotation = avatar.pitch_angle
+		# if absf(pre_av) > 0.01 or absf(avatar.angular_velocity) > 0.01 or absf(pre_pitch - avatar.pitch_angle) > 0.001:
+		# 	DLog.info("ai_pitch_integrate", {
+		# 		"avatar_id": avatar_id,
+		# 		"pitch_in": snapped(pitch, 4),
+		# 		"input_pitch": snapped(input_pitch, 4),
+		# 		"pre_av": snapped(pre_av, 4),
+		# 		"post_av": snapped(avatar.angular_velocity, 4),
+		# 		"pre_pitch": snapped(pre_pitch, 4),
+		# 		"post_pitch": snapped(avatar.pitch_angle, 4),
+		# 		"delta_pitch": snapped(avatar.pitch_angle - pre_pitch, 4),
+		# 		"dt": snapped(dt, 6),
+		# 	})
 
 ###############################################################################
 # FLIP / BARREL ROLL (visual tween)
