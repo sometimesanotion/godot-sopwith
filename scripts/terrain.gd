@@ -33,6 +33,7 @@ func add_runway(x: float) -> void:
 	runways.append(Vector2(runway_start, runway_end))
 	if ground_points.size() > 0:
 		_generate_terrain()
+		_update_terrain_polygons()
 	_create_runway_visual(runway_start, runway_end)
 
 func _create_terrain() -> void:
@@ -40,18 +41,15 @@ func _create_terrain() -> void:
 	terrain_body.name = "Terrain"
 
 	var collision_poly := CollisionPolygon2D.new()
-	var poly_points := ground_points.duplicate()
-	poly_points.append(Vector2(TERRAIN_LENGTH, TERRAIN_LOW_BOUND))
-	poly_points.append(Vector2(0, TERRAIN_LOW_BOUND))
-	collision_poly.polygon = poly_points
 	terrain_body.add_child(collision_poly)
 	terrain_body.collision_layer = 1
 	add_child(terrain_body)
 
 	terrain_polygon = Polygon2D.new()
-	terrain_polygon.polygon = poly_points
 	terrain_polygon.color = ground_color
 	add_child(terrain_polygon)
+
+	_update_terrain_polygons()
 
 	# Diagnostic: verify terrain body and visual are aligned
 	var terrain_min_y := INF
@@ -86,6 +84,17 @@ func _create_terrain() -> void:
 
 	for runway in runways:
 		_create_runway_visual(runway.x, runway.y)
+
+func _update_terrain_polygons() -> void:
+	var poly_points := ground_points.duplicate()
+	poly_points.append(Vector2(TERRAIN_LENGTH, TERRAIN_LOW_BOUND))
+	poly_points.append(Vector2(0, TERRAIN_LOW_BOUND))
+	if terrain_body:
+		for child in terrain_body.get_children():
+			if child is CollisionPolygon2D:
+				child.polygon = poly_points
+	if terrain_polygon:
+		terrain_polygon.polygon = poly_points
 
 func _create_runway_visual(start: float, end: float) -> void:
 	if SvgManager and SvgManager.has_sprite("runway"):

@@ -259,6 +259,12 @@ func _physics_process(delta: float) -> void:
 	pilots[0].bomb_cooldown_timer   = maxf(0.0, pilots[0].bomb_cooldown_timer - delta)
 	pilots[0].flip_cooldown         = maxf(0.0, pilots[0].flip_cooldown - delta)
 
+	var avatar = _get_avatar()
+	if avatar and (avatar.flight_state == biplane.FlightState.FALLING
+			or avatar.flight_state == biplane.FlightState.CRASHED):
+		pilots[0].reset_control_outputs()
+		return
+
 	_apply_input(pilots[0].last_pitch_input, pilots[0].last_throttle)
 
 	_check_flip_needed()

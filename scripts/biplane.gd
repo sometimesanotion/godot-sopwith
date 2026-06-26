@@ -382,7 +382,6 @@ class AvatarData:
 	var flip_direction: int   = 0   ## 1 = upright→inverted, -1 = inverted→upright
 
 	# Control flags
-	var is_losing_control: bool = false
 	var has_hit_ground:    bool = false
 	var crash_processed:    bool = false
 
@@ -433,7 +432,6 @@ class AvatarData:
 		is_flipping      = false
 		flip_progress    = 0.0
 		flip_direction   = 0
-		is_losing_control     = false
 		has_hit_ground    = false
 		ammo  = MAX_AMMO
 		fuel  = 100.0
@@ -1080,6 +1078,16 @@ func _update_flight_state(avatar: AvatarData, gc: GroundContact, stalled: bool) 
 			avatar.flight_state = FlightState.LANDED
 			if flight_fsm and flight_fsm._active and current_flight_state_name != "Landed":
 				flight_fsm.transition_to(&"landed")
+	elif avatar.flight_state == FlightState.FALLING:
+		if avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
+			if stalled:
+				avatar.flight_state = FlightState.STALLED
+				if flight_fsm and flight_fsm._active and current_flight_state_name != "Stalling":
+					flight_fsm.transition_to(&"stalling")
+			else:
+				avatar.flight_state = FlightState.FLYING
+				if flight_fsm and flight_fsm._active and current_flight_state_name != "Flying":
+					flight_fsm.transition_to(&"flying")
 	elif stalled and avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
 		if avatar.flight_state == FlightState.FLYING or \
 		   avatar.flight_state == FlightState.LANDED:
@@ -1621,8 +1629,10 @@ func take_damage(avatar_or_amount, amount_or_attacker = null, _attacker = null) 
 	avatar.damage.damage_state = avatar.damage.get_damage_state()
 	_refresh_damage_modifiers(avatar)
 
-	if avatar.damage.damage_state == DamageData.DamageState.SEVERE and not avatar.is_losing_control:
-		_start_spinning_out(avatar)
+	if avatar.damage.damage_state == DamageData.DamageState.SEVERE:
+		avatar.flight_state = FlightState.DAMAGED
+		if flight_fsm and flight_fsm._active:
+			flight_fsm.transition_to(&"damaged")
 
 	if avatar.damage.damage_state == DamageData.DamageState.DESTROYED:
 		avatar.flight_state = FlightState.FALLING
@@ -1697,7 +1707,6 @@ func _detach_smoke(avatar: AvatarData) -> void:
 ###############################################################################
 
 func _start_spinning_out(avatar: AvatarData) -> void:
-	avatar.is_losing_control   = true
 	avatar.throttle             = 0.0
 	avatar.throttle_target      = 0.0
 	avatar.flight_state         = FlightState.FALLING
