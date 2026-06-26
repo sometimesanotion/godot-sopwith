@@ -21,6 +21,7 @@ var waiting_for_key: bool = false
 var key_actions: Array[String] = []
 var key_labels_arr: Array[String] = []
 var _last_known_size := Vector2(-1, -1)
+var _music_started := false
 
 func _design_size() -> Vector2:
 	return Vector2(
@@ -154,8 +155,9 @@ func _clear_all() -> void:
 
 func _show_main_menu() -> void:
 	current_mode = Mode.MAIN
-	if SoundManager:
+	if SoundManager and not _music_started:
 		SoundManager.play_music("res://assets/music/title.ogg", 0.2)
+		_music_started = true
 	if control_title:
 		control_title.text = ""
 	if control_content:
