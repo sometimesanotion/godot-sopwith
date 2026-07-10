@@ -1628,15 +1628,22 @@ func take_damage(avatar_or_amount, amount_or_attacker = null, _attacker = null) 
 	else:
 		avatar = get_avatar_data(0)
 		amount = float(avatar_or_amount)
+		_attacker = amount_or_attacker
 
 	if not avatar or avatar.flight_state == FlightState.CRASHED:
 		return
 
 	## Score: if a player caused the damage to a non-player plane, add score.
+	## Scored in raw damage points (100 = a full plane).  Cap the award at the
+	## remaining health so overkill — e.g. a single bomb dealing ~270 raw damage —
+	## can never push a plane's total reward past 100 points.
 	if _attacker and not _attacker is AvatarData and _attacker.is_in_group("player") \
 			and not is_in_group("player"):
 		if GameManager:
-			GameManager.add_score(0, int(amount))
+			var remaining: float = (1.0 - avatar.damage.damage_percent) * 100.0
+			var award: int = int(minf(amount, remaining))
+			if award > 0:
+				GameManager.add_score(0, award)
 
 	avatar.damage.take_damage(amount / 100.0)
 	avatar.damage.damage_state = avatar.damage.get_damage_state()

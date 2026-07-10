@@ -12,6 +12,11 @@ const HOME_BASE := Vector2(6500, 650)
 
 const RUNWAY_START := 6500.0
 const RUNWAY_END := 7100.0
+# Enemy runways are added at (base_x + 50) with length 500, so their midpoint is
+# (base_x + 50) + 250 = base_x + 300.  Planes spawn at the midpoint (not the left
+# edge at base_x + 50) so their collision shape clears the buildings placed just
+# to the left of the runway, which they were otherwise striking on spawn.
+const ENEMY_SPAWN_RUNWAY_OFFSET := 80.0
 
 const PLAYER_SPAWN_X := 6530.0
 const SAFE_ZONE_RADIUS := 1500.0
@@ -362,7 +367,7 @@ func _spawn_enemies_and_targets() -> void:
 		var ground_y := 650.0
 		if terrain and terrain.has_method("get_ground_height_at"):
 			ground_y = terrain.get_ground_height_at(base_x)
-		enemy.position = Vector2(base_x + 50, ground_y - Biplane.GROUND_SURFACE_OFFSET)
+		enemy.position = Vector2(base_x + ENEMY_SPAWN_RUNWAY_OFFSET, ground_y - Biplane.GROUND_SURFACE_OFFSET)
 		enemy.rotation = 0
 		enemy.add_to_group("destructible")
 		if enemy.has_node("EnemyAI"):
@@ -372,7 +377,7 @@ func _spawn_enemies_and_targets() -> void:
 			ai.home_base_x = base_x
 			ai.unlimited_fuel_ammo = is_vs_computer
 		if enemy.has_method("setup_faction_homebase"):
-			enemy.setup_faction_homebase(i, base_x, 200.0, Vector2(base_x + 50, ground_y - Biplane.GROUND_SURFACE_OFFSET), 0.0, enemy_faction_enum)
+			enemy.setup_faction_homebase(i, base_x, 200.0, Vector2(base_x + ENEMY_SPAWN_RUNWAY_OFFSET, ground_y - Biplane.GROUND_SURFACE_OFFSET), 0.0, enemy_faction_enum)
 		if enemy.has_method("get_avatar_data"):
 			var enemy_avatar = enemy.get_avatar_data(0)
 			if enemy.has_method("assign_plane_model") and enemy.has_method("get_default_plane_model"):

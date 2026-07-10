@@ -4,7 +4,10 @@ extends Node2D
 
 @export var fragment_count: int = 4
 @export var debris_damage: float = 10.0
-@export var debris_lifetime: float = 2.0
+@export var debris_lifetime: float = 4.0
+## Mass (kg) of each debris fragment. Lighter fragments impart less kinetic force
+## when they strike planes, reducing dramatic bouncing. Lower = gentler impacts.
+@export var debris_mass: float = 0.05
 
 const DEBRIS_COLORS := [
 	Color(0.04, 0.015, 0.04),
@@ -112,7 +115,7 @@ func _create_fragments_with_color(base_color: Color) -> void:
 		rb.gravity_scale = 1.0
 		rb.linear_damp = 0.5
 		rb.angular_damp = 0.5
-		rb.mass = 0.2
+		rb.mass = debris_mass
 		# rb.inertia = 0.5
 
 		var random_dir := Vector2(randf_range(-1, 1), randf_range(-1, -0.3)).normalized()

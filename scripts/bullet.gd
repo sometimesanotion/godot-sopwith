@@ -59,8 +59,31 @@ func _handle_collision(collision: KinematicCollision2D) -> void:
 			return
 
 		collider.take_damage(damage, _bullet_owner)
+		_award_player_score(collider)
 
 	queue_free()
+
+## Applies score for a player's bullet striking something.  Called after damage
+## is dealt.  Enemy-plane hits are scored (scaled by damage) by Biplane.take_damage
+## itself, so they are not handled here.  Shooting harmless wildlife penalises the
+## player (-10 bird, -50 cow / bird flock).  The wildlife penalties use a
+## per-instance flag so a multi-hit creature (e.g. a cow) is only scored once
+## rather than farmed across many bullets.
+func _award_player_score(collider: Node) -> void:
+	if not GameManager or not _bullet_owner or not _bullet_owner.is_in_group("player"):
+		return
+
+	if collider.is_in_group("bird"):
+		if not collider.get("scored_by_player"):
+			collider.set("scored_by_player", true)
+			GameManager.add_score(0, -10)
+		return
+
+	if collider is Cow or collider.is_in_group("flock"):
+		if not collider.get("scored_by_player"):
+			collider.set("scored_by_player", true)
+			GameManager.add_score(0, -50)
+		return
 
 func assign_owner(owner: Node2D, range_percent: float = 0.5) -> void:
 	_bullet_owner = owner

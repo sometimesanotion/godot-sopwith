@@ -56,11 +56,23 @@ const MIN_ALTITUDE_ABOVE_GROUND      := 80.0
 const DANGER_ALTITUDE_ABOVE_GROUND   := 60.0
 const CRITICAL_ALTITUDE_ABOVE_GROUND := 20.0
 const PULL_UP_ALTITUDE               := 200.0
+# Hard ceiling on cruise altitude.  Set well below Biplane.ENGINE_CUTOFF_ALTITUDE
+# (2000 px) — at ~0.4× — so AI planes can still climb to gather potential energy
+# but never reach the altitude where their engine cuts out (or even the 1800 px
+# thrust-taper band).  Previously 1600 px let them coast up to ~2000 px, stall,
+# and die.  MAX_ALTITUDE_FRACTION keeps this automatically below the cutoff.
+const MAX_ALTITUDE_FRACTION          := 0.4
 const MAX_ALTITUDE                   := 1600.0
+# Fraction of Biplane.ENGINE_CUTOFF_ALTITUDE above which the AI treats the engine
+# as about to quit and forces the nose down (independent hard safety, holds even
+# if some other logic commands a high climb).
+const ENGINE_CUTOFF_AVOID_FRACTION   := 0.8
+# Seconds-to-impact below which a descent is treated as an imminent crash.
+const PULL_UP_TIME_TO_GROUND         := 1.2
 
 # Detection / engagement geometry
-const DETECTION_RANGE       := 9000.0
-const ENGAGEMENT_RANGE      := 2000.0
+const DETECTION_RANGE       := 30000.0
+const ENGAGEMENT_RANGE      := 4000.0
 const MAX_FIRE_RANGE        := 600.0
 const MIN_FIRE_RANGE        := 30.0
 const FIRE_CONE_ANGLE       := 0.3
@@ -72,6 +84,20 @@ const HOME_PROXIMITY        := 100.0
 # Energy-state thresholds
 const ENERGY_ALTITUDE_ADVANTAGE := 120.0   # px altitude edge to press a dive
 const ENERGY_SPEED_RATIO_GOOD   := 1.4     # speed / stall_speed for healthy energy
+
+# Stall-avoidance / energy management
+# While pulling the nose up, the AI refuses to stall: below STALL_AVOID_SPEED_RATIO
+# it noses down to rebuild airspeed instead of attempting a dramatic pull-up.
+const STALL_AVOID_SPEED_RATIO   := 1.35    # speed / stall_speed below which it won't climb
+const STALL_RECOVERY_PITCH      := 0.4     # nose-down command used to regain speed
+# Minimum altitude (px, ~800 m) the plane must be above before the stall reflex is
+# allowed to dive (positive pitch) to gain speed.  Below this it may only level
+# out the climb — never push the nose down, to avoid diving into the ground.
+const STALL_DIVE_MIN_ALTITUDE   := 800.0
+# Sharp combat pull-ups (hard climbs/turns) are only permitted once the AI has at
+# least COMBAT_ENERGY_MARGIN above stall in reserve; below it the pull-up is
+# progressively softened toward level so the plane keeps building speed first.
+const COMBAT_ENERGY_MARGIN      := 1.6     # speed / stall_speed required for hard maneuvers
 
 # Patrol
 const ALTITUDE_OSCILLATION_SPEED := 1.5
@@ -793,6 +819,10 @@ func _apply_reflexes(pitch: float, throttle: float) -> Array:
 	if ceil_fix != 0.0:
 		pitch = maxf(pitch, ceil_fix)
 
+	var cutoff_fix = _engine_cutoff_avoid_reflex()
+	if cutoff_fix != 0.0:
+		pitch = maxf(pitch, cutoff_fix)
+
 	var terrain_fix = _terrain_projection_reflex()
 	if terrain_fix != 0.0:
 		pitch = minf(pitch, terrain_fix)
@@ -800,6 +830,55 @@ func _apply_reflexes(pitch: float, throttle: float) -> Array:
 	var pullup_fix = _pull_up_reflex()
 	if pullup_fix != 0.0:
 		pitch = pullup_fix
+
+	var energy = _energy_stall_reflex(pitch, throttle)
+	pitch = energy[0]
+	throttle = energy[1]
+
+	return [pitch, throttle]
+
+## Stall-avoidance / energy management.  When the AI wants to pull the nose up
+## (negative pitch = climb in this convention) while close to stall speed, it
+## instead noses down to rebuild airspeed rather than attempting a dramatic
+## low-speed pull-up that would stall it out.  Sharp combat climb commands are
+## also gated behind an energy margin: below COMBAT_ENERGY_MARGIN the pull-up is
+## progressively softened toward level so the plane keeps accelerating first.
+func _energy_stall_reflex(pitch: float, throttle: float) -> Array:
+	var avatar = _get_avatar()
+	if not avatar or not biplane:
+		return [pitch, throttle]
+	if _is_grounded() \
+			or avatar.flight_state == biplane.FlightState.CRASHED \
+			or avatar.flight_state == biplane.FlightState.FALLING:
+		return [pitch, throttle]
+
+	var stall_speed: float = avatar.stall_speed_ms if avatar.stall_speed_ms else 21.4
+	var ppm: float = biplane.get("pixels_per_meter") if "pixels_per_meter" in biplane else 10.0
+	var speed_ms: float = biplane.velocity.length() / ppm
+	var speed_ratio: float = speed_ms / maxf(stall_speed, 1.0)
+
+	# Wants to pull the nose up (climb) — the input that risks a low-speed stall.
+	var wants_climb := pitch < -0.05
+
+	# 1) Near-stall: never pull up.  Only ever reduce the climb — level the nose
+	#    out at most.  A dive (nose-down) is only permitted when the plane is
+	#    above STALL_DIVE_MIN_ALTITUDE, where it has height to trade for speed.
+	if wants_climb and speed_ratio < STALL_AVOID_SPEED_RATIO:
+		throttle = 1.0
+		if _get_altitude_above_ground() > STALL_DIVE_MIN_ALTITUDE:
+			pitch = STALL_RECOVERY_PITCH   # dive to rebuild speed
+		else:
+			pitch = 0.0                    # level out only — never dive
+
+	# 2) Combat energy gate: hard pull-ups require an energy margin. Below the
+	#    margin, scale the climb command down toward level as energy drops so the
+	#    plane keeps building speed instead of bleeding it in a sharp maneuver.
+	#    This only ever reduces the climb toward level — it never dives.
+	elif wants_climb and speed_ratio < COMBAT_ENERGY_MARGIN:
+		var margin_t := clampf(
+			(speed_ratio - STALL_AVOID_SPEED_RATIO) /
+			(COMBAT_ENERGY_MARGIN - STALL_AVOID_SPEED_RATIO), 0.0, 1.0)
+		pitch = lerpf(0.0, pitch, margin_t)
 
 	return [pitch, throttle]
 
@@ -825,10 +904,25 @@ func _altitude_ceiling_reflex() -> float:
 		return 0.0
 	var alt = _get_altitude_above_ground()
 	if alt > MAX_ALTITUDE:
-		return 0.5
-	elif alt > MAX_ALTITUDE - 50.0:
-		return 0.2
+		return 0.7
+	elif alt > MAX_ALTITUDE - 150.0:
+		return 0.35
 	return 0.0
+
+## Hard safety against the engine-cutoff altitude.  Biplane.ENGINE_CUTOFF_ALTITUDE
+## is where the engine quits (thrust already tapers from ~1800 px).  If the plane
+## climbs within ENGINE_CUTOFF_AVOID_FRACTION of that altitude, force the nose
+## down proportionally so it never reaches the dead zone where it would stall.
+func _engine_cutoff_avoid_reflex() -> float:
+	if not biplane:
+		return 0.0
+	var cutoff: float = Biplane.ENGINE_CUTOFF_ALTITUDE
+	var threshold := cutoff * ENGINE_CUTOFF_AVOID_FRACTION
+	var alt := _get_altitude_above_ground()
+	if alt < threshold:
+		return 0.0
+	var urgency := clampf((alt - threshold) / maxf(cutoff - threshold, 1.0), 0.0, 1.0)
+	return lerpf(0.3, 0.7, urgency)   # positive = nose down
 
 func _terrain_projection_reflex() -> float:
 	if not biplane:

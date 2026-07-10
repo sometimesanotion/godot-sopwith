@@ -39,14 +39,6 @@ func take_damage(amount: float, attacker: Node = null) -> void:
 		_do_destroy(attacker)
 
 func _do_destroy(attacker: Node = null) -> void:
-	if GameManager and attacker:
-		var bullet_owner: Node = null
-		if attacker.has_method("get_bullet_owner"):
-			bullet_owner = attacker.get_bullet_owner()
-		elif attacker.has_method("get_bomb_owner"):
-			bullet_owner = attacker.get_bomb_owner()
-		if bullet_owner and bullet_owner.has_method("is_player_plane"):
-			GameManager.add_score(0, -100)
 	queue_free()
 
 func _get_player_id_from_biplane(biplane: Node) -> int:
