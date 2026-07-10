@@ -1026,11 +1026,14 @@ func _enable_autopilot_for_landing() -> void:
 	if biplane.has_method("enable_autopilot"):
 		biplane.enable_autopilot()
 	var ground_y = _get_ground_height(home_base_x)
-	if biplane.has_method("setup_homebase"):
-		biplane.setup_homebase(1, home_base_x, 200.0, Vector2(home_base_x, ground_y - 12), 0.0)
-	if biplane.has_method("set_home_base") and biplane.has_method("get_avatar_data"):
-		var avatar = biplane.get_avatar_data(1)
+	if biplane.has_method("setup_faction_homebase") and biplane.has_method("get_avatar_data"):
+		var avatar = biplane.get_avatar_data(0)
 		if avatar:
+			# Use setup_faction_homebase (not setup_homebase): the latter leaves the
+			# base at the default Faction.BRITISH, so a later respawn would re-apply
+			# the wrong model (e.g. a Sopwith instead of a Fokker) while keeping the
+			# enemy's AI/faction data.  Preserve this plane's own faction on the base.
+			biplane.setup_faction_homebase(1, home_base_x, 200.0, Vector2(home_base_x, ground_y - 12), 0.0, avatar.faction)
 			biplane.set_home_base(avatar, 1)
 
 # ---------------------------------------------------------------------------

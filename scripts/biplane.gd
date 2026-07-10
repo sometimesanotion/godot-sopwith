@@ -872,7 +872,7 @@ func _physics_process(delta: float) -> void:
 		if avatar.flight_state == FlightState.CRASHED:
 			continue
 		if avatar.flight_state == FlightState.FALLING:
-			avatar.velocity.y += gravity * pixels_per_meter * delta
+			velocity.y += gravity * pixels_per_meter * delta
 			_check_obstacle_collision(avatar)
 			continue
 
@@ -1714,6 +1714,9 @@ func _start_spinning_out(avatar: AvatarData) -> void:
 		flight_fsm.transition_to(&"falling")
 
 func _on_avatar_crashed(avatar: AvatarData) -> void:
+	## Stop any barrel-roll tween the moment we crash so it cannot corrupt the
+	## respawned plane's inverted/visual state after the crash delay.
+	_kill_flip_tween()
 	if _crash_processed.has(avatar.id):
 		return
 	else:
@@ -1888,7 +1891,16 @@ func apply_homebase_model(avatar: AvatarData) -> void:
 # RESET & RESPAWN
 ###############################################################################
 
+func _kill_flip_tween() -> void:
+	if _flip_tween and _flip_tween.is_valid():
+		_flip_tween.kill()
+	_flip_tween = null
+
 func reset_flight_state(avatar_id: int = 0) -> void:
+	## Any in-flight barrel-roll tween must be stopped before reset(), otherwise
+	## its finished/cancelled callbacks fire after respawn and re-write
+	## avatar.is_inverted / visual.scale.y, leaving the plane rotated off-axis.
+	_kill_flip_tween()
 	var avatar := get_avatar_data(avatar_id)
 	if avatar:
 		avatar.reset()
