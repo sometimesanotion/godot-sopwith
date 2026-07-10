@@ -35,6 +35,9 @@ var enemies: Array = []
 var minimap_instance: Control = null
 var is_vs_computer: bool = false
 var _showing_title_screen: bool = false
+## Set once per life so the ground-impact re-signal (biplane respawn timer
+## shortening) does not spawn a second player explosion/sfx.
+var _player_crashed_exploded: bool = false
 
 func _get_plane_model_for_faction(faction: String) -> String:
 	match faction:
@@ -545,12 +548,13 @@ func _physics_process(delta: float) -> void:
 		_update_minimap()
 
 func _on_biplane_crashed(is_midair: bool = false) -> void:
-	if biplane and biplane.has_method("create_explosion"):
+	if not _player_crashed_exploded and biplane and biplane.has_method("create_explosion"):
 		biplane.create_explosion(is_midair)
 		GameManager.request_screen_shake(25.0)
-	if SoundManager:
+	if not _player_crashed_exploded and SoundManager:
 		SoundManager.stop_engine()
 		SoundManager.play_sfx(SoundManager.SoundEvent.EXPLOSION)
+	_player_crashed_exploded = true
 	var delay := RespawnManager.MAX_RESPAWN_DELAY if is_midair else RespawnManager.RESPAWN_DELAY
 	RespawnManager.queue_respawn(0, delay)
 
@@ -574,6 +578,7 @@ func _respawn_biplane(avatar_id: int = 0) -> void:
 		return
 
 	var success := biplane.respawn(avatar_id, camera if avatar_id == 0 else null)
+	_player_crashed_exploded = false
 	if not success and avatar_id == 0:
 		_show_game_over()
 

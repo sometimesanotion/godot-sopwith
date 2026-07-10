@@ -459,6 +459,10 @@ var _avatars: Dictionary[int, AvatarData] = {}
 ## Prevents the crash signal from firing more than once per entity.
 var _crash_processed: Dictionary = {}
 
+## Tracks planes destroyed in mid-air so we can shorten the respawn timer to the
+## standard 2s ground-crash delay once the wreck actually reaches the ground.
+var _midair_crash_pending: Dictionary = {}
+
 ###############################################################################
 # DAMAGE MODIFIERS
 ## Called whenever damage_percent changes. Updates the cached modifier fields
@@ -1148,6 +1152,15 @@ func _integrate_crash_forces(state: PhysicsDirectBodyState2D, avatar: AvatarData
 	state.set_linear_velocity(current_vel)
 	state.set_angular_velocity(ang_vel)
 
+	# If this wreck was destroyed in mid-air, shorten the respawn timer to the
+	# standard 2s ground-crash delay the moment it actually contacts a surface
+	# (terrain OR any obstacle).  Relying on terrain ground-contact or the
+	# GroundRay cast alone misses wrecks that come to rest on buildings/obstacles.
+	var gc := _get_ground_contact(avatar)
+	if _midair_crash_pending.get(avatar.id, false) and (gc.is_grounded or state.get_contact_count() > 0):
+		_midair_crash_pending[avatar.id] = false
+		crashed.emit(false)
+
 	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
 	if ground_ray and ground_ray.is_colliding():
 		state.set_linear_velocity(Vector2.ZERO)
@@ -1717,7 +1730,18 @@ func _on_avatar_crashed(avatar: AvatarData) -> void:
 	## Stop any barrel-roll tween the moment we crash so it cannot corrupt the
 	## respawned plane's inverted/visual state after the crash delay.
 	_kill_flip_tween()
+
+	var gc := _get_ground_contact(avatar)
+	var is_midair := not gc.is_grounded and avatar.flight_state != FlightState.LANDED
+
 	if _crash_processed.has(avatar.id):
+		# Initial crash already handled. If this wreck was destroyed in the air,
+		# re-signal the ground impact exactly once so the respawn timer drops from
+		# the long mid-air delay to the standard 2s ground-crash delay (a lower
+		# delay overrides in RespawnManager).
+		if _midair_crash_pending.get(avatar.id, false) and not is_midair:
+			_midair_crash_pending[avatar.id] = false
+			crashed.emit(false)
 		return
 	else:
 		DLog.crash_guard(avatar.id, "_crash_processed", {
@@ -1729,8 +1753,8 @@ func _on_avatar_crashed(avatar: AvatarData) -> void:
 		})
 
 	_crash_processed[avatar.id] = true
-	var gc := _get_ground_contact(avatar)
-	var is_midair := not gc.is_grounded and avatar.flight_state != FlightState.LANDED
+	if is_midair:
+		_midair_crash_pending[avatar.id] = true
 	avatar.flight_state          = FlightState.CRASHED
 	avatar.damage.damage_state   = DamageData.DamageState.DESTROYED
 	avatar.is_airborne           = false
@@ -1905,6 +1929,7 @@ func reset_flight_state(avatar_id: int = 0) -> void:
 	if avatar:
 		avatar.reset()
 		_crash_processed.erase(avatar_id)
+		_midair_crash_pending.erase(avatar_id)
 		_update_ground_ray(avatar)
 		if is_player_controlled and SoundManager:
 			SoundManager.start_engine()

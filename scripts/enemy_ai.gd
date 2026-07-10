@@ -184,6 +184,10 @@ var pilots: Array[AIData] = [AIData.new()]
 
 var _respawn_id: int = -1
 
+## Set once per life so the ground-impact re-signal (see biplane.gd respawn
+## timer shortening) does not spawn a second explosion.
+var _crashed_exploded: bool = false
+
 # ---------------------------------------------------------------------------
 # LIFECYCLE
 # ---------------------------------------------------------------------------
@@ -1041,8 +1045,9 @@ func _enable_autopilot_for_landing() -> void:
 # ---------------------------------------------------------------------------
 
 func _on_enemy_crashed(is_midair: bool = false) -> void:
-	if biplane and biplane.has_method("create_explosion"):
+	if not _crashed_exploded and biplane and biplane.has_method("create_explosion"):
 		biplane.create_explosion(is_midair)
+		_crashed_exploded = true
 	if RespawnManager:
 		var delay := RespawnManager.MAX_RESPAWN_DELAY if is_midair else RespawnManager.RESPAWN_DELAY
 		RespawnManager.queue_respawn(_respawn_id, delay)
@@ -1057,6 +1062,7 @@ func _do_respawn() -> void:
 
 	# Reset all per-pilot mutable state so nothing leaks across lives.
 	pilots[0] = AIData.new()
+	_crashed_exploded = false
 
 	if biplane.has_method("respawn"):
 		biplane.respawn(0)
