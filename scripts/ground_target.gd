@@ -232,10 +232,21 @@ func _on_ground_damage_state_changed(_from: DamageData.DamageState, _to: DamageD
 	if EffectManager:
 		EffectManager.spawn_damage_effects(pos, damage.damage_state, damage.damage_percent)
 
+func _polygon_centroid(points: PackedVector2Array) -> Vector2:
+	if points.is_empty():
+		return Vector2.ZERO
+	var sum := Vector2.ZERO
+	for pt in points:
+		sum += pt
+	return sum / float(points.size())
+
 func _destroy(attacker: Node) -> void:
 	is_destroyed = true
 
-	var pos := global_position
+	# Anchor the blast at the building's true center (polygon centroid in world
+	# space), not the node origin — for non-symmetric shapes the origin can sit
+	# well off-center, which made debris appear to rain in from elsewhere.
+	var pos := global_position + _polygon_centroid(polygon_points)
 	var debris_color := get_dominant_color()
 
 	if EffectManager:

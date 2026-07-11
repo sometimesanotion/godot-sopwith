@@ -145,7 +145,7 @@ func spawn_explosion_style(pos: Vector2, energy: float, style: ExplosionStyle, d
 	match style:
 		ExplosionStyle.FUEL_DEPOT:
 			for i in range(5):
-				spawn_explosion(pos + Vector2(randf_range(-30, 30), randf_range(-40, 10)), energy * 0.3)
+				spawn_explosion(pos + Vector2(randf_range(-12, 12), randf_range(-15, 2)), energy * 0.3)
 			for i in range(5):
 				var fire := _spawn_fuel_depot_fire(pos, fire_preset)
 				if fire:

@@ -3,7 +3,7 @@ extends Node2D
 ## Spawns on crash/destroy events. Debris fragments collide and can damage other objects.
 
 @export var fragment_count: int = 4
-@export var debris_damage: float = 10.0
+@export var debris_damage: float = 5.0
 @export var debris_lifetime: float = 4.0
 ## Mass (kg) of each debris fragment. Lighter fragments impart less kinetic force
 ## when they strike planes, reducing dramatic bouncing. Lower = gentler impacts.
@@ -95,12 +95,12 @@ func _create_fragments_with_color(base_color: Color) -> void:
 		rb.max_contacts_reported = 2
 
 		var points := PackedVector2Array()
-		var num_points := randi_range(3, 5)
+		var num_points := randi_range(3, 6)
 		var angle_step := TAU / num_points
 		var start_angle := randf() * TAU
 		for j in range(num_points):
 			var angle := start_angle + j * angle_step
-			var dist := randf_range(2, 8)
+			var dist := randf_range(1, 4)
 			points.append(Vector2(cos(angle), sin(angle)) * dist)
 
 		var collision := CollisionPolygon2D.new()

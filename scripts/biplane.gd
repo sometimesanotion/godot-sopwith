@@ -1845,13 +1845,19 @@ func _update_ground_ray(avatar: AvatarData) -> void:
 
 func create_explosion(is_midair: bool = false) -> void:
 	var pos := global_position
+	if not is_midair:
+		# Ground crash: keep the blast at the terrain surface so it reads like
+		# an air kill instead of spawning buried under the wreck's collision shape.
+		var surface_y := _ground_y(pos.x) - GROUND_SURFACE_OFFSET
+		pos.y = min(pos.y, surface_y)
 	var debris_color := get_dominant_color()
 	if EffectManager:
-		if is_midair:
-			EffectManager.spawn_explosion(pos, 100.0)
-			EffectManager.spawn_explosion_debris(pos, 100.0, 4, debris_color, get_plane_polygon())
-		else:
-			EffectManager.spawn_crash_effects(pos, 100.0, 4, debris_color, get_plane_polygon())
+		# Identical blast + debris for every destruction so air kills and ground
+		# crashes look consistent; grounded wrecks additionally get a lingering fire.
+		EffectManager.spawn_explosion(pos, 100.0)
+		EffectManager.spawn_explosion_debris(pos, 100.0, 4, debris_color, get_plane_polygon())
+		if not is_midair:
+			EffectManager.spawn_open_fire_with_smoke(pos, 6.0, 30, 20)
 
 func get_plane_polygon() -> PackedVector2Array:
 	var model_params = get_primary_entity().model_params
