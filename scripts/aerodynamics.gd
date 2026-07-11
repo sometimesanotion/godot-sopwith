@@ -57,37 +57,16 @@ const THROTTLE_STEP: float            = 0.15
 const ENGINE_EFFICIENCY_START_ALTITUDE: float = 1800.0
 const ENGINE_CUTOFF_ALTITUDE: float            = 2000.0
 
-## ── Pitch-vs-gravity sign (SINGLE SOURCE OF TRUTH) ───────────────────────
-## The airframe's lift frame and its pitch-axis control both depend on how the
-## nose relates to world-up, not on `is_barrel_rolled` (which is only the AI's visual
-## proxy for flying left).  Increasing `pitch_angle` rotates the nose toward
-## world-up (climb) when the plane faces right, but toward world-DOWN when it
-## faces left — so every consumer of "pitch versus gravity" must read this one
-## function so lift and control stay consistent.
-##   returns +1.0 when increasing pitch_angle pitches the nose toward world-up
-##                 (belly down — normal rightward flight)
-##   returns -1.0 when increasing pitch_angle pitches the nose toward world-down
-##                 (belly up — leftward / inverted flight)
-static func pitch_gravity_sign(pitch_angle: float) -> float:
-		return -1.0 if cos(pitch_angle) < 0.0 else 1.0
-
 ## ── Main calculation ──────────────────────────────────────────────────────
 
 static func calculate_forces(inp: FlightInput) -> FlightOutput:
-		var out := FlightOutput.new()
-		if inp.is_destroyed:
-			_calculate_crash_forces(inp, out)
-			return out
+	var out := FlightOutput.new()
+	if inp.is_destroyed:
+		_calculate_crash_forces(inp, out)
+		return out
 
-		var forward := Vector2(cos(inp.pitch_angle), sin(inp.pitch_angle))
-		var right   := Vector2(forward.y, -forward.x)
-		# Lift points toward the cockpit side.  When the airframe is belly-up
-		# (facing left), the cockpit points at the ground, so the lift vector
-		# must be flipped — otherwise a leftward plane can only pull lift toward
-		# the earth and inevitably dives in.  Driven by pitch_gravity_sign(), the
-		# single source of truth shared with the AI pitch control.
-		if pitch_gravity_sign(inp.pitch_angle) < 0.0:
-			right = -right
+	var forward := Vector2(cos(inp.pitch_angle), sin(inp.pitch_angle))
+	var right   := Vector2(forward.y, -forward.x)
 	var vel_si  := inp.velocity / inp.pixels_per_meter
 	var speed_si := vel_si.length()
 

@@ -652,7 +652,10 @@ func _draw() -> void:
 
 	for avatar_id in _avatars:
 		var avatar: AvatarData = _avatars[avatar_id]
-		_draw_debug_lines(avatar)
+		if is_player_controlled:
+			_draw_debug_lines(avatar)
+		else:
+			_draw_ai_debug_lines(avatar)
 
 func _draw_debug_lines(avatar: AvatarData) -> void:
 	const MAX_LEN := 200.0
@@ -713,6 +716,76 @@ func _draw_debug_lines(avatar: AvatarData) -> void:
 	# if ground_ray and ground_ray.is_colliding():
 	# 	var hit_local := to_local(ground_ray.get_collision_point())
 	# 	draw_line(Vector2.ZERO, hit_local, Color(0.0, 1.0, 1.0, ALPHA * 0.6), 1.0)
+
+func _find_enemy_ai_for_avatar(_avatar: AvatarData) -> Node:
+	if has_node("EnemyAI"):
+		return get_node("EnemyAI")
+	return null
+
+func _draw_ai_debug_lines(avatar: AvatarData) -> void:
+	const MAX_LEN := 200.0
+	const ALPHA := 0.6
+	const AI_STATE_COLORS := {
+		0: Color(0.5, 0.5, 0.5, ALPHA),   # GROUNDED — grey
+		1: Color(1.0, 1.0, 0.0, ALPHA),   # TAKING_OFF — yellow
+		2: Color(0.0, 0.8, 1.0, ALPHA),   # PATROLLING — cyan
+		3: Color(1.0, 0.2, 0.2, ALPHA),   # ENGAGING — red
+		4: Color(1.0, 0.5, 0.0, ALPHA),   # EVADING — orange
+		5: Color(0.3, 0.7, 1.0, ALPHA),   # RETURNING — light blue
+	}
+
+	var ai_node := _find_enemy_ai_for_avatar(avatar)
+	if not ai_node:
+		return
+
+	var pilot = ai_node.pilots[0] if ai_node.pilots.size() > 0 else null
+	if not pilot:
+		return
+
+	# --- Desired heading line (purple) ---
+	var heading_rad: float = pilot.desired_heading as float
+	var heading_dir := Vector2(cos(heading_rad), sin(heading_rad))
+	var heading_local := to_local(global_position + heading_dir * MAX_LEN)
+	draw_line(Vector2.ZERO, heading_local, Color(0.7, 0.2, 1.0, ALPHA), 2.0)
+
+	# --- Pitch input indicator (magenta, shorter) ---
+	var pitch_input: float = pilot.last_pitch_input as float
+	var pitch_len := absf(pitch_input) * MAX_LEN * 0.6
+	if pitch_len > 5.0:
+		# Pitch input is relative to the plane's forward axis.
+		# Positive pitch = nose down (rotate CW), negative = nose up (rotate CCW).
+		var pitch_angle: float = pitch_input * 0.5  # scale for visibility
+		var pitch_dir := heading_dir.rotated(pitch_angle)
+		var pitch_local := to_local(global_position + pitch_dir * pitch_len)
+		draw_line(Vector2.ZERO, pitch_local, Color(1.0, 0.0, 1.0, ALPHA * 0.8), 1.5)
+
+	# --- Throttle bar (horizontal, below the plane) ---
+	var bar_width := 60.0
+	var bar_y := 35.0
+	var bar_bg_start := Vector2(-bar_width * 0.5, bar_y)
+	var bar_bg_end := Vector2(bar_width * 0.5, bar_y)
+	draw_line(bar_bg_start, bar_bg_end, Color(0.3, 0.3, 0.3, ALPHA * 0.5), 3.0)
+	var throttle: float = pilot.last_throttle as float
+	var fill_width := bar_width * clampf(throttle, 0.0, 1.0)
+	var bar_fill_end := Vector2(-bar_width * 0.5 + fill_width, bar_y)
+	var thr_color := Color(0.0, 1.0, 0.3, ALPHA) if throttle > 0.5 else Color(1.0, 0.8, 0.0, ALPHA)
+	draw_line(bar_bg_start, bar_fill_end, thr_color, 3.0)
+
+	# --- Target line (red, to tracked target) ---
+	var target_node = ai_node.target if "target" in ai_node else null
+	if target_node and is_instance_valid(target_node):
+		var tgt_local := to_local(target_node.global_position)
+		draw_line(Vector2.ZERO, tgt_local, Color(1.0, 0.15, 0.15, ALPHA * 0.4), 1.0)
+		# Small diamond at target position
+		var d := 5.0
+		var diamond := PackedVector2Array([
+			tgt_local + Vector2(0, -d),
+			tgt_local + Vector2(d, 0),
+			tgt_local + Vector2(0, d),
+			tgt_local + Vector2(-d, 0),
+			tgt_local + Vector2(0, -d),
+		])
+		draw_polyline(diamond, Color(1.0, 0.15, 0.15, ALPHA * 0.6), 1.5)
 
 func _draw_debug_info(avatar: AvatarData) -> void:
 	var font = Control.new().get_font("font")
