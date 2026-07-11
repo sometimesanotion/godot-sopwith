@@ -307,6 +307,10 @@ func _start_playing() -> void:
 		if biplane.crashed.is_connected(_on_biplane_crashed):
 			biplane.crashed.disconnect(_on_biplane_crashed)
 		biplane.crashed.connect(_on_biplane_crashed)
+	if biplane.has_signal("crashed_landed"):
+		if biplane.crashed_landed.is_connected(_on_biplane_landed):
+			biplane.crashed_landed.disconnect(_on_biplane_landed)
+		biplane.crashed_landed.connect(_on_biplane_landed)
 	if biplane.has_signal("damaged"):
 		if biplane.damaged.is_connected(_on_biplane_damaged):
 			biplane.damaged.disconnect(_on_biplane_damaged)
@@ -560,8 +564,10 @@ func _on_biplane_crashed(is_midair: bool = false) -> void:
 		SoundManager.stop_engine()
 		SoundManager.play_sfx(SoundManager.SoundEvent.EXPLOSION)
 	_player_crashed_exploded = true
-	var delay := RespawnManager.MAX_RESPAWN_DELAY if is_midair else RespawnManager.RESPAWN_DELAY
-	RespawnManager.queue_respawn(0, delay)
+
+func _on_biplane_landed(avatar_id: int) -> void:
+	## The wreck has hit the ground — schedule the fixed 2s respawn.
+	RespawnManager.queue_respawn(0, RespawnManager.RESPAWN_DELAY)
 
 func _on_biplane_damaged(impact_force: float, v_perp: float) -> void:
 	GameManager.request_screen_shake(10.0)

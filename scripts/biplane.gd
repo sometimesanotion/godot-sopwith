@@ -247,6 +247,17 @@ const GROUND_SURFACE_OFFSET := 0.0
 ## Grounded detection tolerance (px). Absorbs one-frame integration overshoot.
 const GROUND_TOLERANCE := 2.0
 
+## World-space ground proximity (px) used to decide a wreck is "on the ground"
+## for respawn.  Generous enough to cover any resting orientation (upright,
+## tilted, or tumbled upside-down), since it ignores the plane's rotation
+## entirely — unlike the GroundRay, which points along the body's local axis.
+const GROUND_REST_MARGIN := 50.0
+
+## A destroyed plane's wreck must be at rest (speed below this, px/s) on the
+## ground before its 2s respawn timer starts — avoids scheduling the respawn
+## while the wreck is still skidding/rolling.
+const RESPAWN_GROUND_SPEED := 5.0
+
 const THROTTLE_REPEAT_DELAY := 0.1
 const THROTTLE_RAMP_SPEED   := 5.0
 
@@ -459,9 +470,10 @@ var _avatars: Dictionary[int, AvatarData] = {}
 ## Prevents the crash signal from firing more than once per entity.
 var _crash_processed: Dictionary = {}
 
-## Tracks planes destroyed in mid-air so we can shorten the respawn timer to the
-## standard 2s ground-crash delay once the wreck actually reaches the ground.
-var _midair_crash_pending: Dictionary = {}
+## Set once the wreck of a destroyed plane has reached the ground, so the
+## respawn timer is queued exactly once (2s later) regardless of how the plane
+## was destroyed.  Reset on respawn.
+var _respawn_queued: Dictionary = {}
 
 ###############################################################################
 # DAMAGE MODIFIERS
@@ -487,6 +499,7 @@ func _refresh_damage_modifiers(avatar: AvatarData) -> void:
 signal fired_bullet(position: Vector2, direction: Vector2, speed: float, owner: Node, range_percent: float)
 signal dropped_bomb(position: Vector2, velocity: Vector2, owner: Node)
 signal crashed(is_midair: bool)
+signal crashed_landed(avatar_id: int)
 signal damaged(impact_force: float, v_perp: float)
 
 ###############################################################################
@@ -1142,6 +1155,31 @@ func _process_landing_impact(avatar: AvatarData, v_perp: float,
 
 func _integrate_crash_forces(state: PhysicsDirectBodyState2D, avatar: AvatarData, step: float) -> void:
 	var current_vel := state.get_linear_velocity()
+	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
+	var gc := _get_ground_contact(avatar)
+
+	# Respawn scheduling — runs every crash frame, BEFORE the at-rest early
+	# return below.  The moment the destroyed wreck is on the ground (terrain OR
+	# obstacle, via the downward GroundRay masked to layer 1) AND at rest (speed
+	# < RESPAWN_GROUND_SPEED), queue a single 2s respawn timer.  Mid-air
+	# destruction never schedules a respawn, and a wreck still skidding waits
+	# until it stops.  This must run before the early return so a fully-stopped
+	# wreck is still scheduled (otherwise it returns at the top and never fires).
+	# A wreck counts as "on the ground" in world space: its body center is within
+	# GROUND_REST_MARGIN of the terrain surface (covers any resting orientation —
+	# upright, tilted, or tumbled upside-down — since this ignores the plane's
+	# rotation entirely), OR it latched has_hit_ground on first contact.  This is
+	# deliberately orientation-independent: the GroundRay points along the body's
+	# local axis and is unreliable once the wreck tumbles, and is_inverted only
+	# tracks the 180° barrel-roll state, not physical orientation vs gravity.
+	var terrain_y := gc.ground_y - GROUND_SURFACE_OFFSET
+	var near_terrain := global_position.y >= terrain_y - GROUND_REST_MARGIN
+	var resting_on_ground := avatar.has_hit_ground or near_terrain
+	var at_rest := current_vel.length() < RESPAWN_GROUND_SPEED
+	if not _respawn_queued.has(avatar.id) and resting_on_ground and at_rest:
+		_respawn_queued[avatar.id] = true
+		crashed_landed.emit(avatar.id)
+
 	if current_vel == Vector2.ZERO and avatar.has_hit_ground:
 		state.set_linear_velocity(Vector2.ZERO)
 		state.set_angular_velocity(0.0)
@@ -1152,16 +1190,6 @@ func _integrate_crash_forces(state: PhysicsDirectBodyState2D, avatar: AvatarData
 	state.set_linear_velocity(current_vel)
 	state.set_angular_velocity(ang_vel)
 
-	# If this wreck was destroyed in mid-air, shorten the respawn timer to the
-	# standard 2s ground-crash delay the moment it actually contacts a surface
-	# (terrain OR any obstacle).  Relying on terrain ground-contact or the
-	# GroundRay cast alone misses wrecks that come to rest on buildings/obstacles.
-	var gc := _get_ground_contact(avatar)
-	if _midair_crash_pending.get(avatar.id, false) and (gc.is_grounded or state.get_contact_count() > 0):
-		_midair_crash_pending[avatar.id] = false
-		crashed.emit(false)
-
-	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
 	if ground_ray and ground_ray.is_colliding():
 		state.set_linear_velocity(Vector2.ZERO)
 		state.set_angular_velocity(0.0)
@@ -1738,30 +1766,18 @@ func _on_avatar_crashed(avatar: AvatarData) -> void:
 	## respawned plane's inverted/visual state after the crash delay.
 	_kill_flip_tween()
 
-	var gc := _get_ground_contact(avatar)
-	var is_midair := not gc.is_grounded and avatar.flight_state != FlightState.LANDED
-
 	if _crash_processed.has(avatar.id):
-		# Initial crash already handled. If this wreck was destroyed in the air,
-		# re-signal the ground impact exactly once so the respawn timer drops from
-		# the long mid-air delay to the standard 2s ground-crash delay (a lower
-		# delay overrides in RespawnManager).
-		if _midair_crash_pending.get(avatar.id, false) and not is_midair:
-			_midair_crash_pending[avatar.id] = false
-			crashed.emit(false)
 		return
-	else:
-		DLog.crash_guard(avatar.id, "_crash_processed", {
-			"px": snapped(global_position.x, 0.1),
-			"py": snapped(global_position.y, 0.1),
-			"vx": snapped(velocity.x, 0.1),
-			"vy": snapped(velocity.y, 0.1),
-			"ground_y": snapped(_ground_y(global_position.x), 0.1),
-		})
+
+	DLog.crash_guard(avatar.id, "_crash_processed", {
+		"px": snapped(global_position.x, 0.1),
+		"py": snapped(global_position.y, 0.1),
+		"vx": snapped(velocity.x, 0.1),
+		"vy": snapped(velocity.y, 0.1),
+		"ground_y": snapped(_ground_y(global_position.x), 0.1),
+	})
 
 	_crash_processed[avatar.id] = true
-	if is_midair:
-		_midair_crash_pending[avatar.id] = true
 	avatar.flight_state          = FlightState.CRASHED
 	avatar.damage.damage_state   = DamageData.DamageState.DESTROYED
 	avatar.is_airborne           = false
@@ -1769,6 +1785,12 @@ func _on_avatar_crashed(avatar: AvatarData) -> void:
 		flight_fsm.transition_to(&"crashed")
 	if GameManager and is_player_controlled:
 		GameManager.destroy_player(avatar.id)
+	## Emit the destruction event for explosion / screen-shake / sfx.  Respawn
+	## timing is decoupled and only starts once the wreck reaches the ground
+	## (see _integrate_crash_forces -> crashed_landed), so a plane destroyed in
+	## mid-air tumbles to the surface before any respawn is scheduled.
+	var gc := _get_ground_contact(avatar)
+	var is_midair := not gc.is_grounded and avatar.flight_state != FlightState.LANDED
 	crashed.emit(is_midair)
 
 ###############################################################################
@@ -1936,7 +1958,7 @@ func reset_flight_state(avatar_id: int = 0) -> void:
 	if avatar:
 		avatar.reset()
 		_crash_processed.erase(avatar_id)
-		_midair_crash_pending.erase(avatar_id)
+		_respawn_queued.erase(avatar_id)
 		_update_ground_ray(avatar)
 		if is_player_controlled and SoundManager:
 			SoundManager.start_engine()

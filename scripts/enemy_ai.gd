@@ -224,6 +224,10 @@ func _ready() -> void:
 	_respawn_id = get_instance_id()
 	if biplane and biplane.has_signal("crashed"):
 		biplane.crashed.connect(_on_enemy_crashed)
+	if biplane and biplane.has_signal("crashed_landed"):
+		if biplane.crashed_landed.is_connected(_on_enemy_landed):
+			biplane.crashed_landed.disconnect(_on_enemy_landed)
+		biplane.crashed_landed.connect(_on_enemy_landed)
 	if RespawnManager:
 		if RespawnManager.respawn_ready.is_connected(_on_enemy_respawn_ready):
 			RespawnManager.respawn_ready.disconnect(_on_enemy_respawn_ready)
@@ -1142,9 +1146,11 @@ func _on_enemy_crashed(is_midair: bool = false) -> void:
 	if not _crashed_exploded and biplane and biplane.has_method("create_explosion"):
 		biplane.create_explosion(is_midair)
 		_crashed_exploded = true
+
+func _on_enemy_landed(avatar_id: int) -> void:
+	## The wreck has hit the ground — queue the fixed 2s respawn.
 	if RespawnManager:
-		var delay := RespawnManager.MAX_RESPAWN_DELAY if is_midair else RespawnManager.RESPAWN_DELAY
-		RespawnManager.queue_respawn(_respawn_id, delay)
+		RespawnManager.queue_respawn(_respawn_id, RespawnManager.RESPAWN_DELAY)
 
 func _on_enemy_respawn_ready(avatar_id: int) -> void:
 	if avatar_id == _respawn_id:
