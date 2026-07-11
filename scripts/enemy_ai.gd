@@ -394,8 +394,10 @@ func _update_state_machine() -> void:
 				pilots[0].ai_state = AIState.ENGAGING
 
 		AIState.PATROLLING:
-			if dist_to_tgt < ENGAGEMENT_RANGE and _is_player_in_territory():
+			if _is_target_alive() and dist_to_tgt < ENGAGEMENT_RANGE and _is_player_in_territory():
 				pilots[0].ai_state = AIState.ENGAGING
+			elif _is_fuel_low():
+				pilots[0].ai_state = AIState.RETURNING
 
 		AIState.ENGAGING:
 			# Release immediately if the target is no longer a viable threat.
@@ -420,7 +422,9 @@ func _update_state_machine() -> void:
 			var alt         = _get_altitude_above_ground()
 			var avdata      = _get_avatar()
 			var is_stalled  = avdata and avdata.flight_state == 1
-			if not is_stalled \
+			if _is_fuel_low():
+				pilots[0].ai_state = AIState.RETURNING
+			elif not is_stalled \
 					and pilots[0].evade_timer <= 0.0 \
 					and alt > MIN_ALTITUDE_ABOVE_GROUND \
 					and pilots[0].incoming_bullet_timer <= 0.0:
@@ -1107,6 +1111,10 @@ func _get_avatar():
 	if biplane and biplane.has_method("get_avatar_data"):
 		return biplane.get_avatar_data(0)
 	return null
+
+func _is_fuel_low() -> bool:
+	var avatar = _get_avatar()
+	return avatar and avatar.fuel < 20.0
 
 # ---------------------------------------------------------------------------
 # INPUT APPLICATION

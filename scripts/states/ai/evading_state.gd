@@ -30,7 +30,9 @@ func update(delta: float) -> void:
 
 	var alt = ai._get_altitude_above_ground()
 	var is_stalled = avatar and avatar.flight_state == 1
-	if not is_stalled and evade_timer <= 0.0 \
+	if ai._is_fuel_low():
+		finished.emit(&"returning")
+	elif not is_stalled and evade_timer <= 0.0 \
 			and alt > ai.MIN_ALTITUDE_ABOVE_GROUND \
 			and ai.pilots[0].incoming_bullet_timer <= 0.0:
 		var prev = ai.pilots[0].previous_state
