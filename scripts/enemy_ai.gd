@@ -1116,7 +1116,7 @@ func _apply_input(pitch: float, throttle_amount: float) -> void:
 	if not biplane.has_method("set_ai_input"):
 		return
 	var avatar = _get_avatar()
-	var effective_pitch = -pitch if (avatar and avatar.is_inverted) else pitch
+	var effective_pitch = -pitch if (avatar and avatar.is_barrel_rolled) else pitch
 	biplane.set_ai_input(effective_pitch, throttle_amount)
 
 # ---------------------------------------------------------------------------
@@ -1206,7 +1206,7 @@ func _check_flip_needed() -> void:
 
 	var x_speed = avatar.stall_speed_ms * 10.0
 	var should_be_inverted = biplane.velocity.x <= -1 * x_speed
-	if should_be_inverted != avatar.is_inverted and abs(biplane.velocity.x) >= x_speed:
+	if should_be_inverted != avatar.is_barrel_rolled and abs(biplane.velocity.x) >= x_speed:
 			biplane.do_flip(avatar)
 
 func take_damage(amount: float, attacker: Node) -> void:

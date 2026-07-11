@@ -387,7 +387,7 @@ class AvatarData:
 	var sputtering_timer:              float = 0.0
 
 	# Flip / roll
-	var is_inverted:    bool  = false
+	var is_barrel_rolled:    bool  = false
 	var is_flipping:    bool  = false
 	var flip_progress:  float = 0.0
 	var flip_direction: int   = 0   ## 1 = upright→inverted, -1 = inverted→upright
@@ -439,7 +439,7 @@ class AvatarData:
 		engine_cutoff    = false
 		engine_restart_hold_time    = 0.0
 		engine_restart_required_time = 0.0
-		is_inverted      = false
+		is_barrel_rolled      = false
 		is_flipping      = false
 		flip_progress    = 0.0
 		flip_direction   = 0
@@ -793,7 +793,7 @@ func _get_ground_contact(avatar: AvatarData) -> GroundContact:
 	gc.ground_normal = Vector2(-sin(gc.slope_angle), -cos(gc.slope_angle))
 
 	## Tilt: how far the plane heading deviates from lying flat on the slope.
-	var inv_offset := PI if avatar.is_inverted else 0.0
+	var inv_offset := PI if avatar.is_barrel_rolled else 0.0
 	var eff_pitch  := avatar.pitch_angle + inv_offset
 	var rel_angle  := fposmod(eff_pitch - gc.slope_angle + PI, TAU) - PI
 	gc.tilt_angle  = abs(rel_angle)
@@ -911,7 +911,7 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 		var avatar := get_avatar_data(0)
 		if avatar:
 			avatar.pitch_angle = _teleport_rotation
-			avatar.is_inverted = absf(_teleport_rotation) > PI / 2.0
+			avatar.is_barrel_rolled = absf(_teleport_rotation) > PI / 2.0
 			rotation = _teleport_rotation
 			DLog.info("teleport", {
 				"pre_angvel": snapped(pre_av, 4),
@@ -1072,7 +1072,7 @@ func _build_flight_input(avatar: AvatarData, state: PhysicsDirectBodyState2D) ->
 	inp.tilt_angle = gc.tilt_angle
 	inp.global_position_y = global_position.y
 	inp.ground_y = gc.ground_y
-	inp.is_inverted = avatar.is_inverted
+	inp.is_barrel_rolled = avatar.is_barrel_rolled
 	inp.engine_cutoff = avatar.engine_cutoff
 	inp.mass_kg = avatar.mass_kg
 	inp.model_params = avatar.model_params
@@ -1170,7 +1170,7 @@ func _integrate_crash_forces(state: PhysicsDirectBodyState2D, avatar: AvatarData
 	# upright, tilted, or tumbled upside-down — since this ignores the plane's
 	# rotation entirely), OR it latched has_hit_ground on first contact.  This is
 	# deliberately orientation-independent: the GroundRay points along the body's
-	# local axis and is unreliable once the wreck tumbles, and is_inverted only
+	# local axis and is unreliable once the wreck tumbles, and is_barrel_rolled only
 	# tracks the 180° barrel-roll state, not physical orientation vs gravity.
 	var terrain_y := gc.ground_y - GROUND_SURFACE_OFFSET
 	var near_terrain := global_position.y >= terrain_y - GROUND_REST_MARGIN
@@ -1259,7 +1259,7 @@ func _handle_input(avatar: AvatarData, delta: float) -> void:
 		pitch_input = -1.0
 	elif Input.is_action_pressed("pull_down"):
 		pitch_input = 1.0
-	if avatar.is_inverted:
+	if avatar.is_barrel_rolled:
 		pitch_input = -pitch_input
 	pitch_input *= avatar.control_effectiveness
 
@@ -1303,7 +1303,7 @@ func set_ai_input(pitch: float, throttle_amount: float) -> void:
 		avatar.throttle_target = clampf(throttle_amount, min_throttle, max_throttle)
 		avatar.throttle = move_toward(avatar.throttle, avatar.throttle_target, 5.0 * dt)
 		var input_pitch: float = pitch * avatar.control_effectiveness
-		if avatar.is_inverted:
+		if avatar.is_barrel_rolled:
 			input_pitch = -input_pitch
 		var model_params = avatar.model_params
 		var eff_rot_speed: float = model_params.get("rotation_speed", 5.0) * (1.0 - avatar.damage.damage_percent * 0.4)
@@ -1337,7 +1337,7 @@ func _start_flip(avatar: AvatarData) -> void:
 		_flip_tween.kill()
 	avatar.is_flipping   = true
 	avatar.flip_progress = 0.0
-	avatar.flip_direction = 1 if not avatar.is_inverted else -1
+	avatar.flip_direction = 1 if not avatar.is_barrel_rolled else -1
 	_flip_tween = create_tween()
 	_flip_tween.set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
 	_flip_tween.tween_method(_update_flip.bind(avatar), 0.0, 1.0, FLIP_DURATION)
@@ -1368,12 +1368,12 @@ func _apply_flip_transform(avatar: AvatarData, t: float) -> void:
 	visual.scale.y     = lerp(start, -start, t)
 	visual.position.y  = -sin(t * PI) * FLIP_ARC_HEIGHT
 	if t >= 0.5:
-		avatar.is_inverted = (avatar.flip_direction == 1)
+		avatar.is_barrel_rolled = (avatar.flip_direction == 1)
 
 func _on_flip_completed(avatar: AvatarData) -> void:
 	avatar.is_flipping   = false
 	avatar.flip_progress = 0.0
-	avatar.is_inverted   = (avatar.flip_direction == 1)
+	avatar.is_barrel_rolled   = (avatar.flip_direction == 1)
 	_update_ground_ray(avatar)
 	_flip_tween = null
 
@@ -1488,7 +1488,7 @@ func fire_gun(avatar: AvatarData) -> void:
 	if GameManager and is_player_controlled:
 		GameManager.ammo_changed.emit(avatar.id, avatar.ammo)
 
-	var inv: bool = avatar.is_inverted
+	var inv: bool = avatar.is_barrel_rolled
 	var model_params = avatar.model_params
 	var base_offset: Vector2 = avatar.bullet_spawn_offset
 	if inv:
@@ -1522,7 +1522,7 @@ func drop_bomb(avatar: AvatarData) -> void:
 	if GameManager and is_player_controlled:
 		GameManager.bombs_changed.emit(avatar.id, avatar.bombs)
 
-	var inv: bool = avatar.is_inverted
+	var inv: bool = avatar.is_barrel_rolled
 	var model_params = avatar.model_params
 	var base_offset: Vector2 = avatar.bomb_spawn_offset
 	if inv:
@@ -1804,7 +1804,7 @@ func reset_visual_transform(avatar: AvatarData = null) -> void:
 	visual.scale    = Vector2.ONE
 	visual.rotation = 0.0
 	visual.position = Vector2.ZERO
-	if avatar and avatar.is_inverted:
+	if avatar and avatar.is_barrel_rolled:
 		visual.scale.y = -1.0
 	if avatar:
 		_update_ground_ray(avatar)
@@ -1841,7 +1841,7 @@ func _update_ground_ray(avatar: AvatarData) -> void:
 	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
 	if ground_ray:
 		var base_offset: float = 26.0
-		ground_ray.target_position = Vector2(0, -base_offset if avatar.is_inverted else base_offset)
+		ground_ray.target_position = Vector2(0, -base_offset if avatar.is_barrel_rolled else base_offset)
 
 func create_explosion(is_midair: bool = false) -> void:
 	var pos := global_position
@@ -1958,7 +1958,7 @@ func _kill_flip_tween() -> void:
 func reset_flight_state(avatar_id: int = 0) -> void:
 	## Any in-flight barrel-roll tween must be stopped before reset(), otherwise
 	## its finished/cancelled callbacks fire after respawn and re-write
-	## avatar.is_inverted / visual.scale.y, leaving the plane rotated off-axis.
+	## avatar.is_barrel_rolled / visual.scale.y, leaving the plane rotated off-axis.
 	_kill_flip_tween()
 	var avatar := get_avatar_data(avatar_id)
 	if avatar:
@@ -1993,7 +1993,7 @@ func force_crash() -> void:
 		_on_avatar_crashed(avatar)
 
 func _perform_teleport_landing(avatar: AvatarData) -> void:
-	avatar.is_inverted = false
+	avatar.is_barrel_rolled = false
 	avatar.is_flipping = false
 	avatar.flip_progress = 0.0
 	avatar.flip_direction = 0
@@ -2072,8 +2072,8 @@ func get_ammo(avatar: AvatarData) -> int:
 func get_bombs(avatar: AvatarData) -> int:
 	return avatar.bombs
 
-func is_inverted(avatar: AvatarData) -> bool:
-	return avatar.is_inverted if avatar else false
+func is_barrel_rolled(avatar: AvatarData) -> bool:
+	return avatar.is_barrel_rolled if avatar else false
 
 func set_player(avatar: AvatarData, p: bool) -> void:
 	if GameManager:
@@ -2110,7 +2110,7 @@ func respawn(avatar_id: int, camera_ref: Camera2D = null) -> bool:
 
 	reset_flight_state(avatar_id)
 
-	avatar.is_inverted = absf(spawn_rot) > PI / 2.0
+	avatar.is_barrel_rolled = absf(spawn_rot) > PI / 2.0
 	avatar.pitch_angle = spawn_rot
 	rotation = spawn_rot
 	apply_homebase_model(avatar)
@@ -2222,7 +2222,7 @@ func _debug_check_ground_forensics(avatar: AvatarData, state: PhysicsDirectBodyS
 			"gc_tilt_deg": snapped(rad_to_deg(gc.tilt_angle), 1.0),
 			"gc_slope_deg": snapped(rad_to_deg(gc.slope_angle), 1.0),
 			"pitch_deg": snapped(rad_to_deg(avatar.pitch_angle), 1.0),
-			"is_inverted": avatar.is_inverted,
+			"is_barrel_rolled": avatar.is_barrel_rolled,
 			"damage_pct": snapped(avatar.damage.damage_percent * 100.0, 1.0),
 		})
 
