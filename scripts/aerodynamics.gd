@@ -78,7 +78,7 @@ static func calculate_forces(inp: FlightInput) -> FlightOutput:
 	if speed_si > 0.5:
 		aoa = forward.angle_to(vel_si.normalized())
 
-	var stall_aoa: float = inp.model_params.get("stall_aoa", 0.244)
+	var stall_aoa: float = deg_to_rad(inp.model_params.get("max_aoa", 16.0))
 	out.is_stalled = (not inp.is_grounded) and (absf(aoa) > stall_aoa or speed_si < inp.stall_speed_ms)
 
 	var max_cl: float = inp.model_params.get("max_lift_coeff", 1.4)
@@ -182,7 +182,7 @@ static func is_stalled(pitch_angle: float, velocity: Vector2, is_grounded: bool,
 		return true
 	var forward := Vector2(cos(pitch_angle), sin(pitch_angle))
 	var aoa := forward.angle_to(vel_si.normalized())
-	var stall_aoa: float = model_params.get("stall_aoa", 0.244)
+	var stall_aoa: float = deg_to_rad(model_params.get("max_aoa", 16.0))
 	return absf(aoa) > stall_aoa or speed_si < stall_speed_ms
 
 ## ── Control effectiveness (standalone) ──────────────────────────────────────

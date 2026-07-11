@@ -215,7 +215,7 @@ static func _get_svg_path_from_params(model_params: Dictionary) -> String:
 
 @export_group("Aerodynamics")
 @export var air_density:         float = 1.225 * arcade_multiplier
-@export var stall_aoa:           float = 0.244
+@export var stall_aoa:           float = deg_to_rad(16.0)
 
 @export_group("Throttle")
 @export var min_throttle: float = 0.0
