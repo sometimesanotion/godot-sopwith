@@ -88,7 +88,7 @@ const ENERGY_SPEED_RATIO_GOOD   := 1.4     # speed / stall_speed for healthy ene
 # Stall-avoidance / energy management
 # While pulling the nose up, the AI refuses to stall: below STALL_AVOID_SPEED_RATIO
 # it noses down to rebuild airspeed instead of attempting a dramatic pull-up.
-const STALL_AVOID_SPEED_RATIO   := 1.35    # speed / stall_speed below which it won't climb
+const STALL_AVOID_SPEED_RATIO   := 1.3    # speed / stall_speed below which it won't climb
 const STALL_RECOVERY_PITCH      := 0.4     # nose-down command used to regain speed
 # Minimum altitude (px, ~800 m) the plane must be above before the stall reflex is
 # allowed to dive (positive pitch) to gain speed.  Below this it may only level
