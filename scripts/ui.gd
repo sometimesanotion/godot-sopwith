@@ -121,7 +121,7 @@ func _process(_delta: float) -> void:
 			var speed := int(avatar.get_avatar_speed(avatar_data))
 			speed_label.text = "SPEED: %d" % speed
 
-			var stall_speed_ms: float = avatar_data.model_params.get("stall_speed_ms", 21.4)
+			var stall_speed_ms: float = avatar_data.model_params.get("stall_speed_ms", 21.4) * Aerodynamics.STALL_SPEED_MARGIN
 			var speed_ms: float = speed / avatar.pixels_per_meter
 			if speed_ms < stall_speed_ms:
 				var pulse := sin(Time.get_ticks_msec() * 0.015)

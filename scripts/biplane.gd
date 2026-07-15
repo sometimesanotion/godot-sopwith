@@ -277,6 +277,13 @@ const ENGINE_CUTOFF_ALTITUDE           := 2000.0
 ## World wrap length in pixels.
 const TERRAIN_LENGTH := 16384.0
 
+## Total speed (px/s) below which a grounded plane is considered LANDED (at
+## rest / taxiing) rather than still flying.  A plane skimming the terrain at
+## speed during a low pass or fast rollout is genuinely airborne, so it must
+## keep FlightState.FLYING — otherwise it gets stuck in LANDED while clearly
+## flying (and the AI then keeps it ENGAGING instead of treating it as landed).
+const LANDING_TAXI_SPEED := 120.0
+
 const BULLET_SCENE := preload("res://scenes/bullet.tscn")
 const BOMB_SCENE   := preload("res://scenes/bomb.tscn")
 
@@ -1131,7 +1138,7 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 	avatar.control_effectiveness = out.control_effectiveness
 	avatar.is_airborne = not gc.is_grounded
 
-	_update_flight_state(avatar, gc, out.is_stalled)
+	_update_flight_state(avatar, gc, out.is_stalled, current_vel)
 
 func _build_flight_input(avatar: AvatarData, state: PhysicsDirectBodyState2D) -> Aerodynamics.FlightInput:
 	var gc := _get_ground_contact(avatar)
@@ -1160,15 +1167,33 @@ func _build_flight_input(avatar: AvatarData, state: PhysicsDirectBodyState2D) ->
 	inp.is_destroyed = avatar.damage.damage_state == DamageData.DamageState.DESTROYED
 	return inp
 
-func _update_flight_state(avatar: AvatarData, gc: GroundContact, stalled: bool) -> void:
+func _update_flight_state(avatar: AvatarData, gc: GroundContact, stalled: bool, ground_speed: Vector2 = Vector2.ZERO) -> void:
+	var speed: float = ground_speed.length()
+
 	if gc.is_grounded:
-		if avatar.flight_state != FlightState.DAMAGED and \
-		   avatar.flight_state != FlightState.CRASHED and \
-		   avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
+		# Destroyed / crashed / damaged planes keep their own (terminal) state.
+		if avatar.flight_state == FlightState.DAMAGED or \
+		   avatar.flight_state == FlightState.CRASHED or \
+		   avatar.damage.damage_state == DamageData.DamageState.DESTROYED:
+			return
+
+		# Only treat the plane as LANDED once it has slowed to a taxi/rollout
+		# speed.  A plane hugging the terrain at speed (low strafing pass, fast
+		# ground rollout) is still flying — flagging it LANDED there strands the
+		# flight FSM in LANDED and the AI wrongly keeps ENGAGING a plane that is
+		# clearly airborne.  A fast grounded plane therefore stays FLYING and
+		# rolls/skims until it decelerates below the threshold.
+		if speed < LANDING_TAXI_SPEED:
 			avatar.flight_state = FlightState.LANDED
 			if flight_fsm and flight_fsm._active and current_flight_state_name != "Landed":
 				flight_fsm.transition_to(&"landed")
-	elif avatar.flight_state == FlightState.FALLING:
+		else:
+			avatar.flight_state = FlightState.FLYING
+			if flight_fsm and flight_fsm._active and current_flight_state_name != "Flying":
+				flight_fsm.transition_to(&"flying")
+		return
+
+	if avatar.flight_state == FlightState.FALLING:
 		if avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
 			if stalled:
 				avatar.flight_state = FlightState.STALLED
@@ -1178,13 +1203,17 @@ func _update_flight_state(avatar: AvatarData, gc: GroundContact, stalled: bool) 
 				avatar.flight_state = FlightState.FLYING
 				if flight_fsm and flight_fsm._active and current_flight_state_name != "Flying":
 					flight_fsm.transition_to(&"flying")
-	elif stalled and avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
+		return
+
+	if stalled and avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
 		if avatar.flight_state == FlightState.FLYING or \
 		   avatar.flight_state == FlightState.LANDED:
 			avatar.flight_state = FlightState.STALLED
 			if flight_fsm and flight_fsm._active and current_flight_state_name != "Stalling":
 				flight_fsm.transition_to(&"stalling")
-	elif avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
+		return
+
+	if avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
 		if avatar.flight_state == FlightState.STALLED or \
 		   avatar.flight_state == FlightState.LANDED:
 			avatar.flight_state = FlightState.FLYING
@@ -1310,12 +1339,19 @@ func _check_altitude_engine_cutoff(avatar: AvatarData, delta: float) -> void:
 			if avatar.sputtering_timer >= 0.25:
 				avatar.sputtering_timer = 0.0
 				SoundManager.set_engine_rpm(randf() * 0.4)
-		if is_player_controlled and Input.is_action_pressed("throttle_up"):
+		# Player restarts by holding the throttle-up action.  AI pilots keep
+		# throttle at maximum (patrol/engage/evade), so their commanded
+		# throttle_target is the equivalent "hold throttle to restart" intent:
+		# the engine re-lights once they've held max throttle long enough.
+		var restart_intent: bool = is_player_controlled and Input.is_action_pressed("throttle_up")
+		if not is_player_controlled:
+			restart_intent = avatar.throttle_target >= 0.5
+		if restart_intent:
 			avatar.engine_restart_hold_time += delta
 			if avatar.engine_restart_hold_time >= avatar.engine_restart_required_time:
 				avatar.engine_cutoff            = false
 				avatar.engine_restart_hold_time = 0.0
-				if SoundManager:
+				if is_player_controlled and SoundManager:
 					SoundManager.start_engine()
 					SoundManager.set_engine_rpm(0.0)
 

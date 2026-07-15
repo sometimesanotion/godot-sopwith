@@ -28,7 +28,7 @@ func update(delta: float) -> void:
 
 	if dist_to_tgt < ai.RETURN_REENGAGE_RANGE and damage < 0.5 and ai._is_target_alive():
 		finished.emit(&"engaging")
-	elif my_dist_home < ai.HOME_PROXIMITY and ai._is_grounded():
+	elif my_dist_home < ai.HOME_PROXIMITY * 3.0 and ai._is_grounded():
 		finished.emit(&"grounded")
 		if ai.biplane.has_method("disable_autopilot"):
 			ai.biplane.disable_autopilot()

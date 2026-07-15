@@ -81,6 +81,23 @@ const ADVANTAGE_THRESHOLD   := 50.0
 const RETURN_REENGAGE_RANGE := 400.0
 const HOME_PROXIMITY        := 100.0
 
+# Return-to-base landing approach (designed to land gently, not crash)
+# Continuous glide slope: desired altitude above the base = horizontal_distance
+# * GLIDE_SLOPE, capped at PATROL_ALTITUDE.  This lets the plane bleed altitude
+# steadily all the way home instead of cruising level then diving at the last
+# moment.  ~9° descent (1:6) keeps the sink rate within the soft-landing vperp.
+const RETURN_GLIDE_SLOPE       := 0.16
+# Once the plane is this close horizontally it is committed to the final: the
+# climb-forcing ground-avoidance reflexes are suppressed so it can descend the
+# rest of the way to the runway and flare.
+const RETURN_FINAL_DIST        := 520.0
+# Below this altitude on final the plane flares (levels the nose and cuts the
+# throttle) to arrest the sink rate for a soft touchdown.
+const RETURN_FLARE_ALT         := 90.0
+const RETURN_CRUISE_THROTTLE   := 0.7   # en-route, maintain speed
+const RETURN_FINAL_THROTTLE    := 0.35  # short final, slow down
+const RETURN_FLARE_THROTTLE    := 0.0   # idle on the flare
+
 # Energy-state thresholds
 const ENERGY_ALTITUDE_ADVANTAGE := 120.0   # px altitude edge to press a dive
 const ENERGY_SPEED_RATIO_GOOD   := 1.4     # speed / stall_speed for healthy energy
@@ -433,7 +450,7 @@ func _update_state_machine() -> void:
 		AIState.RETURNING:
 			if dist_to_tgt < RETURN_REENGAGE_RANGE and damage < 0.5 and _is_target_alive():
 				pilots[0].ai_state = AIState.ENGAGING
-			elif my_dist_home < HOME_PROXIMITY and _is_grounded():
+			elif my_dist_home < (HOME_PROXIMITY * 3.0) and _is_grounded():
 				pilots[0].ai_state = AIState.GROUNDED
 				if biplane.has_method("disable_autopilot"):
 					biplane.disable_autopilot()
@@ -597,20 +614,41 @@ func _compute_evade_pitch() -> float:
 func _compute_return_pitch() -> float:
 	if not biplane:
 		return 0.0
-	var ground_y  = _get_ground_height(home_base_x)
-	var home_pos  = Vector2(home_base_x, ground_y - PATROL_ALTITUDE)
-	var to_home   = home_pos - biplane.global_position
-	var dist      = to_home.length()
 
-	if dist < HOME_PROXIMITY * 2.0:
-		var land_pos = Vector2(home_base_x, ground_y - 50.0)
-		_steer_toward(land_pos)
-		if dist < HOME_PROXIMITY and not pilots[0].is_using_autopilot:
+	# Signed shortest horizontal offset to the home base (handles world wrap).
+	var dx         = wrapf(home_base_x - biplane.global_position.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+	var dist_x     = absf(dx)
+	var alt        = _get_altitude_above_ground()
+	var ground_y   = _get_ground_height(home_base_x)
+	# Direction we are travelling toward the base (used to place the flare aim).
+	var approach_dir = sign(dx) if absf(dx) > 1.0 else sign(biplane.velocity.x)
+
+	# Committed final approach — descend the rest of the way and flare.
+	if dist_x < RETURN_FINAL_DIST:
+		# Establish the landing home base reference once, on short final.
+		if dist_x < HOME_PROXIMITY and not pilots[0].is_using_autopilot:
 			_enable_autopilot_for_landing()
+
+		if alt < RETURN_FLARE_ALT:
+			# Flare: aim a point well ahead at our CURRENT altitude so the nose
+			# levels out and the sink rate is bled off instead of being driven
+			# into the runway.  Gentle, level-ish attitude = soft touchdown.
+			var aim = Vector2(biplane.global_position.x + approach_dir * 300.0, biplane.global_position.y)
+			_steer_toward(aim)
+			return _compute_pitch_from_heading(false)
+
+		# Follow the glide slope down to the numbers at the home base.
+		var glide_alt = maxf(0.0, dist_x * RETURN_GLIDE_SLOPE)
+		var aim = Vector2(home_base_x, ground_y - glide_alt)
+		_steer_toward(aim)
 		return _compute_pitch_from_heading(false)
 
-	var aim   = _lead_pursuit_point(home_pos, 0.5)
-	aim.y      = minf(aim.y, ground_y - PATROL_ALTITUDE)
+	# En-route: ride the glide slope from cruise altitude down toward the base.
+	# (No lead-pursuit here — the base is stationary, so steering straight at it
+	# is correct.  The old code offset the aim by the *player's* velocity and
+	# therefore never homed on the actual spawn point.)
+	var desired_alt = minf(PATROL_ALTITUDE, dist_x * RETURN_GLIDE_SLOPE)
+	var aim = Vector2(home_base_x, ground_y - desired_alt)
 	_steer_toward(aim)
 	return _compute_pitch_from_heading(false)
 
@@ -753,7 +791,14 @@ func _compute_evade_throttle() -> float:
 	return 1.0
 
 func _compute_return_throttle(avatar) -> float:
-	return 0.8
+	var dx     = wrapf(home_base_x - biplane.global_position.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+	var dist_x = absf(dx)
+	var alt    = _get_altitude_above_ground()
+	if dist_x < RETURN_FINAL_DIST:
+		if alt < RETURN_FLARE_ALT:
+			return RETURN_FLARE_THROTTLE   # idle on the flare
+		return RETURN_FINAL_THROTTLE      # short final, slow down
+	return RETURN_CRUISE_THROTTLE        # en-route, hold speed
 
 # ---------------------------------------------------------------------------
 # ENERGY STATE
@@ -814,11 +859,26 @@ func _decision_takeoff(avatar) -> void:
 
 ## Applied after state pitch/throttle for PATROLLING / ENGAGING / EVADING /
 ## RETURNING.  Skipped for GROUNDED and TAKING_OFF (they manage own outputs).
-func _apply_reflexes(pitch: float, throttle: float) -> Array:
+func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true) -> Array:
 	if _stall_reflex():
 		return [pilots[0].last_pitch_input, pilots[0].last_throttle]
 
-	var alt_fix = _altitude_reflex()
+	# On the committed final approach of a RETURNING plane we must let it descend
+	# the rest of the way to the runway, so the climb-forcing ground-avoidance
+	# reflexes (altitude + pull-up) are suppressed — otherwise they pitch the nose
+	# up below ~80 px and the plane can never actually touch down.
+	var ground_avoid := allow_ground_avoid
+	if pilots[0].ai_state == AIState.RETURNING:
+		var dx = wrapf(home_base_x - biplane.global_position.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+		if absf(dx) < RETURN_FINAL_DIST:
+			ground_avoid = false
+
+	var alt_fix = 0.0
+	var pullup_fix = 0.0
+	if ground_avoid:
+		alt_fix = _altitude_reflex()
+		pullup_fix = _pull_up_reflex()
+
 	if alt_fix != 0.0:
 		pitch    = alt_fix
 		throttle = maxf(throttle, 0.8)
@@ -835,7 +895,6 @@ func _apply_reflexes(pitch: float, throttle: float) -> Array:
 	if terrain_fix != 0.0:
 		pitch = minf(pitch, terrain_fix)
 
-	var pullup_fix = _pull_up_reflex()
 	if pullup_fix != 0.0:
 		pitch = pullup_fix
 

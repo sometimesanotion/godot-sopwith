@@ -57,6 +57,16 @@ const THROTTLE_STEP: float            = 0.15
 const ENGINE_EFFICIENCY_START_ALTITUDE: float = 1800.0
 const ENGINE_CUTOFF_ALTITUDE: float            = 2000.0
 
+## ── Stall-detection tuning ──────────────────────────────────────────────────
+## The game's actual flight envelope tops out around ~2.4× the model stall
+## speed (top speed ≈ 810 px/s, stall ≈ 342 px/s for the Camel), so the raw
+## model stall speed triggers far too eagerly: the HUD flashes and the flight
+## state flips to STALLED during ordinary flight, and a transient high AoA while
+## turning at speed wrongly drops lift.  These margins make stall detection
+## match the playable envelope instead of the unrealistic nominal value.
+const STALL_SPEED_MARGIN       := 0.8   # speed-stall fires below stall × 0.8
+const STALL_AOA_SPEED_MARGIN   := 1.2   # AoA stall only counts near/below stall speed
+
 ## ── Main calculation ──────────────────────────────────────────────────────
 
 static func calculate_forces(inp: FlightInput) -> FlightOutput:
@@ -79,7 +89,16 @@ static func calculate_forces(inp: FlightInput) -> FlightOutput:
 		aoa = forward.angle_to(vel_si.normalized())
 
 	var stall_aoa: float = deg_to_rad(inp.model_params.get("max_aoa", 16.0))
-	out.is_stalled = (not inp.is_grounded) and (absf(aoa) > stall_aoa or speed_si < inp.stall_speed_ms)
+	# Stall detection — speed-aware so the plane isn't flagged stalled while it
+	# clearly has forward momentum:
+	#   • flying below the (margin-reduced) stall speed, OR
+	#   • a transient high AoA (nose leading the velocity vector mid-turn) — but
+	#     only near/below stall speed.  At higher speeds a high AoA just means
+	#     extra drag, not a fall; flagging it drops lift to 30 % and turns a
+	#     normal engagement turn into a mushy, sinking spiral.
+	var speed_stall: bool = speed_si < inp.stall_speed_ms * STALL_SPEED_MARGIN
+	var aoa_stall: bool = absf(aoa) > stall_aoa and speed_si < inp.stall_speed_ms * STALL_AOA_SPEED_MARGIN
+	out.is_stalled = (not inp.is_grounded) and (speed_stall or aoa_stall)
 
 	var max_cl: float = inp.model_params.get("max_lift_coeff", 1.4)
 	var cl: float = clampf(aoa * 2.0 * PI, -max_cl, max_cl)
@@ -128,8 +147,12 @@ static func calculate_forces(inp: FlightInput) -> FlightOutput:
 	out.net_force = out.weight_force + out.thrust_force + out.lift_force + out.drag_force + out.normal_force + out.friction_force
 
 	var sp_si := inp.velocity.length() / inp.pixels_per_meter
+	# Control authority scales with dynamic pressure (speed²).  The divisor must
+	# match the game's real envelope: it tops out near ~2.4× stall speed, so a
+	# divisor of ~5 (not 50) lets authority climb from the 0.6 floor at stall to
+	# full/boosted at cruise instead of being pinned at the minimum everywhere.
 	out.control_effectiveness = clampf(
-		(sp_si * sp_si) / (inp.stall_speed_ms * inp.stall_speed_ms * 50.0), 0.6, 1.8)
+		(sp_si * sp_si) / (inp.stall_speed_ms * inp.stall_speed_ms * 5.0), 0.6, 1.8)
 
 	return out
 
@@ -174,23 +197,25 @@ static func _friction_coeff(on_runway: bool, throttle: float) -> float:
 
 static func is_stalled(pitch_angle: float, velocity: Vector2, is_grounded: bool,
 		stall_speed_ms: float, pixels_per_meter: float, model_params: Dictionary) -> bool:
-	if is_grounded:
-		return false
-	var vel_si := velocity / pixels_per_meter
-	var speed_si := vel_si.length()
-	if speed_si <= 0.5:
-		return true
-	var forward := Vector2(cos(pitch_angle), sin(pitch_angle))
-	var aoa := forward.angle_to(vel_si.normalized())
-	var stall_aoa: float = deg_to_rad(model_params.get("max_aoa", 16.0))
-	return absf(aoa) > stall_aoa or speed_si < stall_speed_ms
+		if is_grounded:
+			return false
+		var vel_si := velocity / pixels_per_meter
+		var speed_si := vel_si.length()
+		if speed_si <= 0.5:
+			return true
+		var forward := Vector2(cos(pitch_angle), sin(pitch_angle))
+		var aoa := forward.angle_to(vel_si.normalized())
+		var stall_aoa: float = deg_to_rad(model_params.get("max_aoa", 16.0))
+		var speed_stall: bool = speed_si < stall_speed_ms * STALL_SPEED_MARGIN
+		var aoa_stall: bool = absf(aoa) > stall_aoa and speed_si < stall_speed_ms * STALL_AOA_SPEED_MARGIN
+		return speed_stall or aoa_stall
 
 ## ── Control effectiveness (standalone) ──────────────────────────────────────
 
 static func calculate_control_effectiveness(velocity: Vector2, stall_speed_ms: float,
 		pixels_per_meter: float) -> float:
 	var sp_si := velocity.length() / pixels_per_meter
-	return clampf((sp_si * sp_si) / (stall_speed_ms * stall_speed_ms * 50.0), 0.6, 1.8)
+	return clampf((sp_si * sp_si) / (stall_speed_ms * stall_speed_ms * 5.0), 0.6, 1.8)
 
 ## ── Landing impact classification ──────────────────────────────────────────
 
