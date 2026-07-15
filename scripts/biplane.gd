@@ -258,6 +258,11 @@ const GROUND_REST_MARGIN := 50.0
 ## while the wreck is still skidding/rolling.
 const RESPAWN_GROUND_SPEED := 5.0
 
+## A destroyed plane's wreck must also have stopped spinning (rad/s) before its
+## 2s respawn timer starts — a wreck still tumbling on the ground is not "at
+## rest", so it should keep tumbling until it settles.
+const RESPAWN_ANGULAR_REST_SPEED := 0.5
+
 const THROTTLE_REPEAT_DELAY := 0.1
 const THROTTLE_RAMP_SPEED   := 5.0
 
@@ -1222,6 +1227,14 @@ func _update_flight_state(avatar: AvatarData, gc: GroundContact, stalled: bool, 
 
 func _process_landing_impact(avatar: AvatarData, v_perp: float,
 		impact_force: float, tilt_angle: float) -> void:
+	# A plane that is already destroyed is a wreck — any terrain contact grounds
+	# it as a crash, regardless of how gentle the impact is.  Without this a
+	# destroyed plane landing CLEAN/HARD stayed in FALLING (spinning on the
+	# ground) and never reached CRASHED, so it never scheduled a respawn.
+	if avatar.damage.damage_state == DamageData.DamageState.DESTROYED:
+		_on_avatar_crashed(avatar)
+		return
+
 	var model_params = avatar.model_params
 	var max_landing_tilt: float = model_params.get("max_landing_tilt_deg", 40.0)
 	var soft_landing: float = model_params.get("soft_landing_vperp", 80.0)
@@ -1276,9 +1289,16 @@ func _integrate_crash_forces(state: PhysicsDirectBodyState2D, avatar: AvatarData
 	# tracks the 180° barrel-roll state, not physical orientation vs gravity.
 	var terrain_y := gc.ground_y - GROUND_SURFACE_OFFSET
 	var near_terrain := global_position.y >= terrain_y - GROUND_REST_MARGIN
-	var resting_on_ground := avatar.has_hit_ground or near_terrain
+	# The wreck must have actually struck the ground (latched on first terrain
+	# contact) before any respawn is scheduled — a plane still falling toward
+	# the surface never counts as "on the ground" no matter how close its center
+	# gets.  near_terrain is only a fallback for a wreck that tumbled so the
+	# downward GroundRay misses; it is then accepted only once the wreck is at
+	# rest (so it can't fire while still descending).
+	var on_ground := avatar.has_hit_ground or (near_terrain and current_vel.length() < RESPAWN_GROUND_SPEED)
 	var at_rest := current_vel.length() < RESPAWN_GROUND_SPEED
-	if not _respawn_queued.has(avatar.id) and resting_on_ground and at_rest:
+	var angular_rest := absf(state.get_angular_velocity()) < RESPAWN_ANGULAR_REST_SPEED
+	if not _respawn_queued.has(avatar.id) and on_ground and at_rest and angular_rest:
 		_respawn_queued[avatar.id] = true
 		crashed_landed.emit(avatar.id)
 
