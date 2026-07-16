@@ -614,6 +614,14 @@ func get_default_plane_model(faction: Faction) -> String:
 func _get_homebase(avatar: AvatarData) -> HomebaseData:
 	return _homebases.get(avatar.homebase_id)
 
+## Sync an existing homebase's faction in place WITHOUT relocating its spawn
+## point or renumbering its id.  Used when an enemy re-arms its faction on the
+## respawn path; the homebase keeps the spawn location set once at game start.
+func refresh_homebase_faction(avatar: AvatarData, faction: Faction) -> void:
+	var hb := _get_homebase(avatar)
+	if hb:
+		hb.faction = faction
+
 func get_homebase_x(avatar: AvatarData) -> float:
 	var hb := _get_homebase(avatar)
 	return hb.home_base_x if hb else 6554.0
@@ -1545,9 +1553,15 @@ func _get_collider_poly_bounds(collider: Node) -> Dictionary:
 	return result
 
 func _check_obstacle_collision(avatar: AvatarData) -> void:
+	# NOTE: Do NOT gate this on a minimum speed.  A freshly-spawned or parked
+	# plane sitting still is not invincible — collision processing still runs.
+	# What keeps a correctly-spawned grounded plane from being destroyed is the
+	# impact-speed classification below (and in each obstacle's
+	# get_collision_response): a contact below the plane's soft-landing speed
+	# deals zero damage, so a plane resting on the ground/runway is safe by
+	# virtue of its low impact speed, not by an artificial "hasn't moved yet"
+	# exemption that made planes indestructible until they started moving.
 	var speed := velocity.length()
-	if speed < 5.0:
-		return
 	var parent := get_parent()
 	if not parent:
 		return

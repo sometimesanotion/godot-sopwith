@@ -1194,16 +1194,20 @@ func _enable_autopilot_for_landing() -> void:
 	pilots[0].is_using_autopilot = true
 	if biplane.has_method("enable_autopilot"):
 		biplane.enable_autopilot()
-	var ground_y = _get_ground_height(home_base_x)
-	if biplane.has_method("setup_faction_homebase") and biplane.has_method("get_avatar_data"):
+	# Keep this plane's own faction on its existing homebase so a later respawn
+	# re-applies the correct model.  IMPORTANT: do NOT recreate the homebase here.
+	# The homebase was created once at the plane's real spawn location in
+	# main.gd (_spawn_enemies_and_targets) using ENEMY_SPAWN_RUNWAY_OFFSET.  A
+	# previous version rewrote it via setup_faction_homebase(1, home_base_x, …)
+	# on every autopilot landing, which relocated the spawn point to the runway
+	# centre (dropping the +80 offset and using ground_y - 12) and renumbered
+	# the homebase id to 1 — so every respawn after the first landing happened
+	# at the wrong place.  refresh_homebase_faction updates only the faction,
+	# preserving the spawn position and id.
+	if biplane.has_method("refresh_homebase_faction") and biplane.has_method("get_avatar_data"):
 		var avatar = biplane.get_avatar_data(0)
 		if avatar:
-			# Use setup_faction_homebase (not setup_homebase): the latter leaves the
-			# base at the default Faction.BRITISH, so a later respawn would re-apply
-			# the wrong model (e.g. a Sopwith instead of a Fokker) while keeping the
-			# enemy's AI/faction data.  Preserve this plane's own faction on the base.
-			biplane.setup_faction_homebase(1, home_base_x, 200.0, Vector2(home_base_x, ground_y - 12), 0.0, avatar.faction)
-			biplane.set_home_base(avatar, 1)
+			biplane.refresh_homebase_faction(avatar, avatar.faction)
 
 # ---------------------------------------------------------------------------
 # CRASH / RESPAWN

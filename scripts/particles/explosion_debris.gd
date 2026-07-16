@@ -7,7 +7,7 @@ extends Node2D
 @export var debris_lifetime: float = 4.0
 ## Mass (kg) of each debris fragment. Lighter fragments impart less kinetic force
 ## when they strike planes, reducing dramatic bouncing. Lower = gentler impacts.
-@export var debris_mass: float = 0.05
+@export var debris_mass: float = 0.005
 
 const DEBRIS_COLORS := [
 	Color(0.04, 0.015, 0.04),
