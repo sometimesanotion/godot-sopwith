@@ -31,7 +31,7 @@ func update(delta: float) -> void:
 	# under fire only when too slow or too hurt to fight back.  A healthy,
 	# fast plane PRESSES a head-on attack instead of flinching at every
 	# incoming round — this is what makes it an aggressive opponent.
-	var defensive := ai._should_evade_defensively()
+	var defensive: bool = ai._should_evade_defensively()
 	var under_fire: bool = ai.pilots[0].incoming_bullet_timer > 0.0
 	if alt < ai.DANGER_ALTITUDE_ABOVE_GROUND or defensive \
 			or (under_fire and (ai._is_low_energy() or damage >= 0.3)):

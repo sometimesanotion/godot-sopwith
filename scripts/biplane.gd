@@ -213,11 +213,11 @@ static func _get_svg_path_from_params(model_params: Dictionary) -> String:
 ###############################################################################
 
 @export_group("Flight Parameters (SI Units)")
-@export var arcade_multiplier: float = 2.2
+@export var arcade_multiplier: float = 2.3
 @export var gravity:            float = 9.81
 
 @export_group("Scale & Arcade Tuning")
-@export var pixels_per_meter: float = 12.0
+@export var pixels_per_meter: float = 14.0
 
 @export_group("Aerodynamics")
 @export var air_density:         float = 1.225 * arcade_multiplier

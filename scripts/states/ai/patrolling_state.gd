@@ -24,5 +24,9 @@ func update(delta: float) -> void:
 	var dist_to_tgt = ai._get_wrapped_distance(ai.biplane.global_position.x, ai.target.global_position.x)
 	if ai._is_fuel_low():
 		finished.emit(&"returning")
-	elif ai._is_target_alive() and dist_to_tgt < ai.ENGAGEMENT_RANGE and ai._is_player_in_territory():
+	# Engage any live target within range, wherever it is — a challenging enemy
+	# hunts the player across the map rather than only when the player wanders
+	# into its own territory.  Distance is wrapped, so ENGAGEMENT_RANGE (9000)
+	# already spans the whole field.
+	elif ai._is_target_alive() and dist_to_tgt < ai.ENGAGEMENT_RANGE:
 		finished.emit(&"engaging")
