@@ -40,6 +40,36 @@ extends Node
 ##   • Energy-state engagement — altitude + speed gate dive attacks.
 ##   • Runway pitch suppression — outputs reset on respawn; reflexes skipped
 ##     in GROUNDED / TAKING_OFF.
+##
+## ENERGY-MODE ENGAGEMENT  (boom & zoom)
+##   Air combat runs a small mode machine (Pilots.engage_mode) with hysteresis:
+##   • PURSUE — co-energy dogfight; from far out it first climbs to an
+##     altitude perch above the target instead of crawling in slow.
+##   • ATTACK — spends an energy advantage on a diving lead-pursuit pass.
+##   • EXTEND — breaks off to rebuild energy: unloads and accelerates when
+##     slow, zoom-climbs away when fast (e.g. after an overshoot).  This is
+##     what stops the AI from mushing into a stall — it never presses an
+##     attack below EXTEND_ENTER_SPEED_RATIO × stall speed, and only returns
+##     to the fight at EXTEND_EXIT_SPEED_RATIO (≈ prop-efficiency peak).
+##
+## PREDICTIVE TERRAIN AVOIDANCE
+##   `_terrain_impact_time()` samples the velocity vector for a terrain
+##   intersection; when impact is inside a speed-scaled window the reflex
+##   layer pulls the nose up early (scaled by urgency) instead of relying on
+##   the old fixed-altitude panic lines — this is what stops dive-attack
+##   crashes.  Slow planes get a shallow pull (they cannot zoom).
+##
+## DEFENSIVE REACTIONS & AGGRESSION
+##   `_should_evade_defensively()` detects a player locked onto the AI's six
+##   (rear cone + tracking nose) and breaks.  Incoming fire only triggers an
+##   evade when the AI is slow or already hurt — healthy, fast planes press
+##   head-on attacks instead of flinching at every round.
+##
+## ALTITUDE-ADVANTAGE PATROL
+##   While the player is airborne, PATROLLING cruises above the player's
+##   altitude (clamped to the [PATROL_CRUISE_MIN, PATROL_MAX_ALTITUDE] band)
+##   so it always holds potential energy to dive with.  The band is capped
+##   below the 1800 px engine-taper line as required.
 
 
 # ---------------------------------------------------------------------------
@@ -50,15 +80,23 @@ const TERRAIN_LENGTH := 16384.0
 
 # Altitude thresholds (pixels above terrain)
 const PATROL_ALTITUDE                := 250.0
+# Patrol cruise band while the player is airborne: the AI holds an altitude
+# advantage over the player so it always has potential energy to dive with.
+# PATROL_MAX_ALTITUDE is capped below the 1800 px engine-taper line
+# (Biplane.ENGINE_EFFICIENCY_START_ALTITUDE) — the required "no more than
+# 1800 m off the ground" ceiling — and below the MAX_ALTITUDE ceiling reflex
+# so patrol never fights the push-down reflexes.
+const PATROL_CRUISE_MIN              := 800.0
+const PATROL_ALTITUDE_ADVANTAGE      := 300.0
+const PATROL_MAX_ALTITUDE            := 1500.0
 const MIN_ALTITUDE_ABOVE_GROUND      := 80.0
 const DANGER_ALTITUDE_ABOVE_GROUND   := 60.0
 const CRITICAL_ALTITUDE_ABOVE_GROUND := 20.0
 const PULL_UP_ALTITUDE               := 200.0
-# Hard ceiling on cruise altitude.  Set well below Biplane.ENGINE_CUTOFF_ALTITUDE
-# (2000 px) — at ~0.4× — so AI planes can still climb to gather potential energy
-# but never reach the altitude where their engine cuts out (or even the 1800 px
-# thrust-taper band).  Previously 1600 px let them coast up to ~2000 px, stall,
-# and die.  MAX_ALTITUDE_FRACTION keeps this automatically below the cutoff.
+# Hard ceiling on cruise altitude.  1600 px = 0.8 × Biplane.ENGINE_CUTOFF_ALTITUDE
+# (2000 px): AI planes can still climb to gather potential energy but the
+# ceiling reflex pushes the nose down before they reach the 1800 px
+# thrust-taper band or the cutoff itself, where they would stall and die.
 const MAX_ALTITUDE_FRACTION          := 0.4
 const MAX_ALTITUDE                   := 1600.0
 # Fraction of Biplane.ENGINE_CUTOFF_ALTITUDE above which the AI treats the engine
@@ -66,7 +104,13 @@ const MAX_ALTITUDE                   := 1600.0
 # if some other logic commands a high climb).
 const ENGINE_CUTOFF_AVOID_FRACTION   := 0.8
 # Seconds-to-impact below which a descent is treated as an imminent crash.
+# Used by _terrain_impact_time(): the actual pull-up window scales up with
+# speed (see _impact_window) since a faster plane covers more ground per second.
 const PULL_UP_TIME_TO_GROUND         := 1.2
+# Trajectory sample times (s) for the predictive terrain-impact check.
+const IMPACT_SAMPLE_TIMES: Array[float] = [0.25, 0.5, 0.8, 1.2, 1.7, 2.2, 2.8]
+# Clearance margin (px) kept above the terrain when sampling the trajectory.
+const IMPACT_ALT_MARGIN              := 30.0
 
 # Detection / engagement geometry
 const DETECTION_RANGE       := 30000.0
@@ -99,6 +143,31 @@ const RETURN_FLARE_THROTTLE    := 0.0   # idle on the flare
 # Energy-state thresholds
 const ENERGY_ALTITUDE_ADVANTAGE := 120.0   # px altitude edge to press a dive
 const ENERGY_SPEED_RATIO_GOOD   := 1.4     # speed / stall_speed for healthy energy
+
+# Engagement energy modes (boom & zoom) — see EngageMode below.
+# Below EXTEND_ENTER_SPEED_RATIO the AI breaks off and rebuilds speed instead
+# of muscling toward the target into a stall; it rejoins the fight at
+# EXTEND_EXIT_SPEED_RATIO (≈ the prop-efficiency peak near 40 m/s, so the
+# engine has maximum thrust available while re-engaging).
+const EXTEND_ENTER_SPEED_RATIO  := 1.35
+const EXTEND_EXIT_SPEED_RATIO   := 1.9
+const EXTEND_MIN_TIME           := 1.0     # s — hysteresis floor, prevents mode flapping
+const EXTEND_MAX_TIME           := 5.0     # s — never extend forever
+const EXTEND_LEG_LENGTH         := 700.0   # px — how far ahead the extension waypoint sits
+const EXTEND_MIN_CLEARANCE      := 220.0   # px — extension waypoint never aims below this
+# A target this close and behind our velocity vector counts as an overshoot;
+# with enough speed the AI zoom-climbs away instead of bleeding it in a turn.
+const OVERSHOOT_RANGE           := 450.0
+const OVERSHOOT_ZOOM_SPEED_RATIO := 1.5
+# Far-approach: climb to this far above the target's altitude before closing.
+const STALK_ALTITUDE_ADVANTAGE  := 300.0
+const STALK_MAX_ALTITUDE        := 1400.0  # below the MAX_ALTITUDE ceiling reflex
+
+# Defensive reactions — a live target inside this rear cone, close and with
+# its nose tracking us, means the player has our six: break.
+const DEFENSIVE_RANGE       := 600.0
+const DEFENSIVE_REAR_ANGLE  := 1.92   # rad (~110°) — |angle to target| beyond this = behind us
+const DEFENSIVE_TRACK_ANGLE := 0.52   # rad (~30°) — target nose within this of us = tracking
 
 # Stall-avoidance / energy management
 # While pulling the nose up, the AI refuses to stall: below STALL_AVOID_SPEED_RATIO
@@ -171,6 +240,9 @@ const BOMB_ANGLE_TOLERANCE      := 0.175
 # PILOT STATE  (all mutable runtime data for one AI pilot)
 # ---------------------------------------------------------------------------
 
+## Air-combat mode machine (see "ENERGY-MODE ENGAGEMENT" in the header).
+enum EngageMode { PURSUE, ATTACK, EXTEND }
+
 class AIData:
 	# Control outputs carried between frames
 	var last_pitch_input: float = 0.0
@@ -184,6 +256,10 @@ class AIData:
 	var patrol_time: float           = 0.0
 	var takeoff_timer: float         = 0.0
 
+	# Air-combat mode (boom & zoom) — see EngageMode.  0 = EngageMode.PURSUE.
+	var engage_mode: int        = 0
+	var engage_mode_timer: float = 0.0
+
 	# Flags
 	var is_using_autopilot: bool        = false
 
@@ -191,6 +267,8 @@ class AIData:
 		last_pitch_input = 0.0
 		last_throttle    = 0.0
 		desired_heading  = 0.0
+		engage_mode      = 0   # EngageMode.PURSUE
+		engage_mode_timer = 0.0
 
 # ---------------------------------------------------------------------------
 # NODE-LEVEL FIELDS
@@ -370,7 +448,16 @@ func _compute_patrol_pitch() -> float:
 	var ground_y  = _get_ground_height(patrol_x)
 	pilots[0].patrol_time += decision_interval
 	var osc       = sin(pilots[0].patrol_time * ALTITUDE_OSCILLATION_SPEED) * ALTITUDE_OSCILLATION_AMP
-	var aim       = Vector2(patrol_x, ground_y - PATROL_ALTITUDE + osc)
+	# While the player is airborne, cruise above their altitude so the patrol
+	# always holds potential energy to dive with (capped ≤ PATROL_MAX_ALTITUDE,
+	# itself below the 1800 px engine-taper line).  With the player on the
+	# ground, keep the legacy low orbit ready to pounce on takeoff.
+	var cruise_alt := PATROL_ALTITUDE
+	if _is_player_airborne():
+		var player_alt := _get_altitude_above_ground_for(target)
+		cruise_alt = clampf(player_alt + PATROL_ALTITUDE_ADVANTAGE,
+			PATROL_CRUISE_MIN, PATROL_MAX_ALTITUDE)
+	var aim       = Vector2(patrol_x, ground_y - cruise_alt + osc)
 	_steer_toward(aim)
 	return _compute_pitch_from_heading(false)
 
@@ -378,27 +465,104 @@ func _compute_engage_pitch() -> float:
 	if not biplane or not target:
 		return 0.0
 
-	var my_pos     = biplane.global_position
 	var target_pos = target.global_position
-	var distance   = my_pos.distance_to(target_pos)
-	var my_alt     = _get_altitude_above_ground()
-	var target_alt = _get_altitude_above_ground_for(target)
-	var alt_diff   = my_alt - target_alt
+	var distance   = biplane.global_position.distance_to(target_pos)
+	var alt_diff   = _get_altitude_above_ground() - _get_altitude_above_ground_for(target)
+
+	_update_engage_mode(distance)
 
 	var aim: Vector2
-	if distance > STALKING_THRESHOLD:
-		aim = _stalking_waypoint(target_pos)
-	elif _has_energy_advantage():
-		aim    = _lead_pursuit_point(target_pos, 0.6)
-		aim.y += 30.0   # lean into the dive
-	elif alt_diff < -ENERGY_ALTITUDE_ADVANTAGE:
-		aim    = _lead_pursuit_point(target_pos, 0.4)
-		aim.y -= 40.0   # nose down to build speed before looping up
-	else:
-		aim = _lead_pursuit_point(target_pos, 0.7)
+	match pilots[0].engage_mode:
+		EngageMode.EXTEND:
+			# Energy recovery: break off, unload and accelerate — or zoom away
+			# when fast.  Never point at the target while slow.
+			aim = _extend_waypoint()
+		EngageMode.ATTACK:
+			# Energy advantage: spend altitude on a diving lead-pursuit pass.
+			aim    = _lead_pursuit_point(target_pos, 0.6)
+			aim.y += 30.0   # lean into the dive
+		_:
+			# PURSUE — co-energy dogfight.  From far out, first climb to an
+			# altitude perch above the target (energy for the boom) instead of
+			# crawling in slow and stalling.
+			if distance > STALKING_THRESHOLD:
+				aim = _stalking_waypoint(target_pos)
+			elif alt_diff < -ENERGY_ALTITUDE_ADVANTAGE:
+				aim    = _lead_pursuit_point(target_pos, 0.4)
+				aim.y -= 40.0   # nose down to build speed before looping up
+			else:
+				aim = _lead_pursuit_point(target_pos, 0.7)
 
 	_steer_toward(aim)
 	return _compute_pitch_from_heading(true)   # ENGAGE profile
+
+# ---------------------------------------------------------------------------
+# ENGAGEMENT ENERGY MODES  (boom & zoom)
+# ---------------------------------------------------------------------------
+
+## Mode selection with hysteresis, called once per decision tick from
+## _compute_engage_pitch.  EXTEND breaks off the attack to rebuild energy
+## (speed) or to zoom away after an overshoot; ATTACK spends an energy
+## advantage on a diving pass; PURSUE is the co-energy default.
+func _update_engage_mode(distance: float) -> void:
+	var p := pilots[0]
+	p.engage_mode_timer += decision_interval
+	var sr := _speed_ratio()
+
+	if p.engage_mode == EngageMode.EXTEND:
+		var energy_restored := sr >= EXTEND_EXIT_SPEED_RATIO \
+			and p.engage_mode_timer >= EXTEND_MIN_TIME
+		if energy_restored or p.engage_mode_timer >= EXTEND_MAX_TIME:
+			p.engage_mode = EngageMode.ATTACK if _has_energy_advantage() else EngageMode.PURSUE
+			p.engage_mode_timer = 0.0
+		return
+
+	# Break off to rebuild energy when slow — pressing an attack near stall is
+	# how the old AI mushed into the ground.  Fast planes that have overshot
+	# the target also extend (zoom) instead of bleeding speed in a flat turn.
+	if sr < EXTEND_ENTER_SPEED_RATIO:
+		p.engage_mode = EngageMode.EXTEND
+		p.engage_mode_timer = 0.0
+	elif _is_overshoot(distance) and sr >= OVERSHOOT_ZOOM_SPEED_RATIO:
+		p.engage_mode = EngageMode.EXTEND
+		p.engage_mode_timer = 0.0
+	elif _has_energy_advantage():
+		p.engage_mode = EngageMode.ATTACK
+	else:
+		p.engage_mode = EngageMode.PURSUE
+
+## True when the target is close and already behind our velocity vector.
+func _is_overshoot(distance: float) -> bool:
+	if not biplane or not target:
+		return false
+	if distance > OVERSHOOT_RANGE:
+		return false
+	var to_tgt := target.global_position - biplane.global_position
+	to_tgt.x = wrapf(to_tgt.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+	return biplane.velocity.dot(to_tgt) < 0.0
+
+## Extension waypoint: directly away from the target, pitched by energy state.
+## Fast → zoom climb (trade speed for altitude and separation); slow → unload
+## into a shallow dive to rebuild speed; low and slow → level off, never dive.
+func _extend_waypoint() -> Vector2:
+	var my_pos = biplane.global_position
+	var dx := wrapf(target.global_position.x - my_pos.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+	var away := -signf(dx)
+	if away == 0.0:
+		away = signf(biplane.velocity.x)
+		if away == 0.0:
+			away = 1.0
+	var sr  := _speed_ratio()
+	var alt := _get_altitude_above_ground()
+	var dy  := -50.0
+	if sr >= OVERSHOOT_ZOOM_SPEED_RATIO:
+		dy = -450.0   # zoom climb: swap speed for altitude and separation
+	elif alt > STALL_DIVE_MIN_ALTITUDE * 0.5:
+		dy = 150.0    # unload: shallow dive to rebuild speed
+	var wx: float = my_pos.x + away * EXTEND_LEG_LENGTH
+	# Never aim the extension leg into the terrain.
+	var wy: float = minf(my_pos.y + dy, _get_ground_height(wx) - EXTEND_MIN_CLEARANCE)
+	return Vector2(wx, wy)
 
 func _compute_ground_attack_pitch() -> float:
 	if not biplane or not target:
@@ -469,13 +633,33 @@ func _compute_evade_pitch() -> float:
 	if not biplane:
 		return 0.0
 	var alt = _get_altitude_above_ground()
+	# Panic pull-ups close to the terrain stay as raw pitch overrides.
 	if alt < CRITICAL_ALTITUDE_ABOVE_GROUND:
 		return -1.0
 	elif alt < DANGER_ALTITUDE_ABOVE_GROUND:
 		return -0.8
+
+	# Break turn, steered through the heading controller so the maneuver is a
+	# clean climbing/diving turn away from the attacker rather than the old
+	# flat raw-pitch jink.  Fast planes zoom — a climbing target is the hardest
+	# to track in 2D; slow planes dive shallowly for speed when there is
+	# height to spare (the impact reflex guards the ground), else hold level.
+	var my_pos := biplane.global_position
+	var away := 1.0
+	if target:
+		away = -signf(wrapf(target.global_position.x - my_pos.x,
+			-TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5))
+	if away == 0.0:
+		away = signf(biplane.velocity.x) if biplane.velocity.x != 0.0 else 1.0
+
+	var sr := _speed_ratio()
+	var dy := -400.0
+	if sr < STALL_AVOID_SPEED_RATIO:
+		dy = 150.0 if alt > STALL_DIVE_MIN_ALTITUDE * 0.5 else 0.0
 	elif pilots[0].incoming_bullet_timer > 0.0:
-		return -0.3
-	return -0.5
+		dy = -500.0   # under fire with energy to spend: break harder
+	_steer_toward(Vector2(my_pos.x + away * 500.0, my_pos.y + dy))
+	return _compute_pitch_from_heading(true)
 
 func _compute_return_pitch() -> float:
 	if not biplane:
@@ -650,6 +834,17 @@ func _compute_patrol_throttle(avatar) -> float:
 	return 1.0
 
 func _compute_engage_throttle(avatar) -> float:
+	if not biplane:
+		return 1.0
+	# In a steep, fast dive the motor only drives the airframe into the
+	# overspeed drag wall and guarantees an overshoot — chop the throttle and
+	# keep the energy in the plane instead.  Threshold is model-relative:
+	# ~85% of the (now ~810 px/s) top speed, not a hard-coded 650 px/s that
+	# would otherwise trigger at normal cruise after the speed-cap fix.
+	var ppm: float = biplane.get("pixels_per_meter") if "pixels_per_meter" in biplane else 16.0
+	var max_speed_px: float = avatar.model_params.get("max_speed_ms", 50.6) * ppm
+	if biplane.velocity.y > 250.0 and biplane.velocity.length() > max_speed_px * 0.85:
+		return 0.35
 	return 1.0
 
 func _compute_evade_throttle() -> float:
@@ -669,24 +864,46 @@ func _compute_return_throttle(avatar) -> float:
 # ENERGY STATE
 # ---------------------------------------------------------------------------
 
+## Current speed as a multiple of the plane's stall speed — the AI's single
+## energy gauge.  ~1.9 ≈ the prop-efficiency peak (max thrust at ~40 m/s).
+func _speed_ratio() -> float:
+	if not biplane:
+		return 1.0
+	var avatar = _get_avatar()
+	var stall: float = avatar.stall_speed_ms if avatar else 21.4
+	var ppm: float = biplane.get("pixels_per_meter") if "pixels_per_meter" in biplane else 10.0
+	return biplane.velocity.length() / ppm / maxf(stall, 1.0)
+
 func _has_energy_advantage() -> bool:
 	if not biplane or not target:
 		return false
 	var alt_edge = _get_altitude_above_ground() - _get_altitude_above_ground_for(target) \
 				   > ENERGY_ALTITUDE_ADVANTAGE
-	var avatar   = _get_avatar()
-	var stall    = avatar.stall_speed_ms if avatar else 21.4
-	var ppm: float = biplane.get("pixels_per_meter") if "pixels_per_meter" in biplane else 10.0
-	var speed_ok = biplane.velocity.length() / ppm / maxf(stall, 1.0) >= ENERGY_SPEED_RATIO_GOOD
-	return alt_edge and speed_ok
+	return alt_edge and _speed_ratio() >= ENERGY_SPEED_RATIO_GOOD
 
 func _is_low_energy() -> bool:
 	if not biplane:
 		return false
-	var avatar = _get_avatar()
-	var stall  = avatar.stall_speed_ms if avatar else 21.4
-	var ppm: float = biplane.get("pixels_per_meter") if "pixels_per_meter" in biplane else 10.0
-	return biplane.velocity.length() / ppm / maxf(stall, 1.0) < ENERGY_SPEED_RATIO_GOOD
+	return _speed_ratio() < ENERGY_SPEED_RATIO_GOOD
+
+## True when a live target sits inside our rear cone, close, with its nose
+## tracking us — i.e. the player has our six.  The engaging state breaks into
+## an evade when this trips; without it you could sit on their tail forever.
+func _should_evade_defensively() -> bool:
+	if not biplane or not target or not _is_target_alive():
+		return false
+	var to_tgt := target.global_position - biplane.global_position
+	to_tgt.x = wrapf(to_tgt.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+	var dist := to_tgt.length()
+	if dist > DEFENSIVE_RANGE or dist < 1.0:
+		return false
+	var my_fwd := Vector2(cos(biplane.rotation), sin(biplane.rotation))
+	# Target in the rear cone...
+	if absf(my_fwd.angle_to(to_tgt.normalized())) < DEFENSIVE_REAR_ANGLE:
+		return false
+	# ...and with its nose pointed near us (tracking, not merely passing).
+	var tgt_fwd := Vector2(cos(target.rotation), sin(target.rotation))
+	return absf(tgt_fwd.angle_to(-to_tgt.normalized())) <= DEFENSIVE_TRACK_ANGLE
 
 # ---------------------------------------------------------------------------
 # TAKE-OFF HANDLER
@@ -696,6 +913,7 @@ func _decision_takeoff(avatar) -> void:
 	var stall_speed: float = 21.4
 	if avatar:
 		stall_speed = avatar.stall_speed_ms
+	var ppm: float = biplane.get("pixels_per_meter") if "pixels_per_meter" in biplane else 16.0
 	var speed = biplane.velocity.length()
 
 	# Throttle — always full except on the ground to prevent over-speed.
@@ -709,8 +927,11 @@ func _decision_takeoff(avatar) -> void:
 		pilots[0].last_pitch_input = 0.0 if speed < TAKEOFF_ROTATE_SPEED else TAKEOFF_PITCH
 	else:
 		var alt = _get_altitude_above_ground()
-		if speed < stall_speed * 2.0:
-			pilots[0].last_pitch_input = clampf(-0.03 * (speed / (stall_speed * 2.0)), -0.03, 0.0)
+		# Hold the nose level until ~2× stall (px/s) to build flying speed
+		# before the climb — comparison is in px/s, not the raw m/s stall value.
+		var rotate_speed_px: float = stall_speed * ppm * 2.0
+		if speed < rotate_speed_px:
+			pilots[0].last_pitch_input = clampf(-0.03 * (speed / rotate_speed_px), -0.03, 0.0)
 		elif alt < 100.0:
 			pilots[0].last_pitch_input = -0.05
 		elif alt < 200.0:
@@ -740,9 +961,11 @@ func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true) 
 
 	var alt_fix = 0.0
 	var pullup_fix = 0.0
+	var impact_t := INF
 	if ground_avoid:
 		alt_fix = _altitude_reflex()
 		pullup_fix = _pull_up_reflex()
+		impact_t = _terrain_impact_time()
 
 	if alt_fix != 0.0:
 		pitch    = alt_fix
@@ -767,7 +990,44 @@ func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true) 
 	pitch = energy[0]
 	throttle = energy[1]
 
+	# Predictive terrain avoidance, applied LAST so it overrides even the
+	# energy gate: samples the velocity vector for a terrain intersection and
+	# pulls up early, scaled by urgency — this is what stops dive-attack
+	# crashes.  A slow plane gets only a shallow pull: it cannot zoom, and
+	# yanking the nose up near stall would just drop it out of the sky.
+	if impact_t < _impact_window():
+		var urgency := 1.0 - clampf(impact_t / _impact_window(), 0.0, 1.0)
+		var pull := lerpf(-0.35, -1.0, urgency)
+		if _speed_ratio() < STALL_AVOID_SPEED_RATIO:
+			pull = maxf(pull, -0.45)
+		pitch = minf(pitch, pull)
+		throttle = maxf(throttle, 0.8)
+
 	return [pitch, throttle]
+
+## Seconds until the current velocity vector intersects the terrain (INF when
+## the trajectory is clear).  Samples future positions, so rising ground ahead
+## is caught as well as a straight descent.  This is the predictive layer that
+## lets the AI pull up BEFORE the fixed low-altitude panic reflexes would fire.
+func _terrain_impact_time() -> float:
+	if not biplane:
+		return INF
+	var pos := biplane.global_position
+	var vel: Vector2 = biplane.velocity
+	if vel.length_squared() < 100.0:
+		return INF
+	for t in IMPACT_SAMPLE_TIMES:
+		var future: Vector2 = pos + vel * t
+		if future.y >= _get_ground_height(future.x) - IMPACT_ALT_MARGIN:
+			return t
+	return INF
+
+## Pull-up window in seconds: the base time-to-impact scaled up with speed,
+## since a faster plane needs more sky (and more lead time) to arc out of a dive.
+func _impact_window() -> float:
+	if not biplane:
+		return PULL_UP_TIME_TO_GROUND
+	return PULL_UP_TIME_TO_GROUND * clampf(biplane.velocity.length() / 400.0, 1.0, 2.0)
 
 ## Stall-avoidance / energy management.  When the AI wants to pull the nose up
 ## (negative pitch = climb in this convention) while close to stall speed, it
@@ -888,16 +1148,24 @@ func _lead_pursuit_point(target_pos: Vector2, lead_factor: float) -> Vector2:
 		predicted.y += 15.0
 	return predicted
 
+## Far-approach: climb to an altitude perch above the target before closing,
+## so the attack that follows starts with energy to spend (the boom before the
+## zoom).  Replaces the old version which aimed 100 px above the plane every
+## tick — a perpetual climb command that bled speed until the AI stalled.
 func _stalking_waypoint(target_pos: Vector2) -> Vector2:
 	if not biplane:
 		return target_pos
 	var my_pos = biplane.global_position
-	var dx     = target_pos.x - my_pos.x
-	if abs(dx) > STALKING_THRESHOLD:
-		var wx        = my_pos.x + sign(dx) * 150.0
-		var safe_ceil = _get_ground_height(wx) - MIN_ALTITUDE_ABOVE_GROUND
-		return Vector2(wx, minf(my_pos.y - 100.0, safe_ceil))
-	return target_pos
+	var dx := wrapf(target_pos.x - my_pos.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+	if absf(dx) <= STALKING_THRESHOLD:
+		return target_pos
+	var step_x: float = my_pos.x + signf(dx) * minf(absf(dx) * 0.4, 600.0)
+	var want_alt := clampf(
+		_get_altitude_above_ground_for(target) + STALK_ALTITUDE_ADVANTAGE,
+		MIN_ALTITUDE_ABOVE_GROUND * 2.0, STALK_MAX_ALTITUDE)
+	var ground_at_step := _get_ground_height(step_x)
+	# y is down: the smaller of the two is the higher, terrain-safe aim point.
+	return Vector2(step_x, minf(ground_at_step - want_alt, ground_at_step - MIN_ALTITUDE_ABOVE_GROUND))
 
 # ---------------------------------------------------------------------------
 # WEAPONS
@@ -921,7 +1189,9 @@ func _try_fire_weapon() -> void:
 	var my_hdg       = Vector2(cos(biplane.rotation), sin(biplane.rotation))
 	var angle_diff   = bullet_dir.angle_to(my_hdg)
 	var shot_quality = 1.0 - (absf(angle_diff) / FIRE_CONE_ANGLE)
-	var threshold    = 0.3 if dist < 200.0 else 0.6
+	# Aggressive fire discipline: open up earlier at all ranges to keep the
+	# player under pressure, not just when the solution is near-perfect.
+	var threshold    = 0.25 if dist < 200.0 else 0.5
 	if shot_quality >= threshold:
 		_fire_weapon()
 
@@ -979,6 +1249,17 @@ func _is_player_in_territory() -> bool:
 		return false
 	var px = target.global_position.x
 	return px >= territory_left and px <= territory_right
+
+## True when the target is a biplane that is currently airborne (FLYING or
+## STALLED).  Ground-structure targets count as "not airborne".
+func _is_player_airborne() -> bool:
+	if not target or not target.has_method("get_avatar_data"):
+		return false
+	var ta = target.get_avatar_data(0)
+	if not ta:
+		return false
+	return ta.flight_state == biplane.FlightState.FLYING \
+			or ta.flight_state == biplane.FlightState.STALLED
 
 func _is_target_on_ground() -> bool:
 	if not target:

@@ -213,11 +213,11 @@ static func _get_svg_path_from_params(model_params: Dictionary) -> String:
 ###############################################################################
 
 @export_group("Flight Parameters (SI Units)")
-@export var arcade_multiplier: float = 2.3
+@export var arcade_multiplier: float = 2.2
 @export var gravity:            float = 9.81
 
 @export_group("Scale & Arcade Tuning")
-@export var pixels_per_meter: float = 16.0
+@export var pixels_per_meter: float = 12.0
 
 @export_group("Aerodynamics")
 @export var air_density:         float = 1.225 * arcade_multiplier
@@ -299,7 +299,7 @@ const LANDING_TAXI_SPEED := 120.0
 ## state (set by force_crash / heavy damage before it reaches the ground and
 ## becomes CRASHED). Single source — replaced the duplicated 1.0 in
 ## falling_state.gd (deleted) and the 1.22 literal in _integrate_forces.
-const FALLING_SPIN_RATE := 1.22
+const FALLING_SPIN_RATE := 1.2
 
 const BULLET_SCENE := preload("res://scenes/bullet.tscn")
 const BOMB_SCENE   := preload("res://scenes/bomb.tscn")

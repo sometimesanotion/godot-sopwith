@@ -122,12 +122,19 @@ static func calculate_forces(inp: FlightInput) -> FlightOutput:
 
 	var eff_max_speed_ms: float = inp.model_params.get("max_speed_ms", 300.0)
 	var speed_px: float = inp.velocity.length()
+	# Unit-correct speed cap: compare in SI (m/s), NOT px/s, against the model's
+	# physical top speed.  The old code compared the px/s velocity directly to
+	# eff_max_speed_ms (m/s), so the limiter engaged at ~50 px/s (~1.3× stall)
+	# instead of at the real ceiling — max_speed_ms × pixels_per_meter ≈ 810 px/s
+	# for the Camel (~2.4× stall).  Computed in N (SI) so it adds directly to
+	# para/induced drag with no pixels_per_meter conversion.
+	var speed_si_lim: float = speed_px / inp.pixels_per_meter
 	var speed_lim_drag: float = 0.0
-	if speed_px > eff_max_speed_ms:
-		var over: float = speed_px - eff_max_speed_ms
-		speed_lim_drag = over * over * 0.5
+	if speed_si_lim > eff_max_speed_ms:
+		var over_ms: float = speed_si_lim - eff_max_speed_ms
+		speed_lim_drag = 0.5 * over_ms * over_ms
 
-	var total_drag: float = (para_drag + induced_drag + speed_lim_drag / inp.pixels_per_meter) * inp.damage_drag_mult
+	var total_drag: float = (para_drag + induced_drag + speed_lim_drag) * inp.damage_drag_mult
 	if speed_si > 0.01:
 		out.drag_force = -vel_si.normalized() * total_drag
 

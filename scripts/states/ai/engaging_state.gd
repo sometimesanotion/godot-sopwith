@@ -27,7 +27,14 @@ func update(delta: float) -> void:
 	var damage = avatar.damage.damage_percent
 	var dist_to_tgt = ai._get_wrapped_distance(ai.biplane.global_position.x, ai.target.global_position.x)
 
-	if alt < ai.DANGER_ALTITUDE_ABOVE_GROUND or ai.pilots[0].incoming_bullet_timer > 0.0:
+	# Defensive reactions: always break when the player has our six, and break
+	# under fire only when too slow or too hurt to fight back.  A healthy,
+	# fast plane PRESSES a head-on attack instead of flinching at every
+	# incoming round — this is what makes it an aggressive opponent.
+	var defensive := ai._should_evade_defensively()
+	var under_fire: bool = ai.pilots[0].incoming_bullet_timer > 0.0
+	if alt < ai.DANGER_ALTITUDE_ABOVE_GROUND or defensive \
+			or (under_fire and (ai._is_low_energy() or damage >= 0.3)):
 		finished.emit(&"evading")
 	elif damage >= 0.5:
 		finished.emit(&"returning")
