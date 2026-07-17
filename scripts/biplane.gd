@@ -212,12 +212,12 @@ static func _get_svg_path_from_params(model_params: Dictionary) -> String:
 # EXPORTS
 ###############################################################################
 
-@export_group("Flight Parameters (SI Units)")
-@export var arcade_multiplier: float = 2.3
-@export var gravity:            float = 9.81
-
 @export_group("Scale & Arcade Tuning")
 @export var pixels_per_meter: float = 14.0
+
+@export_group("Flight Parameters (SI Units)")
+@export var arcade_multiplier: float = 2.2
+@export var gravity:            float = 9.81
 
 @export_group("Aerodynamics")
 @export var air_density:         float = 1.225 * arcade_multiplier
@@ -1706,8 +1706,9 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 		var old_fuel  := avatar.fuel
 
 		avatar.ammo = minf(MAX_AMMO, avatar.ammo + 5.0 + int(delta * 50.0))
-		avatar.fuel = minf(100.0, avatar.fuel + 3.0 + int(delta * 50.0))
-		avatar.bombs = mini(max_bombs, avatar.bombs + 1)
+		avatar.fuel = minf(100.0, avatar.fuel + 5.0 + int(delta * 50.0))
+		if randi() % 4 == 0:
+			avatar.bombs = mini(max_bombs, avatar.bombs + 1)
 		avatar.refuel_timer = 0.0
 
 		if GameManager and is_player_controlled:
