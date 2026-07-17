@@ -1693,11 +1693,11 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 	if avatar.ammo == MAX_AMMO and avatar.bombs == max_bombs and avatar.fuel == 100:
 		return
 
-	## Repair damage instantly on landing at home.
+	## Repair damage on landing at home.
 	if avatar.damage.damage_state != DamageData.DamageState.INTACT:
-		avatar.damage.repair(true)
+		avatar.damage.repair(false, 0.01)
 		_refresh_damage_modifiers(avatar)
-		avatar.set_flight_state(FlightState.FLYING)
+		# avatar.set_flight_state(FlightState.FLYING)
 
 	avatar.refuel_timer += delta
 	if avatar.refuel_timer >= 0.5:
