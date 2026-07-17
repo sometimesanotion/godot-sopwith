@@ -19,8 +19,6 @@ func update(delta: float) -> void:
 	var reflexed = ai._apply_reflexes(pitch, throttle)
 	ai.pilots[0].last_pitch_input = reflexed[0]
 	ai.pilots[0].last_throttle = reflexed[1]
-	ai._apply_input(ai.pilots[0].last_pitch_input, ai.pilots[0].last_throttle)
-	ai._check_flip_needed()
 
 	var dist_to_tgt = ai._get_wrapped_distance(ai.biplane.global_position.x, ai.target.global_position.x)
 	var my_dist_home = ai._get_wrapped_distance(ai.biplane.global_position.x, ai.home_base_x)

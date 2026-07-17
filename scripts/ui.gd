@@ -38,15 +38,16 @@ const AI_STATE_NAMES := {
 	2: "PATROLLING",
 	3: "ENGAGING",
 	4: "EVADING",
-	5: "RETURNING"
+	5: "RETURNING",
+	6: "DESTROYED"
 }
 
 const FLIGHT_STATE_NAMES := {
 	0: "FLYING",
 	1: "STALLED",
 	2: "FALLING",
-	3: "DAMAGED",
-	4: "LANDED",
+	3: "LANDED",
+	4: "DAMAGED",
 	5: "CRASHED"
 }
 

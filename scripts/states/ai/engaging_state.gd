@@ -22,15 +22,12 @@ func update(delta: float) -> void:
 	var reflexed = ai._apply_reflexes(result[0], result[1])
 	ai.pilots[0].last_pitch_input = reflexed[0]
 	ai.pilots[0].last_throttle = reflexed[1]
-	ai._apply_input(ai.pilots[0].last_pitch_input, ai.pilots[0].last_throttle)
-	ai._check_flip_needed()
 
 	var alt = ai._get_altitude_above_ground()
 	var damage = avatar.damage.damage_percent
 	var dist_to_tgt = ai._get_wrapped_distance(ai.biplane.global_position.x, ai.target.global_position.x)
 
 	if alt < ai.DANGER_ALTITUDE_ABOVE_GROUND or ai.pilots[0].incoming_bullet_timer > 0.0:
-		ai.pilots[0].evade_timer = randf_range(ai.EVADE_DURATION_MIN, ai.EVADE_DURATION_MAX)
 		finished.emit(&"evading")
 	elif damage >= 0.5:
 		finished.emit(&"returning")

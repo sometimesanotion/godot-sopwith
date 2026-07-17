@@ -3,92 +3,74 @@ extends Node
 
 signal state_changed(current_state: State)
 
-@export var start_state: NodePath
-
-var states_map: Dictionary = {}
-var states_stack: Array[State] = []
+## Single, DRY registration of State children. Keys are the child node name in
+## snake_case ("TakingOff" -> &"taking_off"); every existing FSM's handwritten
+## `states_map` literal matched this exactly, so those literals are deleted.
+var states_map: Dictionary = {}          # StringName key -> State (auto-built)
 var current_state: State = null
-var _active: bool = false:
-	set(value):
-		_active = value
-		set_active(value)
+var current_key: StringName = &""
+var previous_key: StringName = &""
+var self_driven: bool = true             # false = owner calls tick() manually
+var _active: bool = false
 
-func _enter_tree() -> void:
-	var initial_state: Node
-	if start_state.is_empty():
-		initial_state = get_child(0)
-	else:
-		initial_state = get_node(start_state)
+func _ready() -> void:
 	for child in get_children():
 		if child is State:
 			child.state_machine = self
 			if not child.finished.is_connected(_change_state):
 				child.finished.connect(_change_state)
-	initialize(initial_state)
+			states_map[child.name.to_snake_case()] = child
 
-func initialize(initial_state: State) -> void:
+## Owner calls this explicitly after any external references (e.g. controller)
+## are wired into the FSM. Replaces the old `_enter_tree` auto-init ordering trap
+## and the no-op start-state assignment.
+func initialize(start_key: StringName) -> void:
+	if not states_map.has(start_key):
+		push_warning("StateMachine.initialize: unknown start key '%s'" % start_key)
+		return
 	_active = true
-	states_stack.clear()
-	states_stack.push_front(initial_state)
-	current_state = states_stack[0]
+	if current_state and current_state != states_map[start_key]:
+		current_state.exit()
+	current_state = states_map[start_key]
+	current_key = start_key
+	previous_key = &""
 	current_state.enter()
 
+func is_active() -> bool:
+	return _active
+
 func set_active(value: bool) -> void:
-	set_physics_process(value)
-	set_process_input(value)
-	if not _active:
-		states_stack.clear()
-		current_state = null
+	_active = value
 
-func _unhandled_input(event: InputEvent) -> void:
-	if current_state:
-		current_state.handle_input(event)
-
-func _physics_process(delta: float) -> void:
+## Advance the current state exactly once. Used both by the self-driven
+## `_physics_process` and by owners that drive the FSM manually at a cadence
+## they control (e.g. the AI controller at its decision interval).
+func tick(delta: float) -> void:
 	if current_state:
 		current_state.update(delta)
 		current_state.physics_update(delta)
+
+func transition_to(state_name: StringName) -> void:
+	_change_state(state_name)
 
 func _change_state(state_name: StringName) -> void:
 	if not _active:
 		return
 	if not current_state:
 		return
-	current_state.exit()
-
-	if state_name == &"previous":
-		states_stack.pop_front()
-	else:
-		if state_name in states_map:
-			states_stack[0] = states_map[state_name]
-
-	current_state = states_stack[0] if states_stack.size() > 0 else null
-	if current_state:
-		state_changed.emit(current_state)
-		if state_name != &"previous":
-			current_state.enter()
-
-func transition_to(state_name: StringName) -> void:
-	_change_state(state_name)
-
-func push_state(state_name: StringName) -> void:
-	if not _active or not current_state:
+	# Idempotent: re-entering the current state is a no-op.
+	if state_name == current_key:
 		return
-	if state_name in states_map:
-		var new_state: State = states_map[state_name]
-		current_state.exit()
-		states_stack.push_front(new_state)
-		current_state = new_state
-		current_state.enter()
-		state_changed.emit(current_state)
-
-func pop_state() -> void:
-	if not _active or not current_state:
+	if not states_map.has(state_name):
+		push_warning("StateMachine._change_state: unknown state '%s'" % state_name)
 		return
+	previous_key = current_key
 	current_state.exit()
-	states_stack.pop_front()
-	if states_stack.size() > 0:
-		current_state = states_stack[0]
-		state_changed.emit(current_state)
-	else:
-		current_state = null
+	current_state = states_map[state_name]
+	current_key = state_name
+	current_state.enter()
+	state_changed.emit(current_state)
+
+func _physics_process(delta: float) -> void:
+	if _active and self_driven and current_state:
+		tick(delta)

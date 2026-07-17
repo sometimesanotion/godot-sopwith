@@ -3,19 +3,8 @@ extends StateMachine
 
 signal game_state_changed(state_name: String)
 
-func _ready() -> void:
-	states_map = {
-		&"title": $Title,
-		&"playing": $Playing,
-		&"paused": $Paused,
-		&"game_over": $GameOver,
-		&"level_complete": $LevelComplete,
-	}
-	for child in get_children():
-		if child is State:
-			child.state_machine = self
-			if not child.finished.is_connected(_change_state):
-				child.finished.connect(_change_state)
+## Registration is handled by the base StateMachine._ready (auto, DRY).
+## Only the game-specific relay lives here.
 
 func _change_state(state_name: StringName) -> void:
 	super._change_state(state_name)

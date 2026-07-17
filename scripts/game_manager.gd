@@ -63,7 +63,7 @@ func _init_game_fsm() -> void:
 		game_fsm.add_child(state_node)
 
 	add_child(game_fsm)
-	game_fsm.start_state = game_fsm.get_node("Playing").get_path()
+	game_fsm.initialize(&"playing")
 	game_fsm.game_state_changed.connect(_on_game_state_changed)
 
 func _on_game_state_changed(state_name: String) -> void:
@@ -121,7 +121,7 @@ func reset_game() -> void:
 	for pid in _players:
 		_players[pid] = 0
 	emit_signal("score_changed", 0)
-	if game_fsm and game_fsm._active:
+	if game_fsm and 	game_fsm.is_active():
 		game_fsm.transition_to(&"playing")
 
 func register_player(player_id: int) -> PlayerData:
@@ -170,10 +170,10 @@ func destroy_player(player_id: int) -> void:
 
 func game_over() -> void:
 	game_state = "GAME_OVER"
-	if game_fsm and game_fsm._active:
+	if game_fsm and 	game_fsm.is_active():
 		game_fsm.transition_to(&"game_over")
 
 func game_win() -> void:
 	game_state = "WINNER"
-	if game_fsm and game_fsm._active:
+	if game_fsm and 	game_fsm.is_active():
 		game_fsm.transition_to(&"level_complete")

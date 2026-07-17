@@ -5,8 +5,14 @@
 ##
 ## One class, one physics loop, zero abstraction layers.
 ##
-## FlightState is the single finite-state machine that controls all behaviours.
-## Every per-entity value lives in AvatarData. The node itself is the view layer.
+## Flight state is the single authoritative representation that controls all
+## behaviours. It is an enum (`Biplane.FlightState`) held on AvatarData and is
+## written only through `AvatarData.set_flight_state()`, which no-ops on no-change
+## and emits `flight_state_changed(from, to)` on real transitions. There is NO
+## flight node-FSM — physics-driven transitions are detected in
+## `_update_flight_state()`, and event-driven ones (damage, refuel-repair, crash)
+## call the setter directly. Every per-entity value lives in AvatarData; the node
+## itself is the view layer.
 ## The physics loop uses Aerodynamics.calculate_forces() to compute all forces
 ## in one pass every frame — via _integrate_forces() which delegates to the
 ## static Aerodynamics module.
@@ -289,6 +295,12 @@ const TERRAIN_LENGTH := 16384.0
 ## flying (and the AI then keeps it ENGAGING instead of treating it as landed).
 const LANDING_TAXI_SPEED := 120.0
 
+## Angular velocity (rad/s) applied to a wreck while in the FALLING spin-out
+## state (set by force_crash / heavy damage before it reaches the ground and
+## becomes CRASHED). Single source — replaced the duplicated 1.0 in
+## falling_state.gd (deleted) and the 1.22 literal in _integrate_forces.
+const FALLING_SPIN_RATE := 1.22
+
 const BULLET_SCENE := preload("res://scenes/bullet.tscn")
 const BOMB_SCENE   := preload("res://scenes/bomb.tscn")
 
@@ -334,6 +346,12 @@ var _homebases: Dictionary[int, HomebaseData] = {}
 ###############################################################################
 
 class AvatarData:
+	## Single source of truth for flight state. Emitted on every real transition
+	## (the same SSOT pattern used by DamageData.damage_state_changed). After M2
+	## there is no node-FSM mirroring this field, so this signal is the only
+	## outward notification of flight-state changes.
+	signal flight_state_changed(from: int, to: int)
+
 	# Identity
 	var id:           int     = 0
 	var faction:      Faction = Faction.BRITISH
@@ -373,6 +391,18 @@ class AvatarData:
 	# Flight state (FSM)
 	var flight_state: FlightState = FlightState.FLYING
 	var stall_speed_ms: float        = 21.4
+
+	## Single writable entry for `flight_state`. Idempotent: returns false and
+	## does nothing when the value is unchanged; assigns, emits
+	## `flight_state_changed`, and returns true otherwise. All transitions must
+	## funnel through this so there is exactly one representation of flight state.
+	func set_flight_state(new_state: FlightState) -> bool:
+		if flight_state == new_state:
+			return false
+		var from: int = flight_state
+		flight_state = new_state
+		flight_state_changed.emit(from, int(new_state))
+		return true
 
 	# Damage
 	var damage:          DamageData  = DamageData.new()
@@ -434,7 +464,7 @@ class AvatarData:
 	var bomb_spawn_offset: Vector2 = model_params.get("bomb_spawn_offset", Vector2(0, 32))
 
 	func reset() -> void:
-		flight_state = FlightState.FLYING
+		set_flight_state(FlightState.FLYING)
 		damage.reset()
 		reliability      = 1.0
 		drag_multiplier  = 1.0
@@ -496,7 +526,6 @@ var _respawn_queued: Dictionary = {}
 
 func _refresh_damage_modifiers(avatar: AvatarData) -> void:
 	var new_state := avatar.damage.get_damage_state()
-	var prev_state := avatar.damage.damage_state
 	avatar.damage.damage_state = new_state
 
 	var mods := avatar.damage.get_modifiers()
@@ -518,12 +547,9 @@ signal damaged(impact_force: float, v_perp: float)
 # NODE STATE
 ###############################################################################
 
-@export var current_flight_state_name: String = "Flying"
-
 var game_active: bool = false
 var _terrain: Node    = null   ## Cached in _ready(); null if terrain absent.
 var _active_bombs: Array[Node] = []   ## Bombs this plane dropped, tracking for whistle.
-var flight_fsm: FlightStateMachine = null
 
 var _pending_teleport: bool = false
 var _teleport_position: Vector2 = Vector2.ZERO
@@ -745,14 +771,6 @@ func _find_enemy_ai_for_avatar(_avatar: AvatarData) -> Node:
 func _draw_ai_debug_lines(avatar: AvatarData) -> void:
 	const MAX_LEN := 200.0
 	const ALPHA := 0.6
-	const AI_STATE_COLORS := {
-		0: Color(0.5, 0.5, 0.5, ALPHA),   # GROUNDED — grey
-		1: Color(1.0, 1.0, 0.0, ALPHA),   # TAKING_OFF — yellow
-		2: Color(0.0, 0.8, 1.0, ALPHA),   # PATROLLING — cyan
-		3: Color(1.0, 0.2, 0.2, ALPHA),   # ENGAGING — red
-		4: Color(1.0, 0.5, 0.0, ALPHA),   # EVADING — orange
-		5: Color(0.3, 0.7, 1.0, ALPHA),   # RETURNING — light blue
-	}
 
 	var ai_node := _find_enemy_ai_for_avatar(avatar)
 	if not ai_node:
@@ -806,19 +824,6 @@ func _draw_ai_debug_lines(avatar: AvatarData) -> void:
 			tgt_local + Vector2(0, -d),
 		])
 		draw_polyline(diamond, Color(1.0, 0.15, 0.15, ALPHA * 0.6), 1.5)
-
-func _draw_debug_info(avatar: AvatarData) -> void:
-	var font = Control.new().get_font("font")
-
-	var debug_text = "Model: %s\n" % avatar.get_plane_name()
-	debug_text += "Faction: %s\n" % ["British", "German", "Neutral"][avatar.faction]
-	debug_text += "Team: %s\n" % ["Allied", "Enemy", "Neutral"][avatar.team]
-	debug_text += "Flight State: %s\n" % ["Flying", "Stalled", "Falling", "Damaged", "Landed", "Crashed"][avatar.flight_state]
-	debug_text += "Damage: %.1f%%\n" % (avatar.damage.damage_percent * 100)
-	debug_text += "Speed: %.1f px/s\n" % velocity.length()
-	debug_text += "Throttle: %.1f%%\n" % (avatar.throttle * 100)
-
-	draw_string(font, Vector2(10, 25), debug_text, HORIZONTAL_ALIGNMENT_LEFT)
 
 ###############################################################################
 # COLLISION INTERFACE
@@ -907,8 +912,6 @@ func _ready() -> void:
 	max_contacts_reported = 4
 	continuous_cd = CCD_MODE_CAST_SHAPE
 
-	_init_flight_fsm()
-
 	for avatar_id in _avatars:
 		var avatar: AvatarData = _avatars[avatar_id]
 		avatar.plane_model = get_default_plane_model(avatar.faction)
@@ -922,59 +925,8 @@ func _ready() -> void:
 	reset_visual_transform()
 	_terrain = get_parent().get_node_or_null("Terrain")
 
-func _init_flight_fsm() -> void:
-	var fsm_node = get_node_or_null("FlightStateMachine")
-	if not fsm_node:
-		fsm_node = _create_flight_fsm_nodes()
-	if fsm_node and fsm_node is FlightStateMachine:
-		flight_fsm = fsm_node
-		flight_fsm.set_biplane(self)
-		if flight_fsm.state_changed.is_connected(_on_flight_state_changed):
-			flight_fsm.state_changed.disconnect(_on_flight_state_changed)
-		flight_fsm.state_changed.connect(_on_flight_state_changed)
-		if get_avatar_data(0):
-			flight_fsm.transition_to(&"flying")
-
-func _create_flight_fsm_nodes() -> FlightStateMachine:
-	var fsm := FlightStateMachine.new()
-	fsm.name = "FlightStateMachine"
-
-	var state_scripts := {
-		"Flying": load("res://scripts/states/flight/flying_state.gd"),
-		"Stalling": load("res://scripts/states/flight/stalling_state.gd"),
-		"Falling": load("res://scripts/states/flight/falling_state.gd"),
-		"Damaged": load("res://scripts/states/flight/damaged_state.gd"),
-		"Landed": load("res://scripts/states/flight/landed_state.gd"),
-		"Crashed": load("res://scripts/states/flight/crashed_state.gd"),
-		"Refueling": load("res://scripts/states/flight/refueling_state.gd"),
-	}
-	for state_name in state_scripts:
-		var state_node := State.new()
-		state_node.name = state_name
-		state_node.set_script(state_scripts[state_name])
-		fsm.add_child(state_node)
-	add_child(fsm)
-	fsm.start_state = fsm.get_node("Flying").get_path()
-	return fsm
-
-func _on_flight_state_changed(new_state: State) -> void:
-	if new_state:
-		current_flight_state_name = new_state.name
-		var avatar = get_avatar_data(0)
-		if avatar:
-			avatar.flight_state = flight_fsm.get_flight_state_enum()
-
 func _physics_process(delta: float) -> void:
 	if not game_active:
-		return
-
-	if flight_fsm and flight_fsm._active:
-		for avatar_id in _avatars:
-			var avatar: AvatarData = _avatars[avatar_id]
-			if avatar.damage.damage_state == DamageData.DamageState.DESTROYED and \
-			   avatar.flight_state != FlightState.CRASHED and \
-			   current_flight_state_name != "Crashed":
-				_on_avatar_crashed(avatar)
 		return
 
 	for avatar_id in _avatars:
@@ -1048,7 +1000,7 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 		return
 
 	if avatar.flight_state == FlightState.FALLING:
-		avatar.angular_velocity = 1.22
+		avatar.angular_velocity = FALLING_SPIN_RATE
 		avatar.pitch_angle += avatar.angular_velocity * step
 		state.set_angular_velocity(avatar.angular_velocity)
 
@@ -1181,57 +1133,45 @@ func _build_flight_input(avatar: AvatarData, state: PhysicsDirectBodyState2D) ->
 	return inp
 
 func _update_flight_state(avatar: AvatarData, gc: GroundContact, stalled: bool, ground_speed: Vector2 = Vector2.ZERO) -> void:
-	var speed: float = ground_speed.length()
+		var speed: float = ground_speed.length()
 
-	if gc.is_grounded:
-		# Destroyed / crashed / damaged planes keep their own (terminal) state.
-		if avatar.flight_state == FlightState.DAMAGED or \
-		   avatar.flight_state == FlightState.CRASHED or \
-		   avatar.damage.damage_state == DamageData.DamageState.DESTROYED:
+		if gc.is_grounded:
+			# Destroyed / crashed / damaged planes keep their own (terminal) state.
+			if avatar.flight_state == FlightState.DAMAGED or \
+			   avatar.flight_state == FlightState.CRASHED or \
+			   avatar.damage.damage_state == DamageData.DamageState.DESTROYED:
+				return
+
+			# Only treat the plane as LANDED once it has slowed to a taxi/rollout
+			# speed.  A plane hugging the terrain at speed (low strafing pass, fast
+			# ground rollout) is still flying — flagging it LANDED there strands the
+			# flight FSM in LANDED and the AI wrongly keeps ENGAGING a plane that is
+			# clearly airborne.  A fast grounded plane therefore stays FLYING and
+			# rolls/skims until it decelerates below the threshold.
+			if speed < LANDING_TAXI_SPEED:
+				avatar.set_flight_state(FlightState.LANDED)
+			else:
+				avatar.set_flight_state(FlightState.FLYING)
 			return
 
-		# Only treat the plane as LANDED once it has slowed to a taxi/rollout
-		# speed.  A plane hugging the terrain at speed (low strafing pass, fast
-		# ground rollout) is still flying — flagging it LANDED there strands the
-		# flight FSM in LANDED and the AI wrongly keeps ENGAGING a plane that is
-		# clearly airborne.  A fast grounded plane therefore stays FLYING and
-		# rolls/skims until it decelerates below the threshold.
-		if speed < LANDING_TAXI_SPEED:
-			avatar.flight_state = FlightState.LANDED
-			if flight_fsm and flight_fsm._active and current_flight_state_name != "Landed":
-				flight_fsm.transition_to(&"landed")
-		else:
-			avatar.flight_state = FlightState.FLYING
-			if flight_fsm and flight_fsm._active and current_flight_state_name != "Flying":
-				flight_fsm.transition_to(&"flying")
-		return
+		if avatar.flight_state == FlightState.FALLING:
+			if avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
+				if stalled:
+					avatar.set_flight_state(FlightState.STALLED)
+				else:
+					avatar.set_flight_state(FlightState.FLYING)
+			return
 
-	if avatar.flight_state == FlightState.FALLING:
+		if stalled and avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
+			if avatar.flight_state == FlightState.FLYING or \
+			   avatar.flight_state == FlightState.LANDED:
+				avatar.set_flight_state(FlightState.STALLED)
+			return
+
 		if avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
-			if stalled:
-				avatar.flight_state = FlightState.STALLED
-				if flight_fsm and flight_fsm._active and current_flight_state_name != "Stalling":
-					flight_fsm.transition_to(&"stalling")
-			else:
-				avatar.flight_state = FlightState.FLYING
-				if flight_fsm and flight_fsm._active and current_flight_state_name != "Flying":
-					flight_fsm.transition_to(&"flying")
-		return
-
-	if stalled and avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
-		if avatar.flight_state == FlightState.FLYING or \
-		   avatar.flight_state == FlightState.LANDED:
-			avatar.flight_state = FlightState.STALLED
-			if flight_fsm and flight_fsm._active and current_flight_state_name != "Stalling":
-				flight_fsm.transition_to(&"stalling")
-		return
-
-	if avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
-		if avatar.flight_state == FlightState.STALLED or \
-		   avatar.flight_state == FlightState.LANDED:
-			avatar.flight_state = FlightState.FLYING
-			if flight_fsm and flight_fsm._active and current_flight_state_name != "Flying":
-				flight_fsm.transition_to(&"flying")
+			if avatar.flight_state == FlightState.STALLED or \
+			   avatar.flight_state == FlightState.LANDED:
+				avatar.set_flight_state(FlightState.FLYING)
 
 func _process_landing_impact(avatar: AvatarData, v_perp: float,
 		impact_force: float, tilt_angle: float) -> void:
@@ -1257,9 +1197,7 @@ func _process_landing_impact(avatar: AvatarData, v_perp: float,
 		Aerodynamics.LandingImpact.HARD:
 			var damage_pct: float = (v_perp - soft_landing) / (hard_landing - soft_landing)
 			damage_pct = clampf(damage_pct, 0.0, 1.0)
-			avatar.flight_state = FlightState.DAMAGED
-			if flight_fsm and flight_fsm._active:
-				flight_fsm.transition_to(&"damaged")
+			avatar.set_flight_state(FlightState.DAMAGED)
 			avatar.damage.take_damage(damage_pct)
 			_refresh_damage_modifiers(avatar)
 			damaged.emit(impact_force, v_perp)
@@ -1759,9 +1697,7 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 	if avatar.damage.damage_state != DamageData.DamageState.INTACT:
 		avatar.damage.repair(true)
 		_refresh_damage_modifiers(avatar)
-		avatar.flight_state = FlightState.FLYING
-		if flight_fsm and flight_fsm._active:
-			flight_fsm.transition_to(&"flying")
+		avatar.set_flight_state(FlightState.FLYING)
 
 	avatar.refuel_timer += delta
 	if avatar.refuel_timer >= 0.5:
@@ -1816,19 +1752,16 @@ func take_damage(avatar_or_amount, amount_or_attacker = null, _attacker = null) 
 			if award > 0:
 				GameManager.add_score(0, award)
 
+	## DamageData.take_damage() already reassigns `damage_state` and emits
+	## `damage_state_changed` — re-deriving it here is redundant.
 	avatar.damage.take_damage(amount / 100.0)
-	avatar.damage.damage_state = avatar.damage.get_damage_state()
 	_refresh_damage_modifiers(avatar)
 
 	if avatar.damage.damage_state == DamageData.DamageState.SEVERE:
-		avatar.flight_state = FlightState.DAMAGED
-		if flight_fsm and flight_fsm._active:
-			flight_fsm.transition_to(&"damaged")
+		avatar.set_flight_state(FlightState.DAMAGED)
 
 	if avatar.damage.damage_state == DamageData.DamageState.DESTROYED:
-		avatar.flight_state = FlightState.FALLING
-		if flight_fsm and flight_fsm._active:
-			flight_fsm.transition_to(&"falling")
+		avatar.set_flight_state(FlightState.FALLING)
 
 ###############################################################################
 # PARTICLE HELPERS  (delegated to EffectManager)
@@ -1900,9 +1833,7 @@ func _detach_smoke(avatar: AvatarData) -> void:
 func _start_spinning_out(avatar: AvatarData) -> void:
 	avatar.throttle             = 0.0
 	avatar.throttle_target      = 0.0
-	avatar.flight_state         = FlightState.FALLING
-	if flight_fsm and flight_fsm._active:
-		flight_fsm.transition_to(&"falling")
+	avatar.set_flight_state(FlightState.FALLING)
 
 func _on_avatar_crashed(avatar: AvatarData) -> void:
 	## Stop any barrel-roll tween the moment we crash so it cannot corrupt the
@@ -1921,11 +1852,11 @@ func _on_avatar_crashed(avatar: AvatarData) -> void:
 	})
 
 	_crash_processed[avatar.id] = true
-	avatar.flight_state          = FlightState.CRASHED
+	avatar.set_flight_state(FlightState.CRASHED)
+	## Destruction-by-impact must force the damage band to DESTROYED regardless
+	## of `damage_percent` (the setter only tracks the enum, not the band).
 	avatar.damage.damage_state   = DamageData.DamageState.DESTROYED
 	avatar.is_airborne           = false
-	if flight_fsm and flight_fsm._active:
-		flight_fsm.transition_to(&"crashed")
 	if GameManager and is_player_controlled:
 		GameManager.destroy_player(avatar.id)
 	## Emit the destruction event for explosion / screen-shake / sfx.  Respawn
@@ -2112,10 +2043,6 @@ func reset_flight_state(avatar_id: int = 0) -> void:
 		if is_player_controlled and SoundManager:
 			SoundManager.start_engine()
 			SoundManager.set_engine_rpm(0.0)
-	if flight_fsm:
-		if not flight_fsm._active:
-			flight_fsm._active = true
-		flight_fsm.transition_to(&"flying")
 	reset_visual_transform()
 
 func force_crash() -> void:
@@ -2180,10 +2107,6 @@ func _is_on_homebase(avatar: AvatarData) -> bool:
 	if avatar.team != hb.team:
 		return false
 	return abs(global_position.x - hb.home_base_x) <= hb.home_base_width
-
-func transition_flight_state(state_name: String) -> void:
-	if flight_fsm and flight_fsm._active:
-		flight_fsm.transition_to(StringName(state_name))
 
 ###############################################################################
 # PUBLIC ACCESSORS
@@ -2475,7 +2398,7 @@ func get_available_models() -> Array:
 ##   get_available_models() - List all available models
 ##
 ## Debug Functions (Debug Build Only):
-##   _draw_debug_info(avatar) - Shows flight state, model info, vectors
+##   _draw_debug_lines / _draw_ai_debug_lines - velocity/thrust/heading visualization
 ##   Real-time velocity/thrust visualization
 ##
 ## Physics Access:

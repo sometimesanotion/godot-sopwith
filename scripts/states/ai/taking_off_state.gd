@@ -13,9 +13,9 @@ func update(delta: float) -> void:
 	var avatar = ai._get_avatar()
 	if not avatar:
 		return
+	# Compute-only: writes pilot outputs. The controller applies them once per
+	# physics frame (single application path, D4).
 	ai._decision_takeoff(avatar)
-	ai._apply_input(ai.pilots[0].last_pitch_input, ai.pilots[0].last_throttle)
-	ai._check_flip_needed()
 
 	var alt = ai._get_altitude_above_ground()
 	var dist_to_tgt = ai._get_wrapped_distance(ai.biplane.global_position.x, ai.target.global_position.x)

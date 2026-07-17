@@ -1,12 +1,22 @@
 extends Node
 
 ## Enemy AI for Sopwith biplanes
-## Architecture: FSM State Machine -> Pursuit Calculator -> Reflex Layer
+## Architecture: Controller (sole driver) -> FSM State Machine -> Pursuit Calculator -> Reflex Layer
 ##
-## The AI now uses the project's reusable FSM (StateMachine/State) instead of
-## a manual enum + match pattern. State transitions are handled by individual
-## state scripts in scripts/states/ai/. The _physics_process loop delegates
-## to the FSM which in turn calls the appropriate state's update().
+## The AI uses the project's reusable FSM (StateMachine/State) instead of a
+## manual enum + match pattern. State scripts in scripts/states/ai/ compute
+## decisions only — they never apply inputs or mutate pilot outputs directly.
+##
+## CADENCE MODEL (single-driver, D2/D3)
+##   • The controller (`enemy_ai`) is the SOLE driver of `AIStateMachine`.
+##     `self_driven` is false; the FSM never ticks itself.
+##   • Decisions: the controller accumulates real elapsed time and calls
+##     `ai_fsm.tick(elapsed)` once every `decision_interval` (0.05 s ≈ 20 Hz).
+##   • Application: control outputs (`_apply_input`) are applied once per
+##     physics frame (≈60 Hz), decoupled from the decision cadence.
+##   • State timers (`evade_timer`, patrol oscillation) therefore track wall
+##     time exactly, and `HEADING_LERP_FACTOR` filters jitter at its designed
+##     20 Hz (B3/B4).
 ##
 ## PITCH CONTROL  (Options B + C)
 ##   B — State-aware damping profiles: ENGAGING uses a more aggressive budget
@@ -31,18 +41,6 @@ extends Node
 ##   • Runway pitch suppression — outputs reset on respawn; reflexes skipped
 ##     in GROUNDED / TAKING_OFF.
 
-# ---------------------------------------------------------------------------
-# STATE ENUM
-# ---------------------------------------------------------------------------
-
-enum AIState {
-	GROUNDED,
-	TAKING_OFF,
-	PATROLLING,
-	ENGAGING,
-	EVADING,
-	RETURNING,
-}
 
 # ---------------------------------------------------------------------------
 # CONSTANTS  (shared, never written at runtime)
@@ -174,21 +172,15 @@ const BOMB_ANGLE_TOLERANCE      := 0.175
 # ---------------------------------------------------------------------------
 
 class AIData:
-	# FSM
-	var ai_state: int        = 0   # AIState.GROUNDED
-	var previous_state: int  = 2   # AIState.PATROLLING
-
 	# Control outputs carried between frames
 	var last_pitch_input: float = 0.0
 	var last_throttle: float    = 0.0
 	var desired_heading: float  = 0.0
 
 	# Timers
-	var decision_timer: float        = 0.0
 	var incoming_bullet_timer: float = 0.0
 	var flip_cooldown: float         = 0.0
 	var bomb_cooldown_timer: float   = 0.0
-	var evade_timer: float           = 0.0
 	var patrol_time: float           = 0.0
 	var takeoff_timer: float         = 0.0
 
@@ -214,6 +206,7 @@ class AIData:
 @export var unlimited_fuel_ammo: bool = false
 
 var decision_interval: float = 0.05
+var decision_accum: float = 0.0
 
 var territory_left: float  = 0.0
 var territory_right: float = 16384.0
@@ -269,7 +262,6 @@ func _init_ai_fsm() -> void:
 		"Evading": load("res://scripts/states/ai/evading_state.gd"),
 		"Returning": load("res://scripts/states/ai/returning_state.gd"),
 		"Destroyed": load("res://scripts/states/ai/destroyed_state.gd"),
-		"Refueling": load("res://scripts/states/ai/refueling_state.gd"),
 	}
 	for state_name in state_scripts:
 		var state_node := State.new()
@@ -279,19 +271,13 @@ func _init_ai_fsm() -> void:
 
 	fsm_node.set_ai_controller(self)
 	add_child(fsm_node)
-	fsm_node.start_state = fsm_node.get_node("Grounded").get_path()
 	ai_fsm = fsm_node
-	ai_fsm.initialize(ai_fsm.get_node("Grounded"))
+	ai_fsm.initialize(&"grounded")
+	# The controller is the only driver: it ticks the FSM at decision_interval
+	# (D2/D3), so the FSM must not self-drive.
+	ai_fsm.self_driven = false
 
-func _is_on_homebase_for_ai() -> bool:
-	if not biplane:
-		return false
-	var avatar = _get_avatar()
-	if not avatar:
-		return false
-	if not biplane.is_grounded(avatar):
-		return false
-	return abs(biplane.global_position.x - home_base_x) < 200.0
+
 
 # ---------------------------------------------------------------------------
 # PHYSICS LOOP
@@ -313,148 +299,28 @@ func _physics_process(delta: float) -> void:
 	var avatar = _get_avatar()
 	if avatar and (avatar.flight_state == biplane.FlightState.FALLING
 			or avatar.flight_state == biplane.FlightState.CRASHED):
+		# Single destruction path: reflect the wreck in the FSM (idempotent) and
+		# stop driving control outputs. Respawn later returns it to GROUNDED.
+		if ai_fsm and ai_fsm.is_active():
+			ai_fsm.transition_to(&"destroyed")
 		pilots[0].reset_control_outputs()
 		return
 
+	# Apply the pilot's control outputs once per physics frame. State scripts
+	# only *compute* outputs (at the 20 Hz decision cadence); the controller owns
+	# application so there is exactly one application path (D4).
 	_apply_input(pilots[0].last_pitch_input, pilots[0].last_throttle)
-
 	_check_flip_needed()
 
-	if ai_fsm and ai_fsm._active:
-		pilots[0].decision_timer -= delta
-		if pilots[0].decision_timer <= 0.0:
-			pilots[0].decision_timer = decision_interval
-			ai_fsm.current_state.update(delta)
-		return
+	# Drive the FSM at the decision cadence using accumulated real elapsed time,
+	# so state timers track wall time exactly (D8).
+	decision_accum += delta
+	if decision_accum >= decision_interval:
+		var step := decision_accum
+		decision_accum = 0.0
+		if ai_fsm and ai_fsm.is_active():
+			ai_fsm.tick(step)
 
-	pilots[0].decision_timer -= delta
-	if pilots[0].decision_timer <= 0.0:
-		pilots[0].decision_timer = decision_interval
-		_make_decision()
-
-# ---------------------------------------------------------------------------
-# DECISION LOOP
-# ---------------------------------------------------------------------------
-
-func _make_decision() -> void:
-	if not target or not biplane:
-		return
-	var avatar = _get_avatar()
-	if not avatar:
-		return
-
-	_update_state_machine()
-
-	match pilots[0].ai_state:
-		AIState.GROUNDED:
-			# Zero outputs; skip reflexes — plane sits still on the runway.
-			pilots[0].last_pitch_input = 0.0
-			pilots[0].last_throttle    = 0.0
-			return
-
-		AIState.TAKING_OFF:
-			# Dedicated handler writes directly to pilot outputs.
-			_decision_takeoff(avatar)
-			return
-
-		AIState.PATROLLING:
-			var pitch    = _compute_patrol_pitch()
-			var throttle = _compute_patrol_throttle(avatar)
-			var reflexed = _apply_reflexes(pitch, throttle)
-			pilots[0].last_pitch_input = reflexed[0]
-			pilots[0].last_throttle    = reflexed[1]
-
-		AIState.ENGAGING:
-			var result   = _compute_engage(avatar)
-			var reflexed = _apply_reflexes(result[0], result[1])
-			pilots[0].last_pitch_input = reflexed[0]
-			pilots[0].last_throttle    = reflexed[1]
-
-		AIState.EVADING:
-			var pitch    = _compute_evade_pitch()
-			var throttle = _compute_evade_throttle()
-			var reflexed = _apply_reflexes(pitch, throttle)
-			pilots[0].last_pitch_input = reflexed[0]
-			pilots[0].last_throttle    = reflexed[1]
-
-		AIState.RETURNING:
-			var pitch    = _compute_return_pitch()
-			var throttle = _compute_return_throttle(avatar)
-			var reflexed = _apply_reflexes(pitch, throttle)
-			pilots[0].last_pitch_input = reflexed[0]
-			pilots[0].last_throttle    = reflexed[1]
-
-# ---------------------------------------------------------------------------
-# STATE MACHINE
-# ---------------------------------------------------------------------------
-
-func _update_state_machine() -> void:
-	if not biplane or not target:
-		return
-
-	var avatar        = _get_avatar()
-	var damage        = avatar.damage.damage_percent if avatar else 0.0
-	var my_dist_home  = _get_wrapped_distance(biplane.global_position.x, home_base_x)
-	var dist_to_tgt   = _get_wrapped_distance(biplane.global_position.x, target.global_position.x)
-
-	match pilots[0].ai_state:
-		AIState.GROUNDED:
-			if dist_to_tgt < DETECTION_RANGE and _is_player_in_territory():
-				pilots[0].ai_state = AIState.TAKING_OFF
-
-		AIState.TAKING_OFF:
-			var alt = _get_altitude_above_ground()
-			if alt > PATROL_ALTITUDE:
-				pilots[0].ai_state   = AIState.PATROLLING
-				pilots[0].patrol_time = 0.0
-			elif dist_to_tgt < ENGAGEMENT_RANGE and alt > MIN_ALTITUDE_ABOVE_GROUND:
-				pilots[0].ai_state = AIState.ENGAGING
-
-		AIState.PATROLLING:
-			if _is_target_alive() and dist_to_tgt < ENGAGEMENT_RANGE and _is_player_in_territory():
-				pilots[0].ai_state = AIState.ENGAGING
-			elif _is_fuel_low():
-				pilots[0].ai_state = AIState.RETURNING
-
-		AIState.ENGAGING:
-			# Release immediately if the target is no longer a viable threat.
-			if not _is_target_alive():
-				pilots[0].ai_state    = AIState.PATROLLING
-				pilots[0].patrol_time = 0.0
-				return
-
-			var alt = _get_altitude_above_ground()
-			if alt < DANGER_ALTITUDE_ABOVE_GROUND or pilots[0].incoming_bullet_timer > 0.0:
-				pilots[0].previous_state = pilots[0].ai_state
-				pilots[0].ai_state       = AIState.EVADING
-				pilots[0].evade_timer    = randf_range(EVADE_DURATION_MIN, EVADE_DURATION_MAX)
-			elif damage >= 0.5:
-				pilots[0].ai_state = AIState.RETURNING
-			elif dist_to_tgt > ENGAGEMENT_RANGE * 1.2:
-				pilots[0].ai_state    = AIState.PATROLLING
-				pilots[0].patrol_time = 0.0
-
-		AIState.EVADING:
-			pilots[0].evade_timer -= decision_interval
-			var alt         = _get_altitude_above_ground()
-			var avdata      = _get_avatar()
-			var is_stalled  = avdata and avdata.flight_state == 1
-			if _is_fuel_low():
-				pilots[0].ai_state = AIState.RETURNING
-			elif not is_stalled \
-					and pilots[0].evade_timer <= 0.0 \
-					and alt > MIN_ALTITUDE_ABOVE_GROUND \
-					and pilots[0].incoming_bullet_timer <= 0.0:
-				pilots[0].ai_state = pilots[0].previous_state
-
-		AIState.RETURNING:
-			if dist_to_tgt < RETURN_REENGAGE_RANGE and damage < 0.5 and _is_target_alive():
-				pilots[0].ai_state = AIState.ENGAGING
-			elif my_dist_home < (HOME_PROXIMITY * 3.0) and _is_grounded():
-				pilots[0].ai_state = AIState.GROUNDED
-				if biplane.has_method("disable_autopilot"):
-					biplane.disable_autopilot()
-				pilots[0].is_using_autopilot = false
 
 # ---------------------------------------------------------------------------
 # TARGET VALIDITY
@@ -470,8 +336,8 @@ func _is_target_alive() -> bool:
 	var ta = target.get_avatar_data(0)
 	if not ta:
 		return false
-	# FlightState: CRASHED == 5, FALLING == 2
-	return ta.flight_state != 5 and ta.flight_state != 2
+	return ta.flight_state != biplane.FlightState.CRASHED \
+			and ta.flight_state != biplane.FlightState.FALLING
 
 # ---------------------------------------------------------------------------
 # ENGAGE — unified entry point
@@ -756,8 +622,7 @@ func _stall_reflex() -> bool:
 	var avatar = _get_avatar()
 	if not avatar:
 		return false
-	# FlightState.STALLED == 1
-	if avatar.flight_state != 1:
+	if avatar.flight_state != biplane.FlightState.STALLED:
 		return false
 
 	var max_aoa = deg_to_rad(avatar.model_params.get("max_aoa", 16.0))
@@ -868,7 +733,7 @@ func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true) 
 	# reflexes (altitude + pull-up) are suppressed — otherwise they pitch the nose
 	# up below ~80 px and the plane can never actually touch down.
 	var ground_avoid := allow_ground_avoid
-	if pilots[0].ai_state == AIState.RETURNING:
+	if ai_fsm.current_key == &"returning":
 		var dx = wrapf(home_base_x - biplane.global_position.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
 		if absf(dx) < RETURN_FINAL_DIST:
 			ground_avoid = false
@@ -1256,7 +1121,7 @@ func _do_respawn() -> void:
 		if avatar:
 			pilots[0].desired_heading = biplane.get_homebase_spawn_rotation(avatar)
 
-	if ai_fsm and ai_fsm._active:
+	if ai_fsm and 	ai_fsm.is_active():
 		ai_fsm.transition_to(&"grounded")
 
 # ---------------------------------------------------------------------------
