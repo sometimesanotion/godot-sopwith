@@ -1995,7 +1995,7 @@ func _spawn_crash_effects(avatar: AvatarData, is_midair: bool) -> void:
 
 	# 2. Initial burst of fire at the moment of impact (scaled with force).
 	var fire_amount := int(clampf(15.0 + force_ratio * 35.0, 10, 90))
-	var fire_lifetime := clampf(1.0 + force_ratio * 0.6, 1.0, 3.5)
+	var fire_lifetime := clampf(0.5 + force_ratio * 0.3, 0.5, 1.75)
 	var fire = EffectManager.spawn_fire(pos, fire_amount, fire_lifetime)
 	if fire and is_instance_valid(fire):
 		var s := clampf(0.6 + force_ratio * 0.5, 0.6, 3.0)
@@ -2003,7 +2003,7 @@ func _spawn_crash_effects(avatar: AvatarData, is_midair: bool) -> void:
 
 	# 3. Smoke boils up in the wake of the fire, then dissipates.
 	var smoke_amount := int(clampf(15.0 + force_ratio * 30.0, 10, 80))
-	var smoke_lifetime := clampf(2.0 + force_ratio, 2.0, 6.0)
+	var smoke_lifetime := clampf(1.0 + force_ratio * 0.5, 1.0, 3.0)
 	EffectManager.spawn_black_smoke(pos, smoke_amount, smoke_lifetime)
 
 	# 4. Debris — only thrown when the impact is forceful enough to shatter the
