@@ -1424,9 +1424,11 @@ func _enable_autopilot_for_landing() -> void:
 # ---------------------------------------------------------------------------
 
 func _on_enemy_crashed(is_midair: bool = false) -> void:
-	if not _crashed_exploded and biplane and biplane.has_method("create_explosion"):
-		biplane.create_explosion(is_midair)
-		_crashed_exploded = true
+	## The crash explosion, debris, fire, smoke, screen-shake and explosion
+	## sound are produced once inside Biplane._on_avatar_crashed (the single
+	## funnel every destructive end-state reaches), so AI planes now look and
+	## sound identical to the player.  Kept only for the respawn bookkeeping flag.
+	_crashed_exploded = true
 
 func _on_enemy_landed(avatar_id: int) -> void:
 	## The wreck has hit the ground — queue the fixed 2s respawn.

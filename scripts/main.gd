@@ -556,12 +556,11 @@ func _physics_process(delta: float) -> void:
 		_update_minimap()
 
 func _on_biplane_crashed(is_midair: bool = false) -> void:
-	if not _player_crashed_exploded and biplane and biplane.has_method("create_explosion"):
-		biplane.create_explosion(is_midair)
-		GameManager.request_screen_shake(25.0)
-	if not _player_crashed_exploded and SoundManager:
-		SoundManager.stop_engine()
-		SoundManager.play_sfx(SoundManager.SoundEvent.EXPLOSION)
+	## The crash explosion, debris, fire, smoke, screen-shake and explosion
+	## sound are now produced once inside Biplane._on_avatar_crashed (which is
+	## the single funnel every destructive end-state reaches), so they are
+	## identical for player and AI planes.  This handler is kept only for the
+	## respawn bookkeeping flag.
 	_player_crashed_exploded = true
 
 func _on_biplane_landed(avatar_id: int) -> void:

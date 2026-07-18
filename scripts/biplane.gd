@@ -1867,12 +1867,30 @@ func _on_avatar_crashed(avatar: AvatarData) -> void:
 	avatar.is_airborne           = false
 	if GameManager and is_player_controlled:
 		GameManager.destroy_player(avatar.id)
-	## Emit the destruction event for explosion / screen-shake / sfx.  Respawn
-	## timing is decoupled and only starts once the wreck reaches the ground
-	## (see _integrate_crash_forces -> crashed_landed), so a plane destroyed in
-	## mid-air tumbles to the surface before any respawn is scheduled.
+	if is_player_controlled and SoundManager:
+		SoundManager.stop_engine()
+
+	## Drop any continuous (plane-parented) fire/smoke from the damage system so
+	## the wreck carries no emitter children into its fall, crash, or respawn.
+	## The lingering burn at the impact point is now provided by the
+	## self-terminating world-space emitters spawned just below.
+	_detach_fire(avatar)
+	_detach_smoke(avatar)
+
+	## Single, consolidated crash-effect path for EVERY destructive end-state
+	## (mid-air shoot-down, terrain impact, obstacle/building collision,
+	## force_crash).  Effects, sound and screen-shake all scale with the plane's
+	## impact speed so a gentle cartwheel and a 200 km/h nose-dive read
+	## differently and physically.  This is the one place destruction visuals
+	## are produced — AI and player planes therefore look and sound identical.
 	var gc := _get_ground_contact(avatar)
 	var is_midair := not gc.is_grounded and avatar.flight_state != FlightState.LANDED
+	_spawn_crash_effects(avatar, is_midair)
+
+	## Emit the destruction event for any external bookkeeping.  Respawn timing
+	## is decoupled and only starts once the wreck reaches the ground (see
+	## _integrate_crash_forces -> crashed_landed), so a plane destroyed in
+	## mid-air tumbles to the surface before any respawn is scheduled.
 	crashed.emit(is_midair)
 
 ###############################################################################
@@ -1925,21 +1943,93 @@ func _update_ground_ray(avatar: AvatarData) -> void:
 		var base_offset: float = 26.0
 		ground_ray.target_position = Vector2(0, -base_offset if avatar.is_barrel_rolled else base_offset)
 
-func create_explosion(is_midair: bool = false) -> void:
+## Derive a normalised impact intensity + effect energy from the plane's speed
+## at the moment of destruction.  Force scales linearly with impact speed
+## relative to the model's hard-landing threshold (px/s), clamped so even a
+## gentle crash shows some effect while a high-speed impact saturates.  Using
+## kinetic energy (½·m·v²) would over-saturate instantly, so we scale on speed
+## against a meaningful reference — a real, physical proxy for how hard the
+## airframe hits.
+func _compute_crash_intensity(avatar: AvatarData) -> Dictionary:
+	var speed: float = velocity.length()
+	# Reference impact speed: a typical crash comes in well above the soft/hard
+	# *vertical* landing thresholds, so scaling on those directly saturates every
+	# real crash to max.  Use a reference near a normal impact (~3× the hard
+	# vertical-landing threshold) so a gentle cartwheel and a full-speed dive
+	# actually read differently while still being physically grounded.
+	var hard: float = avatar.model_params.get("hard_landing_vperp", 80.0)
+	var ref_speed: float = hard * 3.0
+	var force_ratio: float = clampf(speed / ref_speed, 0.25, 3.0)
+	var energy: float = clampf(40.0 + force_ratio * 80.0, 40.0, 280.0)
+	return {"force_ratio": force_ratio, "energy": energy}
+
+## Single consolidated crash-effect path for every destructive end-state.
+## Sequence is physically motivated: a bright blast + initial burst of fire at
+## the instant of impact, smoke boiling up in its wake, and debris flung only
+## when the impact is forceful enough to shatter the airframe.  Grounded wrecks
+## keep a lingering open fire + smoke until they burn out.  Sound and screen
+## shake scale with the same impact force so the audio matches the visuals.
+func _spawn_crash_effects(avatar: AvatarData, is_midair: bool) -> void:
+	var intensity := _compute_crash_intensity(avatar)
+	var force_ratio: float = intensity["force_ratio"]
+	var energy: float = intensity["energy"]
+
 	var pos := global_position
 	if not is_midair:
-		# Ground crash: keep the blast at the terrain surface so it reads like
-		# an air kill instead of spawning buried under the wreck's collision shape.
+		# Ground crash: keep the blast at the terrain surface so it reads like a
+		# ground wreck rather than spawning buried under the collision shape.
 		var surface_y := _ground_y(pos.x) - GROUND_SURFACE_OFFSET
 		pos.y = min(pos.y, surface_y)
+
 	var debris_color := get_dominant_color()
-	if EffectManager:
-		# Identical blast + debris for every destruction so air kills and ground
-		# crashes look consistent; grounded wrecks additionally get a lingering fire.
-		EffectManager.spawn_explosion(pos, 100.0)
-		EffectManager.spawn_explosion_debris(pos, 100.0, 4, debris_color, get_plane_polygon())
-		if not is_midair:
-			EffectManager.spawn_open_fire_with_smoke(pos, 6.0, 30, 20)
+	var polygon := get_plane_polygon()
+
+	if not EffectManager:
+		return
+
+	# 1. Flash + core blast, scaled with impact energy.
+	var blast = EffectManager.spawn_explosion(pos, energy)
+	if blast and is_instance_valid(blast):
+		var s := clampf(force_ratio, 0.5, 3.0)
+		blast.scale = Vector2(s, s)
+
+	# 2. Initial burst of fire at the moment of impact (scaled with force).
+	var fire_amount := int(clampf(15.0 + force_ratio * 35.0, 10, 90))
+	var fire_lifetime := clampf(1.0 + force_ratio * 0.6, 1.0, 3.5)
+	var fire = EffectManager.spawn_fire(pos, fire_amount, fire_lifetime)
+	if fire and is_instance_valid(fire):
+		var s := clampf(0.6 + force_ratio * 0.5, 0.6, 3.0)
+		fire.scale = Vector2(s, s)
+
+	# 3. Smoke boils up in the wake of the fire, then dissipates.
+	var smoke_amount := int(clampf(15.0 + force_ratio * 30.0, 10, 80))
+	var smoke_lifetime := clampf(2.0 + force_ratio, 2.0, 6.0)
+	EffectManager.spawn_black_smoke(pos, smoke_amount, smoke_lifetime)
+
+	# 4. Debris — only thrown when the impact is forceful enough to shatter the
+	#    airframe; count and spread scale with how hard it hit.
+	if force_ratio >= 0.9:
+		var debris_count := int(clampf((force_ratio - 0.6) * 14.0, 4, 30))
+		EffectManager.spawn_explosion_debris(pos, energy, debris_count, debris_color, polygon)
+
+	# 5. Grounded wrecks keep burning (open fire + smoke) until they burn out.
+	if not is_midair:
+		EffectManager.spawn_open_fire_with_smoke(pos, 6.0, fire_amount, smoke_amount)
+
+	# 6. Explosion sound scales with the same impact force.  (Screen shake is
+	#    already driven, scaled by energy, inside EffectManager.spawn_explosion,
+	#    so we don't add a second one here.)
+	if SoundManager:
+		var vol_db := clampf(force_ratio * 5.0, -3.0, 9.0)
+		SoundManager.play_sfx(SoundManager.SoundEvent.EXPLOSION, {"volume_db": vol_db})
+
+## Public backward-compatible entry point.  _on_avatar_crashed is the real
+## caller; this lets any external node request the same scaled crash effect.
+func create_explosion(is_midair: bool = false) -> void:
+	var avatar := get_primary_entity()
+	if not avatar:
+		return
+	_spawn_crash_effects(avatar, is_midair)
 
 func get_plane_polygon() -> PackedVector2Array:
 	var model_params = get_primary_entity().model_params
@@ -2086,6 +2176,10 @@ func _perform_teleport_landing(avatar: AvatarData) -> void:
 	_pending_teleport = true
 	_teleport_position = spawn_pos
 	_teleport_rotation = spawn_rot
+	## Refuel teleport relocates the plane WITHOUT a full reset, so clear any
+	## damage fire/smoke parented to the node or they'd ride to the spawn point.
+	_detach_fire(avatar)
+	_detach_smoke(avatar)
 	reset_visual_transform(avatar)
 	if GameManager and is_player_controlled:
 		GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
@@ -2164,6 +2258,12 @@ func teleport_to(pos: Vector2, rot: float = 0.0) -> void:
 	_pending_teleport = true
 	_teleport_position = pos
 	_teleport_rotation = rot
+	## Clear any damage fire/smoke parented to the node so they don't teleport
+	## with the plane to its new location.
+	var av := get_primary_entity()
+	if av:
+		_detach_fire(av)
+		_detach_smoke(av)
 
 func set_unlimited_fuel_ammo(avatar: AvatarData, val: bool) -> void:
 	avatar.unlimited_fuel_ammo = val

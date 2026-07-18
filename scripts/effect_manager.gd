@@ -56,7 +56,7 @@ func _exit_tree() -> void:
 	_active_effects.clear()
 	_effect_count = 0
 
-func spawn_white_smoke(pos: Vector2, amount: int = 20) -> Node2D:
+func spawn_white_smoke(pos: Vector2, amount: int = 20, lifetime: float = 0.0) -> Node2D:
 	if _effect_count >= max_concurrent_effects:
 		return null
 	var instance: Node2D = WHITE_SMOKE_SCENE.instantiate()
@@ -65,9 +65,10 @@ func spawn_white_smoke(pos: Vector2, amount: int = 20) -> Node2D:
 	_get_world().add_child(instance)
 	_active_effects.append(instance)
 	effect_spawned.emit("white_smoke", pos)
+	_free_after(instance, lifetime)
 	return instance
 
-func spawn_black_smoke(pos: Vector2, amount: int = 30) -> Node2D:
+func spawn_black_smoke(pos: Vector2, amount: int = 30, lifetime: float = 0.0) -> Node2D:
 	if _effect_count >= max_concurrent_effects:
 		return null
 	var instance: Node2D = BLACK_SMOKE_SCENE.instantiate()
@@ -76,9 +77,10 @@ func spawn_black_smoke(pos: Vector2, amount: int = 30) -> Node2D:
 	_get_world().add_child(instance)
 	_active_effects.append(instance)
 	effect_spawned.emit("black_smoke", pos)
+	_free_after(instance, lifetime)
 	return instance
 
-func spawn_fire(pos: Vector2, amount: int = 30) -> Node2D:
+func spawn_fire(pos: Vector2, amount: int = 30, lifetime: float = 0.0) -> Node2D:
 	if _effect_count >= max_concurrent_effects:
 		return null
 	var instance: Node2D = FIRE_SCENE.instantiate()
@@ -87,7 +89,18 @@ func spawn_fire(pos: Vector2, amount: int = 30) -> Node2D:
 	_get_world().add_child(instance)
 	_active_effects.append(instance)
 	effect_spawned.emit("fire", pos)
+	_free_after(instance, lifetime)
 	return instance
+
+## Schedule an effect node to free itself once its particles have finished, so
+## one-shot / burst effects (explosions, crash fire, crash smoke) don't pile up
+## at crash sites forever.  A `lifetime` of 0 (default) leaves the node alive
+## indefinitely — used by persistent damage effects on static wreckage.
+func _free_after(instance: Node2D, lifetime: float) -> void:
+	if lifetime <= 0.0 or not is_instance_valid(instance):
+		return
+	var t := instance.get_tree().create_timer(lifetime)
+	t.timeout.connect(instance.queue_free)
 
 func spawn_open_fire_with_smoke(pos: Vector2, duration: float = 8.0, fire_amount: int = 40, smoke_amount: int = 30) -> Node2D:
 	if _effect_count >= max_concurrent_effects:
@@ -110,6 +123,9 @@ func spawn_explosion(pos: Vector2, energy: float) -> Node2D:
 	effect_spawned.emit("explosion", pos)
 	if GameManager:
 		GameManager.request_screen_shake(energy / 3.0)
+	# One-shot flash with no script of its own — free the (emitter-less) node
+	# once its particles have finished so explosions don't accumulate in the tree.
+	_free_after(instance, 1.5)
 	return instance
 
 func spawn_explosion_debris(pos: Vector2, energy: float, count: int, color: Color, polygon: PackedVector2Array = PackedVector2Array()) -> Node2D:
