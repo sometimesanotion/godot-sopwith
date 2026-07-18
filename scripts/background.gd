@@ -4,11 +4,14 @@ const TERRAIN_LENGTH := 16384.0
 
 var camera: Camera2D
 var mountain_data: Array[Dictionary] = []
-var cloud_positions: Array[Vector2] = []
 var cloud_data: Array[Dictionary] = []
 var sky_layer: CanvasLayer
 var sky_rect: ColorRect
 var sky_material: ShaderMaterial
+
+## Camera world-x cached once per _draw so every wrapped element shares the
+## same tiling reference (and we don't query the viewport per element).
+var _cam_x_cache: float = 0.0
 
 func _ready() -> void:
 	if SvgManager and SvgManager.has_sprite("cloud"):
@@ -56,7 +59,6 @@ func _generate_background() -> void:
 			var shade: float = 0.55 + randf() * 0.25
 			var alpha: float = 0.5 + randf() * 0.3
 			cloud["puffs"].append({"offset": Vector2(px, py), "radius": pr, "color": Color(shade, shade, shade, alpha)})
-		cloud_positions.append(Vector2(cx, cy))
 		cloud_data.append(cloud)
 
 func _process(_delta: float) -> void:
@@ -73,6 +75,7 @@ func _process(_delta: float) -> void:
 			sky_material.set_shader_parameter("camera_y", main_camera.position.y)
 
 func _draw() -> void:
+	_cam_x_cache = _camera_world_x()
 	_draw_mountains()
 	_draw_clouds()
 
@@ -83,26 +86,42 @@ func _camera_world_x() -> float:
 		return cam.position.x
 	return 0.0
 
-## Wrap a base world-x to the copy nearest the camera so each background
-## element repeats every TERRAIN_LENGTH and the wrap-around is seamless.
-func _wrapped_x(base_x: float) -> float:
-	var cam_x := _camera_world_x()
-	return base_x + TERRAIN_LENGTH * round((cam_x - base_x) / TERRAIN_LENGTH)
+## Integer copy indices `k` for which `base_x + k*TERRAIN_LENGTH` lies within
+## the visible world-x band (plus a margin for camera lag).  Because the
+## viewport is far narrower than TERRAIN_LENGTH this yields at most two or
+## three copies, but it guarantees an element is drawn on BOTH sides of the
+## wrap seam so nothing pops in after crossing the edge.
+func _tile_k_range(base_x: float) -> Array[int]:
+	var cam_x := _cam_x_cache
+	var half_w := 2000.0
+	var cam = get_viewport().get_camera_2d()
+	if cam:
+		half_w = (get_viewport_rect().size.x / cam.zoom.x) * 0.5
+	var margin := half_w + 1500.0
+	var left := cam_x - margin
+	var right := cam_x + margin
+	var k_min := int(floor((left - base_x) / TERRAIN_LENGTH))
+	var k_max := int(ceil((right - base_x) / TERRAIN_LENGTH))
+	var ks: Array[int] = []
+	for k in range(k_min, k_max + 1):
+		ks.append(k)
+	return ks
 
 func _draw_mountains() -> void:
 	for data in mountain_data:
 		var pos: Vector2 = data["pos"]
 		var height: float = data["height"]
-		var x := _wrapped_x(pos.x)
-		var points = PackedVector2Array([
-			Vector2(x - 600, 750),
-			Vector2(x - 300, 750 - height),
-			Vector2(x - 120, 550 - height),
-			Vector2(x + 120, 550 - height - 30),
-			Vector2(x + 300, 750 - height - 30),
-			Vector2(x + 600, 750)
-		])
-		draw_colored_polygon(points, Color(0.10, 0.20, 0.40))
+		for k in _tile_k_range(pos.x):
+			var x := pos.x + k * TERRAIN_LENGTH
+			var points = PackedVector2Array([
+				Vector2(x - 600, 750),
+				Vector2(x - 300, 750 - height),
+				Vector2(x - 120, 550 - height),
+				Vector2(x + 120, 550 - height - 30),
+				Vector2(x + 300, 750 - height - 30),
+				Vector2(x + 600, 750)
+			])
+			draw_colored_polygon(points, Color(0.10, 0.20, 0.40))
 
 func _draw_clouds() -> void:
 	if SvgManager and SvgManager.has_sprite("cloud"):
@@ -110,11 +129,14 @@ func _draw_clouds() -> void:
 			var pos: Vector2 = cloud["pos"]
 			var w: float = cloud["width"]
 			var h: float = cloud["height"]
-			SvgManager.draw_sprite_centered(self, "cloud", Vector2(_wrapped_x(pos.x), pos.y), Vector2(w, h))
+			for k in _tile_k_range(pos.x):
+				SvgManager.draw_sprite_centered(self, "cloud", Vector2(pos.x + k * TERRAIN_LENGTH, pos.y), Vector2(w, h))
 		return
 
 	for cloud in cloud_data:
-		var base_x := _wrapped_x(cloud["pos"].x)
-		for puff in cloud["puffs"]:
-			var pos: Vector2 = Vector2(base_x, cloud["pos"].y) + puff["offset"]
-			draw_circle(pos, puff["radius"], puff["color"])
+		var cy: float = cloud["pos"].y
+		for k in _tile_k_range(cloud["pos"].x):
+			var base_x: float = cloud["pos"].x + k * TERRAIN_LENGTH
+			for puff in cloud["puffs"]:
+				var pos: Vector2 = Vector2(base_x, cy) + puff["offset"]
+				draw_circle(pos, puff["radius"], puff["color"])
