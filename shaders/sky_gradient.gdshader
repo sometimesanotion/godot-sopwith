@@ -1,7 +1,7 @@
 shader_type canvas_item;
 
-uniform vec4 color_sky_hi: source_color = vec4(0.05, 0.35, 0.7, 1.0);
-uniform vec4 color_sky_lo: source_color = vec4(0.20, 0.50, 0.8, 1.0);
+uniform vec4 color_sky_hi: source_color = vec4(0.05, 0.22, 0.7, 1.0);
+uniform vec4 color_sky_lo: source_color = vec4(0.16, 0.44, 0.8, 1.0);
 uniform float camera_y = 650.0;
 uniform float ground_y = 800.0;
 uniform float max_altitude = 2000.0;

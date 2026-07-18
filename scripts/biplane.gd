@@ -213,10 +213,10 @@ static func _get_svg_path_from_params(model_params: Dictionary) -> String:
 ###############################################################################
 
 @export_group("Scale & Arcade Tuning")
-@export var pixels_per_meter: float = 14.0
+@export var pixels_per_meter: float = 13.0
 
 @export_group("Flight Parameters (SI Units)")
-@export var arcade_multiplier: float = 2.2
+@export var arcade_multiplier: float = 2.3
 @export var gravity:            float = 9.81
 
 @export_group("Aerodynamics")
@@ -320,7 +320,7 @@ enum FlightState {
 }
 
 ## Faction for team/hostility checks.
-enum Faction { BRITISH = 0, GERMAN = 1, FRENCH = 2, NEUTRAL = 3 }
+enum Faction { BRITISH = 0, GERMAN = 1, FRENCH = 2, USA = 3, NEUTRAL = 4 }
 enum Team    { ALLIED  = 0, ENEMY  = 1, NEUTRAL = 2 }
 
 ###############################################################################
@@ -616,6 +616,9 @@ func assign_plane_model(avatar: AvatarData, model: String) -> void:
 		"spad_s13":
 			avatar.faction = Faction.FRENCH
 			avatar.team = Team.ALLIED
+		"p-51d":
+			avatar.faction = Faction.USA
+			avatar.team = Team.ALLIED
 		_:
 			avatar.faction = Faction.BRITISH
 			avatar.team = Team.ALLIED
@@ -634,6 +637,8 @@ func get_default_plane_model(faction: Faction) -> String:
 			return "fokker_d7"
 		Faction.FRENCH:
 			return "spad_s13"
+		Faction.USA:
+			return "p-51d"
 		_:
 			return "sopwith_camel"
 
@@ -1674,7 +1679,7 @@ func _check_fuel_consumption(avatar: AvatarData, delta: float) -> void:
 ###############################################################################
 
 func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
-	if not is_grounded(avatar):
+	if velocity.length() > 30 or (not is_grounded(avatar)):
 		return
 	var hb := _get_homebase(avatar)
 	if not hb:
@@ -1995,7 +2000,7 @@ func setup_faction_homebase(id: int, x: float, width: float, spawn_pos: Vector2,
 		spawn_rot: float, faction: Faction) -> void:
 	var team: Team
 	match faction:
-		Faction.BRITISH, Faction.FRENCH:
+		Faction.BRITISH, Faction.FRENCH, Faction.USA:
 			team = Team.ALLIED
 		Faction.GERMAN:
 			team = Team.ENEMY

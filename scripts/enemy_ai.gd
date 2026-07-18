@@ -92,7 +92,7 @@ const PATROL_ALTITUDE                := 250.0
 const PATROL_CRUISE_MIN              := 800.0
 const PATROL_ALTITUDE_ADVANTAGE      := 300.0
 const PATROL_MAX_ALTITUDE            := 1500.0
-const MIN_ALTITUDE_ABOVE_GROUND      := 80.0
+const MIN_ALTITUDE_ABOVE_GROUND      := 100.0
 const DANGER_ALTITUDE_ABOVE_GROUND   := 60.0
 const CRITICAL_ALTITUDE_ABOVE_GROUND := 20.0
 const PULL_UP_ALTITUDE               := 200.0
@@ -145,12 +145,12 @@ const RETURN_FINAL_DIST        := 520.0
 # throttle) to arrest the sink rate for a soft touchdown.
 const RETURN_FLARE_ALT         := 90.0
 const RETURN_CRUISE_THROTTLE   := 0.7   # en-route, maintain speed
-const RETURN_FINAL_THROTTLE    := 0.35  # short final, slow down
+const RETURN_FINAL_THROTTLE    := 0.3   # short final, slow down
 const RETURN_FLARE_THROTTLE    := 0.0   # idle on the flare
 
 # Energy-state thresholds
 const ENERGY_ALTITUDE_ADVANTAGE := 120.0   # px altitude edge to press a dive
-const ENERGY_SPEED_RATIO_GOOD   := 1.4     # speed / stall_speed for healthy energy
+const ENERGY_SPEED_RATIO_GOOD   := 1.5     # speed / stall_speed for healthy energy
 
 # Engagement energy threshold — below this speed/stall ratio the AI cannot
 # safely press an attack (it would mush into a stall).  Above the safe-dive
@@ -164,7 +164,7 @@ const EXTEND_ENTER_SPEED_RATIO  := 1.35
 # axis instead of sailing off the edge of the map.  This is the boom-zoom
 # energy-management that keeps a fast/high plane in the fight.
 const FLYAWAY_TURNAROUND_ALTITUDE    := 600.0   # px above ground
-const FLYAWAY_TURNAROUND_SPEED_RATIO := 1.6     # speed / stall_speed
+const FLYAWAY_TURNAROUND_SPEED_RATIO := 1.7     # speed / stall_speed
 
 # RECOVER — the only break-off paths from PURSUE.  The default engage state is
 # to turn and fire; we only break off when the energy state makes a fight
@@ -239,7 +239,7 @@ const ANG_VEL_DAMP_CRUISE     := 0.40
 
 # Heading smoothing (lerp factor per decision tick)
 # const HEADING_LERP_FACTOR     := 0.30-0.45  # 0 = never turns, 1 = instant snap
-const HEADING_LERP_FACTOR     := 0.45  # 0 = never turns, 1 = instant snap
+const HEADING_LERP_FACTOR     := 0.6  # 0 = never turns, 1 = instant snap
 # Deadband: angle error below this is treated as "on heading"
 const HEADING_DEADBAND        := 0.10  # radians (~6°)
 
@@ -316,7 +316,7 @@ class AIData:
 @export var takeoff_delay: float = 0.0
 @export var unlimited_fuel_ammo: bool = false
 
-var decision_interval: float = 0.05
+var decision_interval: float = 0.02
 var decision_accum: float = 0.0
 
 var territory_left: float  = 0.0
