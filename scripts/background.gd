@@ -86,32 +86,30 @@ func _camera_world_x() -> float:
 		return cam.position.x
 	return 0.0
 
-## Integer copy indices `k` for which `base_x + k*TERRAIN_LENGTH` lies within
-## the visible world-x band (plus a margin for camera lag).  Because the
-## viewport is far narrower than TERRAIN_LENGTH this yields at most two or
-## three copies, but it guarantees an element is drawn on BOTH sides of the
-## wrap seam so nothing pops in after crossing the edge.
-func _tile_k_range(base_x: float) -> Array[int]:
-	var cam_x := _cam_x_cache
+## Copy indices `k` whose position `base_x + k*TERRAIN_LENGTH` falls inside the
+## visible world-x band (viewport half-width + the element's own half-extent).
+## Only k ∈ {-1, 0, 1} can ever be on-screen — the viewport (even at minimum
+## zoom, plus the element's width) is far narrower than TERRAIN_LENGTH.  The
+## result: in the middle of the map only k=0 passes (a single draw, no extra
+## redraw); the k=-1 / k=+1 copies are only drawn when the camera is actually
+## within a screen width of the wrap seam and that copy is genuinely visible.
+func _tile_k_range(base_x: float, half_extent: float) -> Array[int]:
 	var half_w := 2000.0
 	var cam = get_viewport().get_camera_2d()
 	if cam:
 		half_w = (get_viewport_rect().size.x / cam.zoom.x) * 0.5
-	var margin := half_w + 1500.0
-	var left := cam_x - margin
-	var right := cam_x + margin
-	var k_min := int(floor((left - base_x) / TERRAIN_LENGTH))
-	var k_max := int(ceil((right - base_x) / TERRAIN_LENGTH))
+	var band_half := half_w + half_extent
 	var ks: Array[int] = []
-	for k in range(k_min, k_max + 1):
-		ks.append(k)
+	for k in [-1, 0, 1]:
+		if absf(base_x + k * TERRAIN_LENGTH - _cam_x_cache) <= band_half:
+			ks.append(k)
 	return ks
 
 func _draw_mountains() -> void:
 	for data in mountain_data:
 		var pos: Vector2 = data["pos"]
 		var height: float = data["height"]
-		for k in _tile_k_range(pos.x):
+		for k in _tile_k_range(pos.x, 620.0):
 			var x := pos.x + k * TERRAIN_LENGTH
 			var points = PackedVector2Array([
 				Vector2(x - 600, 750),
@@ -129,13 +127,13 @@ func _draw_clouds() -> void:
 			var pos: Vector2 = cloud["pos"]
 			var w: float = cloud["width"]
 			var h: float = cloud["height"]
-			for k in _tile_k_range(pos.x):
+			for k in _tile_k_range(pos.x, w * 0.5 + 70.0):
 				SvgManager.draw_sprite_centered(self, "cloud", Vector2(pos.x + k * TERRAIN_LENGTH, pos.y), Vector2(w, h))
 		return
 
 	for cloud in cloud_data:
 		var cy: float = cloud["pos"].y
-		for k in _tile_k_range(cloud["pos"].x):
+		for k in _tile_k_range(cloud["pos"].x, cloud["width"] * 0.5 + 70.0):
 			var base_x: float = cloud["pos"].x + k * TERRAIN_LENGTH
 			for puff in cloud["puffs"]:
 				var pos: Vector2 = Vector2(base_x, cy) + puff["offset"]
