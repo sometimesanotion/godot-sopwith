@@ -1693,8 +1693,10 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 	if avatar.ammo == MAX_AMMO and avatar.bombs == max_bombs and avatar.fuel == 100:
 		return
 
+	var randomi := randi() % 10
+
 	## Repair damage on landing at home.
-	if avatar.damage.damage_state != DamageData.DamageState.INTACT:
+	if randomi >= 8 and avatar.damage.damage_state != DamageData.DamageState.INTACT:
 		avatar.damage.repair(false, 0.01)
 		_refresh_damage_modifiers(avatar)
 		# avatar.set_flight_state(FlightState.FLYING)
@@ -1707,7 +1709,7 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 
 		avatar.ammo = minf(MAX_AMMO, avatar.ammo + 5.0 + int(delta * 50.0))
 		avatar.fuel = minf(100.0, avatar.fuel + 5.0 + int(delta * 50.0))
-		if randi() % 4 == 0:
+		if randomi >= 6:
 			avatar.bombs = mini(max_bombs, avatar.bombs + 1)
 		avatar.refuel_timer = 0.0
 
