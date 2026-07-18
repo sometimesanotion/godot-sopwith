@@ -3,7 +3,7 @@ extends Node2D
 const TERRAIN_LENGTH := 16384.0
 
 var camera: Camera2D
-var mountain_positions: Array[Vector2] = []
+var mountain_data: Array[Dictionary] = []
 var cloud_positions: Array[Vector2] = []
 var cloud_data: Array[Dictionary] = []
 var sky_layer: CanvasLayer
@@ -34,7 +34,11 @@ func _create_sky_gradient() -> void:
 func _generate_background() -> void:
 	randomize()
 	for i in range(8):
-		mountain_positions.append(Vector2(randf() * TERRAIN_LENGTH, 500 + randf() * 150))
+		var px := randf() * TERRAIN_LENGTH
+		mountain_data.append({
+			"pos": Vector2(px, 500 + randf() * 150),
+			"height": 80 + randf() * 150
+		})
 	for i in range(20):
 		var cx := randf() * TERRAIN_LENGTH
 		var cy := 400 - randf() * 1500
@@ -72,17 +76,31 @@ func _draw() -> void:
 	_draw_mountains()
 	_draw_clouds()
 
+## World-x position of the active camera, used to centre the tiling modulus.
+func _camera_world_x() -> float:
+	var cam = get_viewport().get_camera_2d()
+	if cam:
+		return cam.position.x
+	return 0.0
+
+## Wrap a base world-x to the copy nearest the camera so each background
+## element repeats every TERRAIN_LENGTH and the wrap-around is seamless.
+func _wrapped_x(base_x: float) -> float:
+	var cam_x := _camera_world_x()
+	return base_x + TERRAIN_LENGTH * round((cam_x - base_x) / TERRAIN_LENGTH)
+
 func _draw_mountains() -> void:
-	for pos in mountain_positions:
-		var screen_pos = pos
-		var height = 80 + randf() * 150
+	for data in mountain_data:
+		var pos: Vector2 = data["pos"]
+		var height: float = data["height"]
+		var x := _wrapped_x(pos.x)
 		var points = PackedVector2Array([
-			Vector2(screen_pos.x - 600, 750),
-			Vector2(screen_pos.x - 300, 750 - height),
-			Vector2(screen_pos.x - 120, 550 - height),
-			Vector2(screen_pos.x + 120, 550 - height - 30),
-			Vector2(screen_pos.x + 300, 750 - height - 30),
-			Vector2(screen_pos.x + 600, 750)
+			Vector2(x - 600, 750),
+			Vector2(x - 300, 750 - height),
+			Vector2(x - 120, 550 - height),
+			Vector2(x + 120, 550 - height - 30),
+			Vector2(x + 300, 750 - height - 30),
+			Vector2(x + 600, 750)
 		])
 		draw_colored_polygon(points, Color(0.10, 0.20, 0.40))
 
@@ -92,10 +110,11 @@ func _draw_clouds() -> void:
 			var pos: Vector2 = cloud["pos"]
 			var w: float = cloud["width"]
 			var h: float = cloud["height"]
-			SvgManager.draw_sprite_centered(self, "cloud", pos, Vector2(w, h))
+			SvgManager.draw_sprite_centered(self, "cloud", Vector2(_wrapped_x(pos.x), pos.y), Vector2(w, h))
 		return
 
 	for cloud in cloud_data:
+		var base_x := _wrapped_x(cloud["pos"].x)
 		for puff in cloud["puffs"]:
-			var pos: Vector2 = cloud["pos"] + puff["offset"]
+			var pos: Vector2 = Vector2(base_x, cloud["pos"].y) + puff["offset"]
 			draw_circle(pos, puff["radius"], puff["color"])

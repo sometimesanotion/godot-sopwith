@@ -12,6 +12,7 @@ var noise: FastNoiseLite
 var ground_points: PackedVector2Array = []
 var terrain_body: StaticBody2D
 var terrain_polygon: Polygon2D
+var terrain_polygons: Array[Polygon2D] = []
 var runways: Array[Vector2] = []
 
 @export var ground_color: Color = Color(0.12, 0.35, 0.12)
@@ -48,6 +49,18 @@ func _create_terrain() -> void:
 	terrain_polygon = Polygon2D.new()
 	terrain_polygon.color = ground_color
 	add_child(terrain_polygon)
+
+	# Tile the ground across three copies (offset by -TERRAIN_LENGTH, 0,
+	# +TERRAIN_LENGTH) so the world wraps seamlessly instead of cutting off at
+	# the map edges.  Only the central copy carries collision; the offsets are
+	# visual only.
+	terrain_polygons = [terrain_polygon]
+	for offset in [-TERRAIN_LENGTH, TERRAIN_LENGTH]:
+		var copy := Polygon2D.new()
+		copy.color = ground_color
+		copy.position.x = offset
+		add_child(copy)
+		terrain_polygons.append(copy)
 
 	_update_terrain_polygons()
 
@@ -89,12 +102,14 @@ func _update_terrain_polygons() -> void:
 	var poly_points := ground_points.duplicate()
 	poly_points.append(Vector2(TERRAIN_LENGTH, TERRAIN_LOW_BOUND))
 	poly_points.append(Vector2(0, TERRAIN_LOW_BOUND))
+	# The central copy drives the collision body; all copies (including the
+	# -TERRAIN_LENGTH / +TERRAIN_LENGTH visual offsets) share the same outline.
 	if terrain_body:
 		for child in terrain_body.get_children():
 			if child is CollisionPolygon2D:
 				child.polygon = poly_points
-	if terrain_polygon:
-		terrain_polygon.polygon = poly_points
+	for poly in terrain_polygons:
+		poly.polygon = poly_points
 
 func _create_runway_visual(start: float, end: float) -> void:
 	if SvgManager and SvgManager.has_sprite("runway"):
@@ -149,13 +164,21 @@ func _generate_terrain() -> void:
 		if on_runway:
 			y = BASE_Y
 		else:
-			var noise_val := noise.get_noise_2d(float(x), 0.0)
+			# Wrap the noise sample so the height field is periodic with period
+			# TERRAIN_LENGTH — the seam at the map edge then matches exactly,
+			# which lets the tiled ground copies connect seamlessly on wrap.
+			var noise_x := fmod(x, TERRAIN_LENGTH)
+			var noise_val := noise.get_noise_2d(noise_x, 0.0)
 			y = BASE_Y + noise_val * 60.0
 		ground_points.append(Vector2(x, y))
 
 func get_ground_height_at(x: float) -> float:
 	if ground_points.size() < 2:
 		return BASE_Y
+	# Wrap into [0, TERRAIN_LENGTH) so the query stays in range after a wrap.
+	x = fmod(x, TERRAIN_LENGTH)
+	if x < 0.0:
+		x += TERRAIN_LENGTH
 	var index := int(x / SEGMENT_WIDTH)
 	index = clampi(index, 0, ground_points.size() - 2)
 	var p1 := ground_points[index]

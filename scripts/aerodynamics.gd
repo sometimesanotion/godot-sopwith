@@ -149,7 +149,7 @@ static func calculate_forces(inp: FlightInput) -> FlightOutput:
 
 		if speed_si > 0.01:
 			var mu := _friction_coeff(inp.on_runway, inp.throttle)
-			out.friction_force = -vel_si.normalized() * (maxf(0.0, into_gnd) * mu)
+			out.friction_force = -vel_si.normalized() * (maxf(0.0, into_gnd) * mu * 2.0)
 
 	out.net_force = out.weight_force + out.thrust_force + out.lift_force + out.drag_force + out.normal_force + out.friction_force
 

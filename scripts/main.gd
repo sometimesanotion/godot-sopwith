@@ -702,9 +702,16 @@ func _handle_wrap_around() -> void:
 	if pos.x < VIEWPORT_MIN_X:
 		biplane.position.x = TERRAIN_LENGTH - 1
 		camera.position.x += TERRAIN_LENGTH
+		# The wrap jumps the camera position by a full terrain length.  With the
+		# Camera2D's own position smoothing enabled this would pan slowly across
+		# the whole map, so snap the rendered camera to the new location
+		# instantly.  Only do this on an actual wrap — calling it every frame
+		# would kill the camera's smoothing and make panning jerky.
+		camera.reset_smoothing()
 	elif pos.x >= TERRAIN_LENGTH:
 		biplane.position.x = VIEWPORT_MIN_X + 1
 		camera.position.x -= TERRAIN_LENGTH
+		camera.reset_smoothing()
 
 
 func _create_minimap() -> void:
