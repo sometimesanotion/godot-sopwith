@@ -4,11 +4,11 @@
 [ext_resource type="Script" path="res://scripts/biplane_draw.gd" id="2_draw"]
 
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_1"]
-radius = 27.0
-height = 42.0
+radius = 25.0
+height = 40.0
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_1"]
-bounce = 0.1
+bounce = 0.05
 friction = 1.0
 
 [node name="Biplane" type="RigidBody2D"]

@@ -59,6 +59,15 @@ const DAMAGE_STATE_NAMES := {
 	4: "DESTROYED"
 }
 
+## Air-combat mode (boom & zoom) for enemy pilots. Order matches
+## EnemyAI.EngageMode: PURSUE, RECOVER_DIVE, RECOVER_CLIMB, IMMELMANN.
+const ENGAGE_MODE_NAMES := {
+	0: "PURSUE",
+	1: "RECOVER_DIVE",
+	2: "RECOVER_CLIMB",
+	3: "IMMELMANN"
+}
+
 func _ready() -> void:
 	_create_ui_elements()
 	get_viewport().size_changed.connect(_rebuild_ui)
@@ -270,6 +279,7 @@ func _update_debug_entry(idx: int, entity: Node, base_ground_y: float, is_player
 
 	var entity_id: String = "P0" if is_player else "E%d" % idx
 	var ai_state_text := "---"
+	var engage_mode_text := "---"
 	var flight_state_text := "---"
 	var damage_state_text := "---"
 	var alt_text := "---"
@@ -296,6 +306,9 @@ func _update_debug_entry(idx: int, entity: Node, base_ground_y: float, is_player
 		if ai_node and ai_node.ai_fsm:
 			var state_val: int = ai_node.ai_fsm.get_ai_state_enum()
 			ai_state_text = AI_STATE_NAMES.get(state_val, "UNKNOWN")
+			if ai_node.pilots.size() > 0:
+				var em: int = ai_node.pilots[0].engage_mode
+				engage_mode_text = ENGAGE_MODE_NAMES.get(em, "UNKNOWN")
 
 	if "flight_state" in avatar:
 		var state_val: int = int(avatar.flight_state)
@@ -306,5 +319,7 @@ func _update_debug_entry(idx: int, entity: Node, base_ground_y: float, is_player
 		damage_state_text = DAMAGE_STATE_NAMES.get(state_val, "UNKNOWN")
 
 	enemy_labels[label_idx].text = "%s: AI=%s FST=%s" % [entity_id, ai_state_text, flight_state_text]
-	enemy_labels[label_idx + 1].text = "    DST=%s ALT=%s" % [damage_state_text, alt_text]
-	enemy_labels[label_idx + 2].text = "    SPD=%s FUEL=%d" % [speed_text, avatar.fuel]
+	if not is_player:
+		enemy_labels[label_idx + 1].text = " ENG=%s" % engage_mode_text
+	enemy_labels[label_idx + 2].text = "    DST=%s ALT=%s" % [damage_state_text, alt_text]
+	enemy_labels[label_idx + 3].text = "    SPD=%s FUEL=%d" % [speed_text, avatar.fuel]

@@ -158,6 +158,14 @@ const ENERGY_SPEED_RATIO_GOOD   := 1.4     # speed / stall_speed for healthy ene
 # altitude check wins and the plane climbs instead.
 const EXTEND_ENTER_SPEED_RATIO  := 1.35
 
+# High-energy turnaround — when the AI is genuinely flying *away* from its
+# target (velocity points broadly opposite the line to target) yet has altitude
+# or airspeed in reserve, it reverses course back toward the target on the X
+# axis instead of sailing off the edge of the map.  This is the boom-zoom
+# energy-management that keeps a fast/high plane in the fight.
+const FLYAWAY_TURNAROUND_ALTITUDE    := 600.0   # px above ground
+const FLYAWAY_TURNAROUND_SPEED_RATIO := 1.6     # speed / stall_speed
+
 # RECOVER — the only break-off paths from PURSUE.  The default engage state is
 # to turn and fire; we only break off when the energy state makes a fight
 # impossible.  Two cases, exactly as the player would expect a skilled
@@ -506,11 +514,33 @@ func _compute_engage_pitch() -> float:
 		EngageMode.PURSUE:
 			turn_rate = _engage_turn_rate()
 			var aim = _lead_pursuit_point(target_pos, 0.85)
+			# High-energy overshoot: if we are actually moving away from the
+			# target yet have altitude or airspeed to spend, hard-reverse the
+			# heading back toward it (full lead + max snap) rather than flying
+			# off the map in the wrong X direction.
+			if _is_flying_away() \
+					and (_get_altitude_above_ground() > FLYAWAY_TURNAROUND_ALTITUDE \
+					     or _speed_ratio() > FLYAWAY_TURNAROUND_SPEED_RATIO):
+				aim = _lead_pursuit_point(target_pos, 1.0)
+				turn_rate = ENGAGE_TURN_HI
 			_steer_toward(aim, turn_rate)
 		_:
 			_steer_toward(_recover_waypoint(pilots[0].engage_mode), ENGAGE_TURN_LO)
 
 	return _compute_pitch_from_heading(true)   # ENGAGE profile
+
+## True when the AI is genuinely moving away from its target (velocity vector
+## points broadly opposite to the line to target).
+func _is_flying_away() -> bool:
+	if not biplane or not target:
+		return false
+	var to_tgt := target.global_position - biplane.global_position
+	if to_tgt.length_squared() < 1.0:
+		return false
+	var speed: float = biplane.velocity.length()
+	if speed < 1.0:
+		return false
+	return (biplane.velocity / speed).dot(to_tgt.normalized()) < -0.2
 
 # ---------------------------------------------------------------------------
 # ENGAGEMENT ENERGY MODES  (turn + fire vs. recover)
@@ -983,7 +1013,7 @@ func _decision_takeoff(avatar) -> void:
 
 ## Applied after state pitch/throttle for PATROLLING / ENGAGING / EVADING /
 ## RETURNING.  Skipped for GROUNDED and TAKING_OFF (they manage own outputs).
-func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true) -> Array:
+func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true, allow_ceiling := true) -> Array:
 	if _stall_reflex():
 		return [pilots[0].last_pitch_input, pilots[0].last_throttle]
 
@@ -1016,11 +1046,11 @@ func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true) 
 		if ai_fsm.current_key != &"engaging":
 			throttle = maxf(throttle, 0.8)
 
-	var ceil_fix = _altitude_ceiling_reflex()
+	var ceil_fix = _altitude_ceiling_reflex() if allow_ceiling else 0.0
 	if ceil_fix != 0.0:
 		pitch = maxf(pitch, ceil_fix)
 
-	var cutoff_fix = _engine_cutoff_avoid_reflex()
+	var cutoff_fix = _engine_cutoff_avoid_reflex() if allow_ceiling else 0.0
 	if cutoff_fix != 0.0:
 		pitch = maxf(pitch, cutoff_fix)
 
