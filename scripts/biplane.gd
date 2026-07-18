@@ -1707,8 +1707,8 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 		var old_bombs := avatar.bombs
 		var old_fuel  := avatar.fuel
 
-		avatar.ammo = minf(MAX_AMMO, avatar.ammo + 5.0 + int(delta * 50.0))
-		avatar.fuel = minf(100.0, avatar.fuel + 5.0 + int(delta * 50.0))
+		avatar.ammo = minf(MAX_AMMO, avatar.ammo + 10.0 + int(delta * 50.0))
+		avatar.fuel = minf(100.0, avatar.fuel + 6.0 + int(delta * 50.0))
 		if randomi >= 6:
 			avatar.bombs = mini(max_bombs, avatar.bombs + 1)
 		avatar.refuel_timer = 0.0

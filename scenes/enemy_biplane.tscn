@@ -7,7 +7,7 @@
 
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_enemy"]
 radius = 27.0
-height = 36.0
+height = 42.0
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_enemy"]
 bounce = 0.1
