@@ -125,7 +125,7 @@ func spawn_explosion(pos: Vector2, energy: float) -> Node2D:
 		GameManager.request_screen_shake(energy / 3.0)
 	# One-shot flash with no script of its own — free the (emitter-less) node
 	# once its particles have finished so explosions don't accumulate in the tree.
-	_free_after(instance, 0.75)
+	_free_after(instance, 0.6)
 	return instance
 
 func spawn_explosion_debris(pos: Vector2, energy: float, count: int, color: Color, polygon: PackedVector2Array = PackedVector2Array()) -> Node2D:
