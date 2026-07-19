@@ -16,20 +16,20 @@ var _generated := false
 # =============================================================================
 # M7 — Parallax layer re-architecture
 # =============================================================================
-# 3 layers, each with a distinct role (M7 French-countryside / Alps palette):
+# 3 layers, each with a distinct role (Final Atmospheric Depth Palette):
 #   Layer 1 (FARTHEST, scale 0.1): the distant Alps.
-#     Solid regal COBALT body (Color(0.2, 0.35, 0.6)) receding into the
-#     haze, with crisp white SNOW caps restricted to the top ~22% of the
-#     tallest summits.  Minimalist cirrus pinned to a low horizon band.
-#   Layer 2 (MID, scale 0.3): intermediate foothills.
-#     Single Polygon2D filled with a vertical GradientTexture2D: faint
-#     AQUA/MIST at the foot blending up to a soft, atmospheric GREEN crest.
-#   Layer 3 (NEAREST, scale 0.6): foreground parallax hills.
-#     Vertical GradientTexture2D: PALER TEAL at the base up to a rich, soft
-#     COUNTRYSIDE GREEN at the top, bridging to the player's real terrain.
+#     Deep regal cobalt blues (COBALT_ALPS_CREST → COBALT_ALPS_BASE).
+#     Crisp white snow caps on the tallest summits.
+#     Minimalist cirrus pinned to a low horizon band.
+#   Layer 2 (MID, scale 0.3): misty transition foothills.
+#     Blue-green peak to paler atmospheric green base (MID_MOUNTAIN_CREST →
+#     MID_MOUNTAIN_BASE), simulating horizon mist.
+#   Layer 3 (NEAREST, scale 0.6): foreground backdrop hills.
+#     Deep cobalt blue (FOREGROUND_HILL_CREST → FOREGROUND_HILL_BASE)
+#     echoing the classic game's primary background depth.
 #     Massive translucent cumulus stratify through the flight band above.
-# Frequencies have been lowered (0.002 / 0.003 / 0.004) for majestic,
-# sweeping ridges instead of splintered peaks.
+# Frequencies: Layer 1 uses 0.0018 for grand monolithic sweeps; Layers 2–3
+# use 0.0028 / 0.0035 for rolling intermediate landforms.
 # motion_scale.x is halved (D9 / T4: emphasize immense scale, kill
 # rapid background shifting); motion_scale.y is unchanged so vertical
 # parallax (climb/dive) still tracks the camera at the original rate.
@@ -43,27 +43,28 @@ var _generated := false
 ##   snow     : true → also emit white snow caps above `snow_line`.
 ##   trim_color : Line2D outline tint (defaults to a lightened crest/body).
 const LAYER_SPECS := [
-	# Layer 1 — Distant Alps (FARTHEST).  Solid cobalt body + white snow caps
-	# on the top ~22% of summits (base 650 − amp 280 = 370 peak; snow line at
-	# 432 leaves the upper 62 px ≈ 22% capped).
-	{"salt": 201, "scale": 0.1, "freq": 0.002, "amp": 280.0, "base": 650.0,
-	 "seg": 48.0, "floor": 1400.0, "gradient": false, "color": ParallaxScenery.COBALT_ALPS_COLOR,
-	 "snow": true, "snow_line": 432.0,
-	 "trim_color": Color(0.30, 0.45, 0.70)},
-	# Layer 2 — Foothills (MID).  Vertical gradient: aqua/mist foot →
-	# soft atmospheric green crest.
-	{"salt": 202, "scale": 0.3, "freq": 0.003, "amp": 200.0, "base": 680.0,
-	 "seg": 48.0, "floor": 1400.0, "gradient": true,
-	 "grad_base": ParallaxScenery.AQUA_MIST_COLOR,
-	 "grad_crest": ParallaxScenery.SOFT_GREEN_COLOR,
-	 "trim_color": Color(0.52, 0.76, 0.60)},
-	# Layer 3 — Foreground Hills (NEAREST).  Vertical gradient: paler teal
-	# foot → rich countryside green crest, bridging to real terrain.
-	{"salt": 203, "scale": 0.6, "freq": 0.004, "amp": 80.0,  "base": 720.0,
+	# Layer 1 — Distant Alps. Freq heavily lowered (0.0018) and Amp increased (380.0)
+	# for massive, grand, sweeping monolithic blocks mimicking the original game aesthetic.
+	{"salt": 201, "scale": 0.1, "freq": 0.0018, "amp": 380.0, "base": 680.0,
 	 "seg": 64.0, "floor": 1400.0, "gradient": true,
-	 "grad_base": ParallaxScenery.PALER_TEAL_COLOR,
-	 "grad_crest": ParallaxScenery.COUNTRYSIDE_GREEN_COLOR,
-	 "trim_color": Color(0.40, 0.68, 0.50)},
+	 "grad_crest": ParallaxScenery.COBALT_ALPS_CREST,
+	 "grad_base": ParallaxScenery.COBALT_ALPS_BASE,
+	 "snow": true, "snow_line": 400.0,
+	 "trim_color": Color(0.25, 0.40, 0.68)},
+	
+	# Layer 2 — Foothills. Mid-frequency, rolling intermediate landforms.
+	{"salt": 202, "scale": 0.3, "freq": 0.0028, "amp": 210.0, "base": 680.0,
+	 "seg": 56.0, "floor": 1400.0, "gradient": true,
+	 "grad_crest": ParallaxScenery.MID_MOUNTAIN_CREST,
+	 "grad_base": ParallaxScenery.MID_MOUNTAIN_BASE,
+	 "trim_color": Color(0.22, 0.45, 0.50)},
+	
+	# Layer 3 — Foreground Hills. Low-frequency wide waves that contrast gently with the ground.
+	{"salt": 203, "scale": 0.6, "freq": 0.0035, "amp": 110.0, "base": 720.0,
+	 "seg": 64.0, "floor": 1400.0, "gradient": true,
+	 "grad_crest": ParallaxScenery.FOREGROUND_HILL_CREST,
+	 "grad_base": ParallaxScenery.FOREGROUND_HILL_BASE,
+	 "trim_color": Color(0.18, 0.44, 0.28)},
 ]
 const CLOUD_SALT := 204
 
@@ -74,10 +75,12 @@ const CLOUD_SALT := 204
 ##   "ceiling"       → build_ceiling_clouds, stratified over the flight band
 ## `salt_offset` keeps each layer's cloud layout independent & deterministic.
 const CLOUD_STYLES := [
-	# Layer 1: cirrus in a narrow band right at the horizon (540–640 px), with
-	# very low alpha (0.05–0.1) so it blends into the sky gradient.
-	{"type": "cirrus_narrow", "count": 6, "alpha": 0.08, "cy_min": 540.0,
-	 "cy_max": 640.0, "salt_offset": 0},
+	# Layer 1: cirrus high in the sky, well ABOVE the cobalt peaks (which
+	# span y ≈ [400, 680]).  Pinned to a narrow band (100–300) with very low
+	# alpha (0.05–0.1) so the wisps read as faint, distant haze floating over
+	# the summits rather than hugging the horizon line.
+	{"type": "cirrus_narrow", "count": 6, "alpha": 0.08, "cy_min": 100.0,
+	 "cy_max": 300.0, "salt_offset": 0},
 	# Layer 2: stratum midpoint — medium-thickness, gently rounded tops over
 	# flat bases, filling the middle air corridors between the horizon wisps
 	# and the Layer 3 cumulus.  y range sits above the cobalt peaks
@@ -180,26 +183,26 @@ func generate(seed: int) -> void:
 		var span := _coverage_periods(period)  # wide enough to fill the screen
 		var layer := ParallaxLayer.new()
 		# M7 / D9: halve horizontal motion_scale to slow background scroll;
-		# keep vertical motion_scale at s so climb/dive parallax is unchanged.
-		layer.motion_scale = Vector2(s * MOTION_SCALE_X_MUL, s)
+		# halve vertical motion_scale too to compress layers toward the horizon.
+		layer.motion_scale = Vector2(s * MOTION_SCALE_X_MUL, s * 0.5)
 		layer.motion_mirroring = Vector2(period, 0.0)
 		parallax.add_child(layer)
 		var ridge := ParallaxScenery.build_ridge_points(
 			TerrainNoise.derive_seed(seed, spec["salt"]),
 			period, spec["base"], spec["amp"], spec["freq"], spec["seg"], span)
-		# --- Layer body: gradient mountains (L2, L3) or solid alps (L1) ---
+		# --- Layer body: gradient mountains (all layers) ---
 		var is_gradient: bool = spec.get("gradient", false)
 		var body_color: Color
 		if is_gradient:
-			# Vertical gradient: aqua/teal foot → green crest (atmospheric
-			# perspective).  The polygon's own UV remap (see
-			# ParallaxScenery.build_gradient_mountain_polygon) traps the
-			# gradient to the ridge bounds — no white edge bleed.
+			# True vertical gradient: base foot → crest (atmospheric
+			# perspective).  Each ridge vertex is tinted by its normalized
+			# height (see ParallaxScenery.build_gradient_mountain_polygon) so
+			# the body blends crest→foot with no flat band and no white bleed.
 			body_color = spec["grad_crest"]
 			layer.add_child(ParallaxScenery.build_gradient_mountain_polygon(
 				ridge, period, spec["floor"], spec["grad_crest"], spec["grad_base"]))
 		else:
-			# Solid cobalt Alps body + white snow caps on the top tier.
+			# Solid fill + optional snow caps.
 			body_color = spec["color"]
 			layer.add_child(ParallaxScenery.make_ridge_polygon(
 				ridge, period, spec["floor"], body_color))
@@ -207,10 +210,6 @@ func generate(seed: int) -> void:
 				var snow_line: float = spec.get("snow_line", SNOW_LINE_Y)
 				for cap in ParallaxScenery.build_snow_caps(ridge, snow_line):
 					layer.add_child(cap)
-		# Trim line: explicit `trim_color` (lightened crest/body) so the
-		# outline stays crisp and harmonious with its layer (M7 rule 3).
-		var trim_color: Color = spec.get("trim_color", body_color.lightened(0.12))
-		layer.add_child(ParallaxScenery.make_trim_line(ridge, trim_color))
 		# --- Per-layer cloud decoration (M7) ---
 		var cstyle: Dictionary = CLOUD_STYLES[i]
 		var clouds: Array[Polygon2D] = []

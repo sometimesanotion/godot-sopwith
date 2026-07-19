@@ -3,26 +3,22 @@
 class_name ParallaxScenery
 
 # =============================================================================
-# Layer styling constants — French-countryside / Alps palette (M7)
+# Layer styling constants — Final Atmospheric Depth Palette
 # =============================================================================
 
-## Layer 1 (farthest): the distant Alps.  Solid cobalt body — the deep,
-## regal blue that fades into the background haze.  Spec: Color(0.2, 0.35, 0.6).
-const COBALT_ALPS_COLOR := Color(0.2, 0.35, 0.6)
+## Layer 1 (Farthest): Monolithic Alps. Deep regal cobalt blues.
+const COBALT_ALPS_CREST := Color(0.18, 0.32, 0.58)
+const COBALT_ALPS_BASE  := Color(0.24, 0.38, 0.65)
 
-## Layer 2 (mid): intermediate foothills gradient base — a faint aqua/mist
-## hue that blends into the horizon.
-const AQUA_MIST_COLOR := Color(0.78, 0.88, 0.90)
+## Layer 2 (Mid): Misty transition hills. Fades from a slightly blue-green peak
+## down to a slightly paler, atmospheric green at the base (simulating horizon mist).
+const MID_MOUNTAIN_CREST := Color(0.22, 0.44, 0.42)
+const MID_MOUNTAIN_BASE  := Color(0.32, 0.52, 0.46)
 
-## Layer 2 (mid): foothills gradient crest — a soft, atmospheric green.
-const SOFT_GREEN_COLOR := Color(0.42, 0.66, 0.50)
-
-## Layer 3 (nearest): foreground hills gradient base — a paler teal.
-const PALER_TEAL_COLOR := Color(0.62, 0.84, 0.82)
-
-## Layer 3 (nearest): foreground hills gradient crest — a rich, soft
-## countryside green that bridges to the player's real terrain.
-const COUNTRYSIDE_GREEN_COLOR := Color(0.30, 0.58, 0.40)
+## Layer 3 (Nearest): Foreground backdrop hills. Deep cobalt blue shades echoing
+## the classic game's primary background depth before blending into the real terrain.
+const FOREGROUND_HILL_CREST := Color(0.15, 0.28, 0.52)
+const FOREGROUND_HILL_BASE  := Color(0.20, 0.35, 0.60)
 
 ## Snow line threshold (y) for the cobalt mountain layer.  Ridge vertices
 ## above this (smaller y) receive a white snow-cap polygon.  Tuned so the
@@ -51,11 +47,6 @@ const LAYER3_CLOUD_TOP_Y := DEFAULT_GROUND_Y - CLOUD_BAND_MIN_ALTITUDE_M * METER
 ## Default ground Y for converting ceiling altitude → world Y.  Mirrors
 ## Terrain.BASE_Y (650.0); kept local so this module stays node-free.
 const DEFAULT_GROUND_Y := 650.0
-
-## Vertical resolution of the cobalt gradient texture.  256 is enough for a
-## smooth C¹ ramp without wasting GPU memory; the polygon's `texture_scale`
-## stretches it across the full ridge height.
-const COBALT_GRADIENT_HEIGHT := 256
 
 ## One-sided ridge silhouette: values mapped [0,1] so the ridge only rises
 ## above `baseline`.  The silhouette is periodic with `period`, so the first
@@ -114,40 +105,18 @@ static func make_trim_line(ridge: PackedVector2Array, color: Color,
 # Gradient-filled mountain layer (shared by Layers 2 & 3)
 # =============================================================================
 
-## Build a vertical GradientTexture2D: TOP samples `peak_color`, BOTTOM
-## samples `base_color`.  After the caller's texture_offset/texture_scale
-## remap, the peak color lands on the highest ridge vertices and the base
-## color on the mountain foot — i.e. atmospheric perspective on one polygon.
-## fill_from/fill_to define a top-to-bottom linear fill so the gradient
-## interpolates smoothly along world-y.
-static func make_vertical_gradient(peak_color: Color, base_color: Color,
-		width: int = 2, height: int = COBALT_GRADIENT_HEIGHT) -> GradientTexture2D:
-	var grad := Gradient.new()
-	# M7 bug-fix: Gradient.new() ships with TWO default stops — black at
-	# offset 0 and WHITE at offset 1.  add_point() inserts *additional*
-	# stops, so the white stop survived at offset 1 and any out-of-range /
-	# boundary sample rendered stark white (the "white infill" artifact).
-	# Overwrite the default stops in place instead of adding new ones.
-	grad.set_color(0, peak_color)
-	grad.set_color(1, base_color)
-	grad.set_offset(0, 0.0)
-	grad.set_offset(1, 1.0)
-	var tex := GradientTexture2D.new()
-	tex.gradient = grad
-	tex.width = width
-	tex.height = height
-	tex.fill = GradientTexture2D.FILL_LINEAR
-	tex.fill_from = Vector2(0.5, 0.0)   # top edge → offset 0 → peak_color
-	tex.fill_to = Vector2(0.5, 1.0)     # bottom edge → offset 1 → base_color
-	return tex
-
 ## Build a gradient-filled mountain polygon: ridge silhouette closed at
-## `floor_y`, filled by a vertical gradient (peak_color crest → base_color
-## foot) mapping per-vertex world-y onto the texture's vertical axis.
-## `polygon.color` is INTENTIONALLY white (1,1,1,1): for a *textured*
-## Polygon2D the vertex color modulates the texture, so white = "render the
-## texture unmodified".  This is NOT the white-infill bug — that bug lived in
-## the Gradient's leftover default white *stop*, fixed in make_vertical_gradient.
+## `floor_y`, filled with a TRUE vertical gradient on per-vertex COLORS
+## (not a texture).  Each ridge vertex is tinted by its normalized height in
+## the silhouette — the highest peak (smallest y) takes `peak_color` and the
+## lowest baseline vertex (largest y) takes `base_color`, with every vertex
+## between linearly interpolated.  Godot then blends per fragment, so the
+## visible body ranges smoothly from the crest hue down to the haze foot: a
+## real bottom→top gradient, no flat crest band, no UV math, no AABB mapping
+## pitfalls, and no risk of out-of-range texture sampling bleaching to white.
+## `polygon.color` is left at the default (1,1,1,1) so the vertex colors
+## render unmodified (the per-vertex color is multiplied by `polygon.color`,
+## and white is the identity multiplier).
 static func build_gradient_mountain_polygon(ridge: PackedVector2Array, period: float,
 		floor_y: float, peak_color: Color, base_color: Color) -> Polygon2D:
 	var poly := Polygon2D.new()
@@ -160,30 +129,30 @@ static func build_gradient_mountain_polygon(ridge: PackedVector2Array, period: f
 	pts.append(Vector2(end_x, floor_y))
 	pts.append(Vector2(0.0, floor_y))
 	poly.polygon = pts
-	poly.color = Color(1.0, 1.0, 1.0, 1.0)   # texture provides the color (intended)
-	# Find the highest peak (smallest y) for the texture remap anchor.
-	var peak_y: float = INF
+	poly.color = Color(1.0, 1.0, 1.0, 1.0)   # identity multiplier for vertex colors
+	# Height-based per-vertex coloring.  Find the silhouette's vertical span
+	# (peak_y = smallest y, base_y = largest y) and lerp each ridge vertex
+	# from peak_color (top) down to base_color (foot) by its normalized y.
+	# Both floor-closure vertices are base_color so the below-baseline skirt
+	# reads as continuous haze foot — no seam, no white stops.
+	var vcols := PackedColorArray()
+	if ridge.is_empty():
+		poly.vertex_colors = vcols
+		return poly
+	var peak_y := INF
+	var base_y := -INF
 	for pt in ridge:
 		peak_y = minf(peak_y, pt.y)
-	# Exact bounding delta between the highest ridge vertex and the closure
-	# floor.  Guard against degenerate relief so the scale never divides by
-	# (or multiplies into) zero.
-	var height_delta := floor_y - peak_y
-	if height_delta < 1.0:
-		height_delta = 1.0
-		peak_y = floor_y - height_delta
-	var tex := make_vertical_gradient(peak_color, base_color)
-	poly.texture = tex
-	# Trap the gradient inside the polygon bounds: never tile, never sample
-	# past the edge stops (edge sampling was the second white-infill source).
-	poly.texture_repeat = CanvasItem.TEXTURE_REPEAT_DISABLED
-	# UV mapping: polygon y=peak_y → texture y=0 (peak_color);
-	#             polygon y=floor_y → texture y=COBALT_GRADIENT_HEIGHT (base_color).
-	# Polygon2D uses `uv = (local_pos - texture_offset) / texture_scale`, so
-	# scale.y = height_delta / COBALT_GRADIENT_HEIGHT maps local pixels →
-	# texture rows exactly, with no division overrun.
-	poly.texture_offset = Vector2(0.0, peak_y)
-	poly.texture_scale = Vector2(1.0, height_delta / float(COBALT_GRADIENT_HEIGHT))
+		base_y = maxf(base_y, pt.y)
+	var span := base_y - peak_y
+	if span < 1.0:
+		span = 1.0
+	for pt in ridge:
+		var t := clampf((pt.y - peak_y) / span, 0.0, 1.0)
+		vcols.append(peak_color.lerp(base_color, t))
+	vcols.append(base_color)   # right floor closure
+	vcols.append(base_color)   # left floor closure
+	poly.vertex_colors = vcols
 	return poly
 
 ## Build the snow-cap overlay polygons for the cobalt mountain layer.

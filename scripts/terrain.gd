@@ -22,7 +22,7 @@ const RUNWAY_START := 5300.0         # player runway left edge
 const RUNWAY_LENGTH := 600.0         # 20% wider than the original 500 (T-runway)
 const RUNWAY_END := RUNWAY_START + RUNWAY_LENGTH   # 5900.0, derived so the
 												  # player runway stays = LENGTH
-const RUNWAY_APRON := 256.0           # flat BASE_Y mesa on each side of a runway
+const RUNWAY_APRON := 64.0           # flat BASE_Y mesa on each side of a runway
 									  # (was 320; shrunk 20% for less flattening)
 const RUNWAY_BLEND_WIDTH := 192.0     # amplitude ramp from apron edge to natural terrain
 
