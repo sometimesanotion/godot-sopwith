@@ -168,7 +168,7 @@ const DETECTION_RANGE       := 40000.0
 const ENGAGEMENT_RANGE      := 24000.0
 const MAX_FIRE_RANGE        := 700.0
 const MIN_FIRE_RANGE        := 30.0
-const FIRE_CONE_ANGLE       := 0.42
+const FIRE_CONE_ANGLE       := 0.36
 const ADVANTAGE_THRESHOLD   := 50.0
 const RETURN_REENGAGE_RANGE := 400.0
 const HOME_PROXIMITY        := 100.0
@@ -247,6 +247,16 @@ const RECOVER_MAX_TIME          := 4.0     # s — never recover forever, force 
 const ENGAGE_TURN_LO            := 0.30    # low-energy: lazy turn, save what we have
 const ENGAGE_TURN_HI            := 0.75    # high-energy: aggressive snap
 const ENGAGE_CHOP_THROTTLE      := 0.35    # only when a steep, fast dive is about to crash
+
+# Pursuit climb cap.  When the AI is flying TOWARD the player (i.e. NOT in a
+# deliberate fly-away Immelmann — that branch is exempt), a full (negative)
+# climb command can arc the plane over into a loop that reverses its heading and
+# flies it away from the target.  The cap limits how far upward the pitch
+# command may go while pursuing, easing off as the velocity vector aligns with
+# the line to the target (a proper intercept climb is safe) and staying tight
+# when the plane is broadside (where a full climb would loop it).
+const ENGAGE_CLIMB_CAP_BROADSIDE := -0.35   # most-negative climb allowed when broadside
+const ENGAGE_CLIMB_CAP_INTERCEPT := -0.85   # eased when on a clean intercept
 
 # Defensive reactions — a live target inside this rear cone, close and with
 # its nose tracking us, means the player has our six: break.
@@ -367,9 +377,6 @@ class AIData:
 var decision_interval: float = 0.02
 var decision_accum: float = 0.0
 
-var territory_left: float  = 0.0
-var territory_right: float = 16384.0
-
 var terrain_cache: Node2D = null
 
 var ai_fsm: AIStateMachine = null
@@ -401,13 +408,7 @@ func _ready() -> void:
 		if RespawnManager.respawn_ready.is_connected(_on_enemy_respawn_ready):
 			RespawnManager.respawn_ready.disconnect(_on_enemy_respawn_ready)
 		RespawnManager.respawn_ready.connect(_on_enemy_respawn_ready)
-	_setup_territory()
 	_init_ai_fsm()
-
-func _setup_territory() -> void:
-	var half := patrol_range * 0.5
-	territory_left  = home_base_x - half
-	territory_right = home_base_x + half
 
 func _init_ai_fsm() -> void:
 	var fsm_node := AIStateMachine.new()
@@ -587,20 +588,59 @@ func _compute_engage_pitch() -> float:
 		_:
 			_steer_toward(_recover_waypoint(pilots[0].engage_mode), ENGAGE_TURN_LO)
 
-	return _compute_pitch_from_heading(true)   # ENGAGE profile
+	var pitch := _compute_pitch_from_heading(true)   # ENGAGE profile
 
-## True when the AI is genuinely moving away from its target (velocity vector
-## points broadly opposite to the line to target).
-func _is_flying_away() -> bool:
+	# The climb cap applies ONLY while the AI is flying TOWARD the
+	# player's position on the travel axis (is_flying_toward_player).
+	# The deliberate fly-away Immelmann turnaround (is_flying_toward_player
+	# → false) is exempt — it intentionally pitches up to reverse
+	# heading.  The cap eases from BROADSIDE (tight) to INTERCEPT
+	# (loose) as the velocity vector aligns with the line to the target,
+	# so a clean on-approach climb is never starved while a broadside
+	# loop is prevented.
+	if is_flying_toward_player() and pitch < 0.0:
+		var to_tgt := target.global_position - biplane.global_position
+		to_tgt.x = wrapf(to_tgt.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+		var align: float = 0.0
+		var spd: float = biplane.velocity.length()
+		if spd > 1.0:
+			align = clampf((biplane.velocity / spd).dot(to_tgt.normalized()), 0.0, 1.0)
+		var max_climb := lerpf(ENGAGE_CLIMB_CAP_BROADSIDE, ENGAGE_CLIMB_CAP_INTERCEPT, align)
+		pitch = maxf(pitch, max_climb)
+
+	return pitch
+
+## True when the AI is flying TOWARD its target along the travel axis —
+## its velocity X-sign matches the wrapped direction from the AI to the
+## player's POSITION.  This is the ONLY case where the pursuit climb cap may
+## apply: a plane converging on the player can be allowed a controlled
+## climb, whereas a plane moving away on the X axis must be free to pitch
+## up and reverse (Immelmann).  IMPORTANT: this compares the AI's own
+## travel direction against the direction to the player's POSITION — it does
+## NOT compare the AI's velocity to the player's velocity, so it can never
+## read as "flying the same direction as the player" / mirroring.  Uses
+## the X axis (leftward/rightward travel) because in this side-view game
+## "toward the player" means converging horizontally, not matching the
+## player's heading.
+func is_flying_toward_player() -> bool:
 	if not biplane or not target:
 		return false
-	var to_tgt := target.global_position - biplane.global_position
-	if to_tgt.length_squared() < 1.0:
+	var dx := wrapf(target.global_position.x - biplane.global_position.x,
+		-TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+	var dir_to_player := signf(dx)
+	if dir_to_player == 0.0:
 		return false
-	var speed: float = biplane.velocity.length()
-	if speed < 1.0:
+	var travel := signf(biplane.velocity.x)
+	if travel == 0.0:
 		return false
-	return (biplane.velocity / speed).dot(to_tgt.normalized()) < -0.2
+	return travel == dir_to_player
+
+## True when the AI is moving AWAY from its target along the travel axis —
+## the inverse of is_flying_toward_player().  This is the turnaround case
+## (an Immelmann or hard reverse), where the climb must NOT be capped.
+func _is_flying_away() -> bool:
+	return not is_flying_toward_player()
+
 
 # ---------------------------------------------------------------------------
 # ENGAGEMENT ENERGY MODES  (turn + fire vs. recover)
@@ -1396,12 +1436,6 @@ func _can_bomb_ground_target() -> bool:
 # ---------------------------------------------------------------------------
 # TERRITORY & POSITION QUERIES
 # ---------------------------------------------------------------------------
-
-func _is_player_in_territory() -> bool:
-	if not target:
-		return false
-	var px = target.global_position.x
-	return px >= territory_left and px <= territory_right
 
 ## True when the target is a biplane that is currently airborne (FLYING or
 ## STALLED).  Ground-structure targets count as "not airborne".

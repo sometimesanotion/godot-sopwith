@@ -190,7 +190,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_inertia": 5.0,
 		"bullet_spawn_offset": Vector2(32, -14),
 		"bomb_spawn_offset": Vector2(0, 32),
-		"max_bombs": 0,
+		"max_bombs": 2,
 		"visual_scale": Vector2(1.1, 1.1),
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 34.0,

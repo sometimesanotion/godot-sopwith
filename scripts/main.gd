@@ -432,6 +432,17 @@ func _spawn_enemies_and_targets() -> void:
 			# Initial heading must match the parked orientation so the AI
 			# doesn't try to yaw 180° on the first decision tick.
 			enemy.get_node("EnemyAI").pilots[0].desired_heading = spawn_rot
+		# Guarantee the initial spawn exactly matches the homebase spawn point.
+		# The homebase above was built from this same spawn_pos / spawn_rot, so
+		# re-deriving the parked transform from the homebase itself means the
+		# plane can never drift from where it is meant to sit, and a respawn
+		# (which also reads get_homebase_spawn_position) lands in the same spot.
+		if enemy.has_method("get_homebase_spawn_position") \
+				and enemy.has_method("get_homebase_spawn_rotation") \
+				and enemy.has_method("get_avatar_data"):
+			var hb_av = enemy.get_avatar_data(0)
+			enemy.global_position = enemy.get_homebase_spawn_position(hb_av)
+			enemy.rotation = enemy.get_homebase_spawn_rotation(hb_av)
 		if is_vs_computer:
 			var takeoff_delay := i * 1.5
 			if enemy.has_node("EnemyAI"):
