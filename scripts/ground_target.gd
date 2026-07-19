@@ -131,8 +131,6 @@ func _draw() -> void:
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
 		var draw_rect := SvgManager.calc_draw_rect(polygon_points)
 		SvgManager.draw_sprite_fit(self, _svg_sprite_name, draw_rect)
-		if is_enemy and not is_wreck:
-			_draw_enemy_flag()
 		return
 
 	var color := Color(0.3, 0.3, 0.35)
@@ -156,9 +154,6 @@ func _draw() -> void:
 	elif target_type == "building":
 		draw_building_details()
 
-	if is_enemy and not is_wreck:
-		_draw_enemy_flag()
-
 func draw_hangar_details() -> void:
 	draw_line(Vector2(-35, -20), Vector2(-35, -25), Color(0.2, 0.1, 0.1), 2)
 	draw_line(Vector2(0, -30), Vector2(0, -38), Color(0.2, 0.1, 0.1), 2)
@@ -180,25 +175,6 @@ func draw_building_details() -> void:
 	draw_rect(Rect2(-22, -35, 44, 5), Color(0.2, 0.2, 0.25))
 	draw_rect(Rect2(-15, -40, 12, 10), Color(0.15, 0.15, 0.2))
 	draw_rect(Rect2(3, -40, 12, 10), Color(0.15, 0.15, 0.2))
-
-func _draw_enemy_flag() -> void:
-	var right_edge := _get_right_edge()
-	var flag_x := right_edge + 5.0
-	var flag_top := -45.0
-	draw_line(Vector2(flag_x, 0), Vector2(flag_x, flag_top), Color(0.6, 0.6, 0.6), 2)
-	var flag_points := PackedVector2Array([
-		Vector2(flag_x, flag_top),
-		Vector2(flag_x + 15, flag_top + 5),
-		Vector2(flag_x, flag_top + 10)
-	])
-	draw_colored_polygon(flag_points, Color(0.8, 0.1, 0.1))
-
-func _get_right_edge() -> float:
-	var max_x := -INF
-	for pt in polygon_points:
-		if pt.x > max_x:
-			max_x = pt.x
-	return max_x
 
 var _last_attacker_player_id: int = 0
 

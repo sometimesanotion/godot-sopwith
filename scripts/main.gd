@@ -323,10 +323,13 @@ func _start_playing() -> void:
 
 	if camera:
 		camera.position = Vector2(PLAYER_SPAWN_X, 400)
-	_create_minimap()
 	_spawn_enemies_and_targets()
 	_create_home_base()
 	_create_enemy_bases()
+	# Built last so the minimap samples terrain only after every runway
+	# (player + all enemy bases via add_runway) has been placed and the
+	# ground points fully regenerated — otherwise it shows a stale snapshot.
+	_create_minimap()
 	if GameManager and biplane and biplane.has_method("get_avatar_data"):
 		var avatar = biplane.get_avatar_data(0)
 		if avatar:
@@ -719,6 +722,8 @@ func _on_next_level() -> void:
 	_spawn_enemies_and_targets()
 	_create_home_base()
 	_create_enemy_bases()
+	if minimap_instance and terrain and terrain.has_method("get_ground_points"):
+		minimap_instance.update_terrain(terrain.get_ground_points())
 	if minimap_instance and minimap_instance.has_method("clear"):
 		minimap_instance.clear()
 	if biplane:

@@ -12,11 +12,11 @@ const COBALT_ALPS_CREST := Color(0.06, 0.15, 0.50)
 const COBALT_ALPS_BASE  := Color(0.12, 0.25, 0.55)
 
 ## Layer 2 (Mid): Misty transition hills.
-const MID_MOUNTAIN_CREST := Color(0.10, 0.26, 0.32)
-const MID_MOUNTAIN_BASE  := Color(0.15, 0.30, 0.40)
+const MID_MOUNTAIN_CREST := Color(0.10, 0.26, 0.35)
+const MID_MOUNTAIN_BASE  := Color(0.12, 0.28, 0.40)
 
 ## Layer 3 (Nearest): Foreground backdrop hills.
-const FOREGROUND_HILL_CREST := Color(0.10, 0.30, 0.20)
+const FOREGROUND_HILL_CREST := Color(0.10, 0.32, 0.20)
 const FOREGROUND_HILL_BASE  := Color(0.12, 0.34, 0.24)
 
 const DEFAULT_SNOW_LINE_Y := 600.0
@@ -45,7 +45,16 @@ const LAYER1_MOTION_SCALE_X := 0.05
 const LAYER1_MOTION_SCALE_Y := 0.25
 const LAYER1_BASELINE_Y     := 820.0
 const LAYER1_FLOOR_Y        := 1600.0
-const LAYER1_AMPLITUDE_PX   := 480.0
+# PERIOD is the repeating width of the silhouette (and the parallax mirror
+# distance).  It is its OWN knob — NOT derived from MOTION_SCALE_X — so widening
+# the pattern does not change how fast the layer pans with the camera.  The old
+# value was TERRAIN_LENGTH*MOTION_SCALE_X = 819 px, which tiled ~14× across the
+# background; the wider value below repeats only ~2× and stays seamless.
+const LAYER1_PERIOD         := 6000.0
+# ZOOM: vertical scale of the range.  Larger amplitude = taller, more imposing
+# (more "zoomed-in") alps.  LAYER1_FREQUENCY is the horizontal detail/zoom knob
+# (smaller = broader, smoother mountains).
+const LAYER1_AMPLITUDE_PX   := 500.0
 const LAYER1_FREQUENCY      := 0.0018
 const LAYER1_SEGMENT_PX     := 64.0
 const LAYER1_SEED_SALT      := 201
@@ -57,6 +66,9 @@ const LAYER2_MOTION_SCALE_X := 0.15
 const LAYER2_MOTION_SCALE_Y := 0.35
 const LAYER2_BASELINE_Y     := 820.0
 const LAYER2_FLOOR_Y        := 1600.0
+# Dedicated repeating width (decoupled from motion scale), matching the old
+# TERRAIN_LENGTH*MOTION_SCALE_X = 2457.6 so behaviour is unchanged.
+const LAYER2_PERIOD         := 2457.6
 const LAYER2_AMPLITUDE_PX   := 210.0
 const LAYER2_FREQUENCY      := 0.0028
 const LAYER2_SEGMENT_PX     := 56.0
@@ -68,6 +80,9 @@ const LAYER3_MOTION_SCALE_X := 0.3
 const LAYER3_MOTION_SCALE_Y := 0.5
 const LAYER3_BASELINE_Y     := 800.0
 const LAYER3_FLOOR_Y        := 1600.0
+# Dedicated repeating width (decoupled from motion scale), matching the old
+# TERRAIN_LENGTH*MOTION_SCALE_X = 4915.2 so behaviour is unchanged.
+const LAYER3_PERIOD         := 4915.2
 const LAYER3_AMPLITUDE_PX   := 110.0
 const LAYER3_FREQUENCY      := 0.0035
 const LAYER3_SEGMENT_PX     := 64.0
@@ -78,6 +93,7 @@ const LAYER3_USE_GRADIENT   := true
 # above so the build loop stays data-driven while tuning stays self-documenting.
 const LAYER_SPECS := [
 	{"salt": LAYER1_SEED_SALT, "scale": LAYER1_MOTION_SCALE_X,
+	 "period": LAYER1_PERIOD,
 	 "v_scale": LAYER1_MOTION_SCALE_Y, "freq": LAYER1_FREQUENCY,
 	 "amp": LAYER1_AMPLITUDE_PX, "base": LAYER1_BASELINE_Y,
 	 "seg": LAYER1_SEGMENT_PX, "floor": LAYER1_FLOOR_Y,
@@ -85,12 +101,14 @@ const LAYER_SPECS := [
 	 "grad_crest": COBALT_ALPS_CREST, "grad_base": COBALT_ALPS_BASE,
 	 "snow": true, "snow_line": LAYER1_SNOW_LINE_Y},
 	{"salt": LAYER2_SEED_SALT, "scale": LAYER2_MOTION_SCALE_X,
+	 "period": LAYER2_PERIOD,
 	 "v_scale": LAYER2_MOTION_SCALE_Y, "freq": LAYER2_FREQUENCY,
 	 "amp": LAYER2_AMPLITUDE_PX, "base": LAYER2_BASELINE_Y,
 	 "seg": LAYER2_SEGMENT_PX, "floor": LAYER2_FLOOR_Y,
 	 "gradient": LAYER2_USE_GRADIENT,
 	 "grad_crest": MID_MOUNTAIN_CREST, "grad_base": MID_MOUNTAIN_BASE},
 	{"salt": LAYER3_SEED_SALT, "scale": LAYER3_MOTION_SCALE_X,
+	 "period": LAYER3_PERIOD,
 	 "v_scale": LAYER3_MOTION_SCALE_Y, "freq": LAYER3_FREQUENCY,
 	 "amp": LAYER3_AMPLITUDE_PX, "base": LAYER3_BASELINE_Y,
 	 "seg": LAYER3_SEGMENT_PX, "floor": LAYER3_FLOOR_Y,
@@ -194,7 +212,11 @@ func generate(seed: int) -> void:
 	for i in range(LAYER_SPECS.size()):
 		var spec: Dictionary = LAYER_SPECS[i]
 		var s: float = spec["scale"]
-		var period := TERRAIN_LENGTH * s
+		# Period is a dedicated knob (decoupled from motion_scale): widening the
+		# silhouette's repeating width must not change how fast the layer pans
+		# with the camera.  Layers without an explicit "period" fall back to the
+		# legacy TERRAIN_LENGTH*scale.
+		var period := float(spec.get("period", TERRAIN_LENGTH * s))
 		var span := _coverage_periods(period)
 		var layer := ParallaxLayer.new()
 		layer.motion_scale = Vector2(s * MOTION_SCALE_X_MUL, spec["v_scale"])

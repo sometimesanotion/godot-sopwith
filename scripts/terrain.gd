@@ -4,7 +4,7 @@ class_name Terrain
 # --- World layout ---
 const TERRAIN_LENGTH := 16384.0
 const TERRAIN_LOW_BOUND := 3000.0
-const SEGMENT_WIDTH := 32.0
+const SEGMENT_WIDTH := 64.0
 const BASE_Y := 650.0
 
 # --- Runway ---
