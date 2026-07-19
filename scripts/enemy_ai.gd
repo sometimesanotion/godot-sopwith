@@ -1,122 +1,5 @@
 extends Node
 
-## Enemy AI for Sopwith biplanes
-## Architecture: Controller (sole driver) -> FSM State Machine -> Pursuit Calculator -> Reflex Layer
-##
-## The AI uses the project's reusable FSM (StateMachine/State) instead of a
-## manual enum + match pattern. State scripts in scripts/states/ai/ compute
-## decisions only — they never apply inputs or mutate pilot outputs directly.
-##
-## CADENCE MODEL (single-driver, D2/D3)
-##   • The controller (`enemy_ai`) is the SOLE driver of `AIStateMachine`.
-##     `self_driven` is false; the FSM never ticks itself.
-##   • Decisions: the controller accumulates real elapsed time and calls
-##     `ai_fsm.tick(elapsed)` once every `decision_interval` (0.05 s ≈ 20 Hz).
-##   • Application: control outputs (`_apply_input`) are applied once per
-##     physics frame (≈60 Hz), decoupled from the decision cadence.
-##   • State timers (`evade_timer`, patrol oscillation) therefore track wall
-##     time exactly, and `HEADING_LERP_FACTOR` filters jitter at its designed
-##     20 Hz (B3/B4).
-##
-## PITCH CONTROL  (Options B + C)
-##   B — State-aware damping profiles: ENGAGING uses a more aggressive budget
-##       (lower floor, lower ceiling) than CRUISE (patrol / return / takeoff).
-##       The AoA blend that re-raises damping during a turn is suppressed in
-##       combat so dogfighting authority is never silently stolen back.
-##   C — Angular-velocity damping is a flat decoupled coefficient, not folded
-##       into the speed curve.  This gives immediate snap on dive pull-outs
-##       without affecting the speed-based sensitivity scaling.
-##
-## ATTITUDE FRAMES & HELPER API  (Biplane.AvatarData — direction-agnostic)
-## ---------------------------------------------------------------------------
-## Every pitch quantity the AI produces or consumes is expressed in the
-## GRAVITY FRAME: 0 = level with the horizon, positive = nose-down toward the
-## ground, negative = nose-up toward the sky.  A level plane flying leftward
-## inverted and one flying rightward upright read IDENTICALLY, and a given
-## command produces the same climb/dive for both.  This gravity frame is the
-## ONLY frame behaviour code is allowed to reason about — raw world-space
-## rotations and pre-flipped signs were the source of every inverted-plane
-## bug in this file's history.
-##
-## THE HELPERS  (all on Biplane.AvatarData)
-##   travel_sign()                          +1.0 rightward nose, -1.0 leftward
-##   level_rotation()                       0.0 rightward, PI leftward (world)
-##   gravity_pitch()                        pitch relative to the horizon
-##   gravity_pitch_rate()                   pitch rate, sign-corrected
-##   gravity_angle(world_heading)           world heading → gravity frame
-##   world_angle(gravity_pitch_value)       gravity frame → world heading
-##   pitch_command_to_rotation_input(cmd)   gravity command → rotation input
-##   rotation_is_leftward(world_rotation)   static: true when nose aims left
-##
-## VITAL RULES  (every one of these was a real bug; obey them all)
-##   1. NEVER read or branch on `avatar.is_barrel_rolled` in this file.
-##      Use `travel_sign()` for direction-sensitive branches, `gravity_pitch()`
-##      for "is the nose above/below the horizon", `level_rotation()` for a
-##      world-frame rotation reference, and `rotation_is_leftward()` to
-##      derive inverted state from a world rotation.
-##   2. `desired_heading` is a WORLD-SPACE angle (Vector2.angle()).  Convert
-##      it via `gravity_angle()` only at the point of comparison (inside
-##      `_compute_pitch_from_heading`); never pre-convert and store.  The
-##      frame conversion is the pitch controller's responsibility, not the
-##      steer's.
-##   3. Forward pitch commands to `Biplane.set_ai_input()` VERBATIM.  The
-##      single `is_barrel_rolled` sign flip lives in
-##      `pitch_command_to_rotation_input()` inside `set_ai_input`.  Pre-flipping
-##      here double-converts and cancels it out — that previously made
-##      leftward-spawned, inverted AI planes pitch into the ground on
-##      takeoff instead of climbing.
-##   4. Raw pitch overrides (takeoff ladder, panic pull-ups, stall dive,
-##      Immelmann aim) are ALREADY gravity-frame commands: negative = climb,
-##      positive = dive.  Write them directly; the integrator flips them.
-##   5. `set_ai_input()` is the only entry point for AI pitch.  Never
-##      mutate `biplane.rotation` or `avatar.pitch_angle` from the AI.
-##
-## WOBBLE FIXES
-##   • Residual heading-damping term removed (was fighting ang-vel term).
-##   • desired_heading lerped each tick instead of hard-set, filtering noise
-##     from a moving target.
-##   • Deadband widened to 0.10 rad (~6°) so the AI declares "on heading"
-##     before micro-corrections trigger an opposite input.
-##
-## OTHER FIXES (carried from previous revision)
-##   • Target liveness guard — engagement releases on CRASHED / FALLING.
-##   • AoA-aware stall recovery — hard override toward velocity vector.
-##   • Energy-state engagement — altitude + speed gate dive attacks.
-##   • Runway pitch suppression — outputs reset on respawn; reflexes skipped
-##     in GROUNDED / TAKING_OFF.
-##
-## ENERGY-MODE ENGAGEMENT  (boom & zoom)
-##   Air combat runs a small mode machine (Pilots.engage_mode) with hysteresis:
-##   • PURSUE — the default: turn toward the target, lead-pursuit, fire when
-##     in cone.  Turn rate scales with energy (high alt OR high speed →
-##     tighter turn) so a healthy plane snaps hard while a wounded one can
-##     only swing wide.
-##   • RECOVER_DIVE / RECOVER_CLIMB — the only break-offs.  High altitude
-##     with low airspeed triggers RECOVER_DIVE (trade altitude for speed);
-##     low altitude triggers RECOVER_CLIMB (gain altitude).  Either exits to
-##     PURSUE once airspeed recovers (RECOVER_EXIT_SPEED_RATIO) or after a
-##     hard time limit.
-##
-## PREDICTIVE TERRAIN AVOIDANCE
-##   `_terrain_impact_time()` samples the velocity vector for a terrain
-##   intersection; when impact is inside a speed-scaled window the reflex
-##   layer pulls the nose up early (scaled by urgency) instead of relying on
-##   the old fixed-altitude panic lines — this is what stops dive-attack
-##   crashes.  Slow planes get a shallow pull (they cannot zoom).
-##
-## DEFENSIVE REACTIONS & AGGRESSION
-##   `_should_evade_defensively()` detects a player locked onto the AI's six
-##   (rear cone + tracking nose) and breaks.  Incoming fire only triggers an
-##   evade when the AI is slow or already hurt — healthy, fast planes press
-##   head-on attacks instead of flinching at every round.
-##
-## ALTITUDE-ADVANTAGE PATROL
-##   While the player is airborne, PATROLLING cruises above the player's
-##   altitude (clamped to the [PATROL_CRUISE_MIN, PATROL_MAX_ALTITUDE] band)
-##   so it always holds potential energy to dive with.  The band is capped
-##   below the 1800 px engine-taper line as required.
-
-
 # ---------------------------------------------------------------------------
 # CONSTANTS  (shared, never written at runtime)
 # ---------------------------------------------------------------------------
@@ -125,12 +8,6 @@ const TERRAIN_LENGTH := 16384.0
 
 # Altitude thresholds (pixels above terrain)
 const PATROL_ALTITUDE                := 250.0
-# Patrol cruise band while the player is airborne: the AI holds an altitude
-# advantage over the player so it always has potential energy to dive with.
-# PATROL_MAX_ALTITUDE is capped below the 1800 px engine-taper line
-# (Biplane.ENGINE_EFFICIENCY_START_ALTITUDE) — the required "no more than
-# 1800 m off the ground" ceiling — and below the MAX_ALTITUDE ceiling reflex
-# so patrol never fights the push-down reflexes.
 const PATROL_CRUISE_MIN              := 800.0
 const PATROL_ALTITUDE_ADVANTAGE      := 300.0
 const PATROL_MAX_ALTITUDE            := 1500.0
@@ -138,15 +15,8 @@ const MIN_ALTITUDE_ABOVE_GROUND      := 100.0
 const DANGER_ALTITUDE_ABOVE_GROUND   := 60.0
 const CRITICAL_ALTITUDE_ABOVE_GROUND := 20.0
 const PULL_UP_ALTITUDE               := 200.0
-# Hard ceiling on cruise altitude.  1600 px = 0.8 × Biplane.ENGINE_CUTOFF_ALTITUDE
-# (2000 px): AI planes can still climb to gather potential energy but the
-# ceiling reflex pushes the nose down before they reach the 1800 px
-# thrust-taper band or the cutoff itself, where they would stall and die.
 const MAX_ALTITUDE_FRACTION          := 0.4
 const MAX_ALTITUDE                   := 1600.0
-# Fraction of Biplane.ENGINE_CUTOFF_ALTITUDE above which the AI treats the engine
-# as about to quit and forces the nose down (independent hard safety, holds even
-# if some other logic commands a high climb).
 const ENGINE_CUTOFF_AVOID_FRACTION   := 0.8
 # Seconds-to-impact below which a descent is treated as an imminent crash.
 # Used by _terrain_impact_time(): the actual pull-up window scales up with
@@ -160,12 +30,9 @@ const IMPACT_ALT_MARGIN              := 30.0
 # Detection / engagement geometry.  ENGAGEMENT_RANGE is the distance (wrapped, so
 # it spans the whole torus) at which PATROL commits to ENGAGE.  It must be large
 # enough that an enemy will fly out to strike a player who is on the ground at
-# the far end of the map, not just orbit its own base.  9000 px exceeds the
-# maximum wrapped separation (TERRAIN_LENGTH/2 = 8192) so any alive target is
-# engageable; the territory gate still restricts *airborne* targets to the
-# enemy's own side, while a grounded player is a valid target anywhere.
-const DETECTION_RANGE       := 40000.0
-const ENGAGEMENT_RANGE      := 24000.0
+# the far end of the map, not just orbit its own base.
+const DETECTION_RANGE       := 8000.0
+const ENGAGEMENT_RANGE      := 5000.0
 const MAX_FIRE_RANGE        := 700.0
 const MIN_FIRE_RANGE        := 30.0
 const FIRE_CONE_ANGLE       := 0.36
@@ -174,10 +41,6 @@ const RETURN_REENGAGE_RANGE := 400.0
 const HOME_PROXIMITY        := 100.0
 
 # Return-to-base landing approach (designed to land gently, not crash)
-# Continuous glide slope: desired altitude above the base = horizontal_distance
-# * GLIDE_SLOPE, capped at PATROL_ALTITUDE.  This lets the plane bleed altitude
-# steadily all the way home instead of cruising level then diving at the last
-# moment.  ~9° descent (1:6) keeps the sink rate within the soft-landing vperp.
 const RETURN_GLIDE_SLOPE       := 0.16
 # Once the plane is this close horizontally it is committed to the final: the
 # climb-forcing ground-avoidance reflexes are suppressed so it can descend the
@@ -195,9 +58,7 @@ const ENERGY_ALTITUDE_ADVANTAGE := 120.0   # px altitude edge to press a dive
 const ENERGY_SPEED_RATIO_GOOD   := 1.5     # speed / stall_speed for healthy energy
 
 # Engagement energy threshold — below this speed/stall ratio the AI cannot
-# safely press an attack (it would mush into a stall).  Above the safe-dive
-# altitude (RECOVER_DIVE_MIN_ALT) this triggers RECOVER_DIVE; below it, the
-# altitude check wins and the plane climbs instead.
+# safely press an attack (it would mush into a stall).
 const EXTEND_ENTER_SPEED_RATIO  := 1.35
 
 # High-energy turnaround — when the AI is genuinely flying *away* from its
@@ -247,28 +108,6 @@ const RECOVER_MAX_TIME          := 4.0     # s — never recover forever, force 
 const ENGAGE_TURN_LO            := 0.30    # low-energy: lazy turn, save what we have
 const ENGAGE_TURN_HI            := 0.75    # high-energy: aggressive snap
 const ENGAGE_CHOP_THROTTLE      := 0.35    # only when a steep, fast dive is about to crash
-
-# Pursuit climb cap.  When the AI is flying TOWARD the player (i.e. NOT in a
-# deliberate fly-away Immelmann — that branch is exempt), a full (negative)
-# climb command can arc the plane over into a loop that reverses its heading and
-# flies it away from the target.  The cap limits how far upward the pitch
-# command may go while pursuing, easing off as the velocity vector aligns with
-# the line to the target (a proper intercept climb is safe) and staying tight
-# when the plane is broadside (where a full climb would loop it).
-#
-# The cap is intentionally SHARP-ONLY (see ENGAGE_CLIMB_CAP_SHARP below): it
-# fires only on a hard pull-up that could actually loop the plane, so gentle
-# and medium pursuit climbs are left uncapped and the plane can still climb to
-# gain an altitude advantage or arc a clean intercept.  The travel-direction
-# test (is_flying_toward_player) is direction-agnostic — a leftward/inverted
-# plane and a rightward/upright plane are treated identically, so neither
-# barrel-roll state ever reads the cap incorrectly.
-const ENGAGE_CLIMB_CAP_BROADSIDE := -0.35   # most-negative climb allowed when broadside
-const ENGAGE_CLIMB_CAP_INTERCEPT := -0.85   # eased when on a clean intercept
-# Only climb commands sharper (more negative) than this are eligible for the
-# cap.  Anything between this and 0.0 is a normal pursuit/engaging climb and is
-# left free — the cap must NOT steal the AI's ability to climb in most cases.
-const ENGAGE_CLIMB_CAP_SHARP     := -0.6
 
 # Defensive reactions — a live target inside this rear cone, close and with
 # its nose tracking us, means the player has our six: break.
@@ -389,6 +228,9 @@ class AIData:
 var decision_interval: float = 0.02
 var decision_accum: float = 0.0
 
+var territory_left: float  = 0.0
+var territory_right: float = 16384.0
+
 var terrain_cache: Node2D = null
 
 var ai_fsm: AIStateMachine = null
@@ -420,7 +262,13 @@ func _ready() -> void:
 		if RespawnManager.respawn_ready.is_connected(_on_enemy_respawn_ready):
 			RespawnManager.respawn_ready.disconnect(_on_enemy_respawn_ready)
 		RespawnManager.respawn_ready.connect(_on_enemy_respawn_ready)
+	_setup_territory()
 	_init_ai_fsm()
+
+func _setup_territory() -> void:
+	var half := patrol_range * 0.5
+	territory_left  = home_base_x - half
+	territory_right = home_base_x + half
 
 func _init_ai_fsm() -> void:
 	var fsm_node := AIStateMachine.new()
@@ -575,10 +423,6 @@ func _compute_engage_pitch() -> float:
 		EngageMode.PURSUE:
 			turn_rate = _engage_turn_rate()
 			var aim = _lead_pursuit_point(target_pos, 0.85)
-			# High-energy overshoot: if we are actually moving away from the
-			# target yet have altitude or airspeed to spend, hard-reverse the
-			# heading back toward it (full lead + max snap) rather than flying
-			# off the map in the wrong X direction.
 			if _is_flying_away() \
 					and (_get_altitude_above_ground() > FLYAWAY_TURNAROUND_ALTITUDE \
 					     or _speed_ratio() > FLYAWAY_TURNAROUND_SPEED_RATIO):
@@ -600,80 +444,26 @@ func _compute_engage_pitch() -> float:
 		_:
 			_steer_toward(_recover_waypoint(pilots[0].engage_mode), ENGAGE_TURN_LO)
 
-	var pitch := _compute_pitch_from_heading(true)   # ENGAGE profile
+	return _compute_pitch_from_heading(true)   # ENGAGE profile
 
-	# The pursuit climb cap is applied in ONLY the narrow case it is needed:
-	# an active PURSUE (the genuine pursuit/engaging maneuver) where the plane
-	# is converging on the player's POSITION on the travel axis AND is commanding
-	# a SHARP pull-up (pitch sharper than ENGAGE_CLIMB_CAP_SHARP) that could loop
-	# it over and reverse heading.  In every other case the pitch-up is left
-	# uncapped:
-	#   • gentle / medium pursuit climbs  → free to climb for an altitude edge,
-	#   • RECOVER modes (climb/dive break-offs) → free to execute the break,
-	#   • a fly-away Immelmann (is_flying_toward_player → false) → free to arc
-	#     over and reverse heading.
-	# The travel test is direction-agnostic (leftward/inverted and rightward/
-	# upright planes are treated identically), so neither barrel-roll state ever
-	# reads the cap wrong.  The cap eases from BROADSIDE (tight) to INTERCEPT
-	# (loose) as the velocity aligns with the line to target, so a clean
-	# on-approach climb is never starved while a broadside loop is prevented.
-	if pilots[0].engage_mode == EngageMode.PURSUE \
-			and is_flying_toward_player() and pitch < ENGAGE_CLIMB_CAP_SHARP:
-		var to_tgt := target.global_position - biplane.global_position
-		to_tgt.x = wrapf(to_tgt.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
-		var align: float = 0.0
-		var spd: float = biplane.velocity.length()
-		if spd > 1.0:
-			align = clampf((biplane.velocity / spd).dot(to_tgt.normalized()), 0.0, 1.0)
-		var max_climb := lerpf(ENGAGE_CLIMB_CAP_BROADSIDE, ENGAGE_CLIMB_CAP_INTERCEPT, align)
-		pitch = maxf(pitch, max_climb)
-
-	return pitch
-
-## True when the AI is flying TOWARD its target along the travel axis —
-## its velocity X-sign matches the wrapped direction from the AI to the
-## player's POSITION.  This is the ONLY case where the pursuit climb cap may
-## apply: a plane converging on the player can be allowed a controlled
-## climb, whereas a plane moving away on the X axis must be free to pitch
-## up and reverse (Immelmann).  IMPORTANT: this compares the AI's own
-## travel direction against the direction to the player's POSITION — it does
-## NOT compare the AI's velocity to the player's velocity, so it can never
-## read as "flying the same direction as the player" / mirroring.  Uses
-## the X axis (leftward/rightward travel) because in this side-view game
-## "toward the player" means converging horizontally, not matching the
-## player's heading.
-func is_flying_toward_player() -> bool:
+## True when the AI is genuinely moving away from its target (velocity vector
+## points broadly opposite to the line to target).
+func _is_flying_away() -> bool:
 	if not biplane or not target:
 		return false
-	var dx := wrapf(target.global_position.x - biplane.global_position.x,
-		-TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
-	var dir_to_player := signf(dx)
-	if dir_to_player == 0.0:
+	var to_tgt := target.global_position - biplane.global_position
+	if to_tgt.length_squared() < 1.0:
 		return false
-	var travel := signf(biplane.velocity.x)
-	if travel == 0.0:
+	var speed: float = biplane.velocity.length()
+	if speed < 1.0:
 		return false
-	return travel == dir_to_player
-
-## True when the AI is moving AWAY from its target along the travel axis —
-## the inverse of is_flying_toward_player().  This is the turnaround case
-## (an Immelmann or hard reverse), where the climb must NOT be capped.
-func _is_flying_away() -> bool:
-	return not is_flying_toward_player()
-
+	return (biplane.velocity / speed).dot(to_tgt.normalized()) < -0.2
 
 # ---------------------------------------------------------------------------
 # ENGAGEMENT ENERGY MODES  (turn + fire vs. recover)
 # ---------------------------------------------------------------------------
 
-## Mode selection with hysteresis, called once per decision tick from
-## _compute_engage_pitch.  The default is PURSUE — turn toward the target
-## and fire.  The only break-offs are when the energy state makes a fight
-## impossible:
-##   • low altitude        → RECOVER_CLIMB (gain altitude before re-engaging)
-##   • high + slow         → RECOVER_DIVE  (trade altitude for speed)
-## Either recovery exits to PURSUE when speed is restored, after a hysteresis
-## floor, or after a hard time limit.
+## Mode selection with hysteresis, called once per decision tick
 func _update_engage_mode(_distance: float) -> void:
 	var p := pilots[0]
 	p.engage_mode_timer += decision_interval
@@ -704,9 +494,7 @@ func _update_engage_mode(_distance: float) -> void:
 		p.engage_mode_timer = 0.0
 
 ## Turn rate for PURSUE: scale HEADING_LERP_FACTOR with the plane's energy so
-## a high/fast plane snaps harder than a low/slow one.  The energy measure is
-## `max(speed_t, alt_t)` — the user said "tighter the higher in altitude OR
-## higher airspeed they have", so whichever axis has the most room dominates.
+## a high/fast plane snaps harder than a low/slow one.
 func _engage_turn_rate() -> float:
 	var sr  := _speed_ratio()
 	var alt := _get_altitude_above_ground()
@@ -882,20 +670,6 @@ func _compute_return_pitch() -> float:
 	_steer_toward(aim)
 	return _compute_pitch_from_heading(false)
 
-# ---------------------------------------------------------------------------
-# HEADING → PITCH  (Options B + C)
-# ---------------------------------------------------------------------------
-
-## is_engaging = true  → ENGAGE profile (aggressive, AoA blend suppressed)
-## is_engaging = false → CRUISE profile (conservative, AoA blend active)
-##
-## The heading error is computed in the GRAVITY FRAME (see ATTITUDE FRAMES
-## above): desired_heading (world-space) and the plane's current pitch are
-## both converted before being compared, so the same error commands the same
-## climb/dive whether the plane is flying rightward upright or leftward
-## inverted.  (The old rotation-space diff read with the opposite sign for
-## inverted planes, steering every heading-guided behaviour away from its
-## target attitude whenever is_barrel_rolled was true.)
 func _compute_pitch_from_heading(is_engaging: bool) -> float:
 	if not biplane:
 		return 0.0
@@ -993,19 +767,7 @@ func _compute_pitch_from_heading(is_engaging: bool) -> float:
 func _steer_toward(aim_point: Vector2, turn_rate: float = -1.0) -> void:
 	if not biplane:
 		return
-	# Wrap the X component of the diff so the heading always reflects the
-	# SHORT way around the wrapped world.  Aim points expressed in raw world
-	# coords (lead-pursuit predictions, bomb overhead, home base, patrol
-	# centre) would otherwise yield a heading that points the LONG way when
-	# the plane and the aim sit on opposite sides of the wrap boundary —
-	# the plane would chase the player away across the full terrain length
-	# instead of the few-hundred-pixel short way.  Y is not wrapped (the
-	# world is only periodic on X).  Aims that are already expressed in
-	# wrapped-relative form (Immelmann, evade, recover waypoint) sit within
-	# a few hundred px of the plane, so re-wrapping is a no-op.
-	var diff := aim_point - biplane.global_position
-	diff.x = wrapf(diff.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
-	var target_heading = diff.angle()
+	var target_heading = (aim_point - biplane.global_position).angle()
 	var rate := HEADING_LERP_FACTOR if turn_rate < 0.0 else turn_rate
 	pilots[0].desired_heading = lerp_angle(pilots[0].desired_heading, target_heading, rate)
 
@@ -1194,11 +956,7 @@ func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true, 
 	if alt_fix != 0.0:
 		pitch = alt_fix
 		# The engage state owns its own throttle policy (1.0 by default, chop
-		# only on a steep+fast+imminent-crash triple).  Don't override it here
-		# — the alt reflex's only job in engage is to pull the nose up.
-		# For other states (patrol/evade/return) the low-altitude pull-up is
-		# paired with a power surge so the engine can climb the plane out of
-		# trouble; the previous maxf is kept for those paths.
+		# only on a steep+fast+imminent-crash triple).
 		if ai_fsm.current_key != &"engaging":
 			throttle = maxf(throttle, 0.8)
 
@@ -1226,10 +984,6 @@ func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true, 
 	# pulls up early, scaled by urgency — this is what stops dive-attack
 	# crashes.  A slow plane gets only a shallow pull: it cannot zoom, and
 	# yanking the nose up near stall would just drop it out of the sky.
-	# Throttle is intentionally NOT raised here: the engage throttle policy
-	# (1.0 by default, chopped only on a steep+fast+imminent-crash triple) is
-	# the one knob that controls engine power.  This reflex only ever touches
-	# pitch.
 	if impact_t < _impact_window():
 		var urgency := 1.0 - clampf(impact_t / _impact_window(), 0.0, 1.0)
 		var pull := lerpf(-0.35, -1.0, urgency)
@@ -1266,9 +1020,7 @@ func _impact_window() -> float:
 ## Stall-avoidance / energy management.  When the AI wants to pull the nose up
 ## (negative pitch = climb in this convention) while close to stall speed, it
 ## instead noses down to rebuild airspeed rather than attempting a dramatic
-## low-speed pull-up that would stall it out.  Sharp combat climb commands are
-## also gated behind an energy margin: below COMBAT_ENERGY_MARGIN the pull-up is
-## progressively softened toward level so the plane keeps accelerating first.
+## low-speed pull-up that would stall it out.
 func _energy_stall_reflex(pitch: float, throttle: float) -> Array:
 	var avatar = _get_avatar()
 	if not avatar or not biplane:
@@ -1469,6 +1221,12 @@ func _can_bomb_ground_target() -> bool:
 # TERRITORY & POSITION QUERIES
 # ---------------------------------------------------------------------------
 
+func _is_player_in_territory() -> bool:
+	if not target:
+		return false
+	var px = target.global_position.x
+	return px >= territory_left and px <= territory_right
+
 ## True when the target is a biplane that is currently airborne (FLYING or
 ## STALLED).  Ground-structure targets count as "not airborne".
 func _is_player_airborne() -> bool:
@@ -1563,16 +1321,7 @@ func _enable_autopilot_for_landing() -> void:
 	pilots[0].is_using_autopilot = true
 	if biplane.has_method("enable_autopilot"):
 		biplane.enable_autopilot()
-	# Keep this plane's own faction on its existing homebase so a later respawn
-	# re-applies the correct model.  IMPORTANT: do NOT recreate the homebase here.
-	# The homebase was created once at the plane's real spawn location in
-	# main.gd (_spawn_enemies_and_targets) using ENEMY_SPAWN_RUNWAY_OFFSET.  A
-	# previous version rewrote it via setup_faction_homebase(1, home_base_x, …)
-	# on every autopilot landing, which relocated the spawn point to the runway
-	# centre (dropping the +80 offset and using ground_y - 12) and renumbered
-	# the homebase id to 1 — so every respawn after the first landing happened
-	# at the wrong place.  refresh_homebase_faction updates only the faction,
-	# preserving the spawn position and id.
+
 	if biplane.has_method("refresh_homebase_faction") and biplane.has_method("get_avatar_data"):
 		var avatar = biplane.get_avatar_data(0)
 		if avatar:
@@ -1583,10 +1332,6 @@ func _enable_autopilot_for_landing() -> void:
 # ---------------------------------------------------------------------------
 
 func _on_enemy_crashed(is_midair: bool = false) -> void:
-	## The crash explosion, debris, fire, smoke, screen-shake and explosion
-	## sound are produced once inside Biplane._on_avatar_crashed (the single
-	## funnel every destructive end-state reaches), so AI planes now look and
-	## sound identical to the player.  Kept only for the respawn bookkeeping flag.
 	_crashed_exploded = true
 
 func _on_enemy_landed(avatar_id: int) -> void:
