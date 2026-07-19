@@ -255,8 +255,20 @@ const ENGAGE_CHOP_THROTTLE      := 0.35    # only when a steep, fast dive is abo
 # command may go while pursuing, easing off as the velocity vector aligns with
 # the line to the target (a proper intercept climb is safe) and staying tight
 # when the plane is broadside (where a full climb would loop it).
+#
+# The cap is intentionally SHARP-ONLY (see ENGAGE_CLIMB_CAP_SHARP below): it
+# fires only on a hard pull-up that could actually loop the plane, so gentle
+# and medium pursuit climbs are left uncapped and the plane can still climb to
+# gain an altitude advantage or arc a clean intercept.  The travel-direction
+# test (is_flying_toward_player) is direction-agnostic — a leftward/inverted
+# plane and a rightward/upright plane are treated identically, so neither
+# barrel-roll state ever reads the cap incorrectly.
 const ENGAGE_CLIMB_CAP_BROADSIDE := -0.35   # most-negative climb allowed when broadside
 const ENGAGE_CLIMB_CAP_INTERCEPT := -0.85   # eased when on a clean intercept
+# Only climb commands sharper (more negative) than this are eligible for the
+# cap.  Anything between this and 0.0 is a normal pursuit/engaging climb and is
+# left free — the cap must NOT steal the AI's ability to climb in most cases.
+const ENGAGE_CLIMB_CAP_SHARP     := -0.6
 
 # Defensive reactions — a live target inside this rear cone, close and with
 # its nose tracking us, means the player has our six: break.
@@ -590,15 +602,23 @@ func _compute_engage_pitch() -> float:
 
 	var pitch := _compute_pitch_from_heading(true)   # ENGAGE profile
 
-	# The climb cap applies ONLY while the AI is flying TOWARD the
-	# player's position on the travel axis (is_flying_toward_player).
-	# The deliberate fly-away Immelmann turnaround (is_flying_toward_player
-	# → false) is exempt — it intentionally pitches up to reverse
-	# heading.  The cap eases from BROADSIDE (tight) to INTERCEPT
-	# (loose) as the velocity vector aligns with the line to the target,
-	# so a clean on-approach climb is never starved while a broadside
-	# loop is prevented.
-	if is_flying_toward_player() and pitch < 0.0:
+	# The pursuit climb cap is applied in ONLY the narrow case it is needed:
+	# an active PURSUE (the genuine pursuit/engaging maneuver) where the plane
+	# is converging on the player's POSITION on the travel axis AND is commanding
+	# a SHARP pull-up (pitch sharper than ENGAGE_CLIMB_CAP_SHARP) that could loop
+	# it over and reverse heading.  In every other case the pitch-up is left
+	# uncapped:
+	#   • gentle / medium pursuit climbs  → free to climb for an altitude edge,
+	#   • RECOVER modes (climb/dive break-offs) → free to execute the break,
+	#   • a fly-away Immelmann (is_flying_toward_player → false) → free to arc
+	#     over and reverse heading.
+	# The travel test is direction-agnostic (leftward/inverted and rightward/
+	# upright planes are treated identically), so neither barrel-roll state ever
+	# reads the cap wrong.  The cap eases from BROADSIDE (tight) to INTERCEPT
+	# (loose) as the velocity aligns with the line to target, so a clean
+	# on-approach climb is never starved while a broadside loop is prevented.
+	if pilots[0].engage_mode == EngageMode.PURSUE \
+			and is_flying_toward_player() and pitch < ENGAGE_CLIMB_CAP_SHARP:
 		var to_tgt := target.global_position - biplane.global_position
 		to_tgt.x = wrapf(to_tgt.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
 		var align: float = 0.0
@@ -973,7 +993,19 @@ func _compute_pitch_from_heading(is_engaging: bool) -> float:
 func _steer_toward(aim_point: Vector2, turn_rate: float = -1.0) -> void:
 	if not biplane:
 		return
-	var target_heading = (aim_point - biplane.global_position).angle()
+	# Wrap the X component of the diff so the heading always reflects the
+	# SHORT way around the wrapped world.  Aim points expressed in raw world
+	# coords (lead-pursuit predictions, bomb overhead, home base, patrol
+	# centre) would otherwise yield a heading that points the LONG way when
+	# the plane and the aim sit on opposite sides of the wrap boundary —
+	# the plane would chase the player away across the full terrain length
+	# instead of the few-hundred-pixel short way.  Y is not wrapped (the
+	# world is only periodic on X).  Aims that are already expressed in
+	# wrapped-relative form (Immelmann, evade, recover waypoint) sit within
+	# a few hundred px of the plane, so re-wrapping is a no-op.
+	var diff := aim_point - biplane.global_position
+	diff.x = wrapf(diff.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+	var target_heading = diff.angle()
 	var rate := HEADING_LERP_FACTOR if turn_rate < 0.0 else turn_rate
 	pilots[0].desired_heading = lerp_angle(pilots[0].desired_heading, target_heading, rate)
 

@@ -1442,8 +1442,12 @@ func set_ai_input(pitch: float, throttle_amount: float) -> void:
 		# leftward/inverted plane rotates toward the commanded attitude instead
 		# of away from it.  Callers must NOT pre-flip the command (that
 		# double-flip previously made leftward AI planes pitch into the ground).
-		var input_pitch: float = avatar.pitch_command_to_rotation_input(
-			pitch * avatar.control_effectiveness)
+		# Clamp first so every AI state's command is bounded to the same valid
+		# pitch range regardless of travel direction, then apply the single
+		# gravity→rotation conversion — pitch is treated relative to the horizon
+		# (heading) identically for upright and inverted planes.
+		var gp_pitch: float = clampf(pitch, -1.0, 1.0) * avatar.control_effectiveness
+		var input_pitch: float = avatar.pitch_command_to_rotation_input(gp_pitch)
 		var model_params = avatar.model_params
 		var eff_rot_speed: float = model_params.get("rotation_speed", 5.0) * (1.0 - avatar.damage.damage_percent * 0.4)
 		var pre_av := avatar.angular_velocity
