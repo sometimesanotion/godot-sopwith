@@ -18,7 +18,7 @@ var terrain_seed: int = 0
 
 var enemy_planes: bool = true
 var enemy_bombs: bool = true
-var enemy_homebases: int = 4
+var enemy_homebases: int = 3
 var enemy_tanks: String = "Normal"
 var huge_explosions: bool = true
 var bird_count: String = "Normal"

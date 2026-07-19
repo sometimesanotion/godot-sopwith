@@ -253,7 +253,7 @@ class AIData:
 
 # Configuration (set by spawner before _ready)
 @export var home_base_x: float  = 1400.0
-@export var patrol_range: float = 6000.0
+@export var patrol_range: float = 5000.0
 @export var takeoff_delay: float = 0.0
 @export var unlimited_fuel_ammo: bool = false
 
@@ -380,8 +380,19 @@ func _physics_process(delta: float) -> void:
 
 	# Reflexes (terrain pull-up, energy gate, stall recovery) run AFTER
 	# the state has set its intent, so safety overrides still apply to
-	# direct-pitch states like takeoff and stall recovery.
-	var reflexed := _apply_reflexes(state_pitch, state_throttle, true, true)
+	# direct-pitch states like takeoff and stall recovery.  EXCEPTION: a
+	# plane parked in the GROUNDED state must be left completely idle.  A
+	# spawned plane sits at ~12 px above the terrain, which trips the
+	# low-altitude ground-avoidance reflex — that forces the nose up AND
+	# bumps the throttle to 0.8, an unbidden launch pathway that fires
+	# even when the launch gate (_is_player_in_territory) is closed.  While
+	# grounded, honour the state's idle intent verbatim; the taking_off
+	# state re-enables reflexes the moment we actually scramble.
+	var reflexed: Array
+	if ai_fsm and ai_fsm.current_key == &"grounded":
+		reflexed = [state_pitch, state_throttle]
+	else:
+		reflexed = _apply_reflexes(state_pitch, state_throttle, true, true)
 	pilots[0].last_pitch_input = reflexed[0]
 	pilots[0].last_throttle    = reflexed[1]
 

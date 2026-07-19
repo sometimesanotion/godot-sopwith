@@ -1738,7 +1738,7 @@ func _check_fuel_consumption(avatar: AvatarData, delta: float) -> void:
 ###############################################################################
 
 func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
-	if velocity.length() > 30 or (not is_grounded(avatar)):
+	if velocity.length() > 40 or (not is_grounded(avatar)):
 		return
 	var hb := _get_homebase(avatar)
 	if not hb:

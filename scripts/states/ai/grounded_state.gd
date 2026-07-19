@@ -14,7 +14,13 @@ extends State
 ## enemy_ai._apply_state_output).
 
 func enter() -> void:
-	var ai = (state_machine as AIStateMachine).ai_controller
+	# Idle on the runway.  The FSM resets current_throttle to 1.0 on every
+	# transition (see AIStateMachine._change_state), so a grounded plane
+	# MUST explicitly command idle throttle — otherwise the controller
+	# applies full throttle and the plane rolls into an unbidden take-off.
+	var fsm: AIStateMachine = state_machine
+	fsm.current_throttle = 0.0
+	var ai = fsm.ai_controller
 	if ai:
 		ai.pilots[0].last_pitch_input = 0.0
 		ai.pilots[0].last_throttle = 0.0
