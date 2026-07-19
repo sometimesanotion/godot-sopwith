@@ -53,8 +53,10 @@ func _initialize() -> void:
 		ok = _expect(background.parallax.get_child_count() == 3,
 			"parallax has 3 layers") and ok
 		var counts := _count_paint_nodes(background.parallax)
-		# Expect 3 ridge Polygon2D + 3 ridge Line2D + 14 cloud clusters × 3-7 = [42, 98] cloud Polygon2D.
-		ok = _expect(counts[0] >= 3 + 42 and counts[0] <= 3 + 98,
+		# 3 ridge Polygon2D + clouds on all 3 layers (cirrus 10×2-4, cumulus
+		# 10×3-7 and 12×3-7) → ~[89, 197] total Polygon2D.  Width widened to
+		# allow the extra layers.
+		ok = _expect(counts[0] >= 80 and counts[0] <= 220,
 			"parallax Polygon2D count in static-generation range (got %d)" % counts[0]) and ok
 		ok = _expect(counts[1] == 3,
 			"parallax Line2D count = 3 ridge trims (got %d)" % counts[1]) and ok
@@ -225,6 +227,32 @@ func _initialize() -> void:
 			"base x=%.0f (faces_left=%s) runway [%.0f, %.0f] on %s side"
 				% [home_x, faces_left, best_runway.x, best_runway.y,
 					"right" if not faces_left else "left"]) and ok
+
+	# T-runway: runways are 20% wider (RUNWAY_LENGTH == 600) on both the player
+	# runway (uses RUNWAY_START..RUNWAY_END) and every enemy runway (add_runway).
+	ok = _expect(terrain.RUNWAY_LENGTH == 600.0,
+		"terrain RUNWAY_LENGTH = 600 (20%% wider than 500)") and ok
+	if terrain and "runways" in terrain:
+		for r in terrain.runways:
+			var rlen: float = r.y - r.x
+			ok = _expect(is_equal_approx(rlen, 600.0),
+				"runway [%.0f, %.0f] length=%.0f (== 600)" % [r.x, r.y, rlen]) and ok
+
+	# T-base-elevation: every homebase sits on a flat apron (not in a valley)
+	# so planes take off/land on level ground with no adjacent wall.  Sample
+	# the apron on both sides of each runway and require it to read BASE_Y.
+	if terrain:
+		for r in terrain.runways:
+			var apron: float = terrain.RUNWAY_APRON
+			for off in [50.0, apron * 0.5, apron - 1.0]:
+				var yl: float = terrain.get_ground_height_at(r.x - off)
+				var yr: float = terrain.get_ground_height_at(r.y + off)
+				ok = _expect(absf(yl - terrain.BASE_Y) < 2.0,
+					"runway [%.0f,%.0f] apron-left x=%.0f y=%.1f ≈ BASE_Y"
+						% [r.x, r.y, r.x - off, yl]) and ok
+				ok = _expect(absf(yr - terrain.BASE_Y) < 2.0,
+					"runway [%.0f,%.0f] apron-right x=%.0f y=%.1f ≈ BASE_Y"
+						% [r.x, r.y, r.y + off, yr]) and ok
 
 	# Cow ground-sampling: dynamic per-cow check is fragile in --script mode
 	# (the Cow script depends on the SvgManager autoload, which doesn't load

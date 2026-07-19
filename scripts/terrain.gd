@@ -1,22 +1,39 @@
 extends Node2D
 class_name Terrain
 
-const TERRAIN_LENGTH := 16384.0
-const TERRAIN_LOW_BOUND := 3000.0
-const SEGMENT_WIDTH := 32.0
-const RUNWAY_START := 5300.0
-const RUNWAY_END := 5800.0
-const RUNWAY_LENGTH := 500.0
-const BASE_Y := 650.0
+# =============================================================================
+# Tuning constants — grouped at the top so human coders can tweak the world
+# without hunting through the synthesis code (same layout convention as
+# biplane.gd).  Each block is a coherent tuning surface.
+# =============================================================================
 
-# --- Multi-frequency synthesis (D4) ---
-const MACRO_FREQUENCY  := 0.0012
-const MICRO_FREQUENCY  := 0.008    # preserves current surface character
-const MACRO_AMPLITUDE  := 260.0
-const MICRO_AMP_MIN    := 12.0     # plains: nearly smooth
-const MICRO_AMP_MAX    := 60.0     # mountains: current ruggedness
-const RUNWAY_BLEND_WIDTH := 192.0  # off-span amplitude ramp (D5)
+# --- World layout ---
+const TERRAIN_LENGTH := 16384.0      # world wrap length; parallax period = this × scale
+const TERRAIN_LOW_BOUND := 3000.0    # y the ground polygon floor is extended to
+const SEGMENT_WIDTH := 32.0          # x-resolution of the terrain polyline
+const BASE_Y := 650.0                # reference ground altitude (runways sit exactly here)
 
+# --- Runway (flatness / takeoff-corridor tuning) ---
+# The surface is held exactly at BASE_Y across [runway ± apron], then ramped
+# back to the natural terrain over RUNWAY_BLEND_WIDTH.  Widening RUNWAY_APRON
+# gives bases a bigger level mesa (planes take off/land without a wall);
+# narrowing it lets the terrain stay rugged closer to the strip.
+const RUNWAY_START := 5300.0         # player runway left edge
+const RUNWAY_LENGTH := 600.0         # 20% wider than the original 500 (T-runway)
+const RUNWAY_END := RUNWAY_START + RUNWAY_LENGTH   # 5900.0, derived so the
+												  # player runway stays = LENGTH
+const RUNWAY_APRON := 256.0           # flat BASE_Y mesa on each side of a runway
+									  # (was 320; shrunk 20% for less flattening)
+const RUNWAY_BLEND_WIDTH := 192.0     # amplitude ramp from apron edge to natural terrain
+
+# --- Terrain synthesis (D4 multi-frequency noise) ---
+const MACRO_FREQUENCY  := 0.0012      # sweeping plains ↔ mountains
+const MICRO_FREQUENCY  := 0.008       # preserves current surface character
+const MACRO_AMPLITUDE  := 260.0       # peak macro relief (± this about BASE_Y)
+const MICRO_AMP_MIN    := 12.0        # plains: nearly smooth
+const MICRO_AMP_MAX    := 60.0        # mountains: current ruggedness
+
+# --- Deterministic noise salts (keep stable for reproducible worlds) ---
 const _SALT_MACRO := 101
 const _SALT_MICRO := 102
 
@@ -198,14 +215,17 @@ func _sample_height(x: float) -> float:
 	var micro := TerrainNoise.sample_periodic(micro_noise, x, TERRAIN_LENGTH)
 	return BASE_Y - macro * MACRO_AMPLITUDE - micro * micro_amp
 
-## 0.0 exactly on any runway span (physics contract: y == BASE_Y);
-## smoothstep ramp 0→1 over RUNWAY_BLEND_WIDTH outside the span.
+## 0.0 exactly on any runway span AND across its flat apron (T-base-elevation:
+## homebases sit on a level mesa so planes take off/land without an adjacent
+## wall); smoothstep ramp 0→1 over RUNWAY_BLEND_WIDTH outside the apron.
 func _runway_flatness(x: float) -> float:
 	var f := 1.0
 	for runway in runways:
-		if x >= runway.x and x <= runway.y:
+		var a := runway.x - RUNWAY_APRON
+		var b := runway.y + RUNWAY_APRON
+		if x >= a and x <= b:
 			return 0.0
-		var d := minf(absf(x - runway.x), absf(x - runway.y))
+		var d := minf(absf(x - a), absf(x - b))
 		f = minf(f, d / RUNWAY_BLEND_WIDTH)
 	return TerrainNoise.smoothstep01(f)
 

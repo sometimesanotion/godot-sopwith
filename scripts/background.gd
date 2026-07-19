@@ -23,7 +23,26 @@ const LAYER_SPECS := [
 	 "seg": 64.0, "floor": 1400.0, "color": Color(0.24, 0.42, 0.30)},
 ]
 const CLOUD_SALT := 204
-const CLOUD_COUNT := 14
+## Per-layer cloud styling (T-clouds).  Nearer layers (larger scale) are puffy
+## cumulus and more translucent; the distant layer is minimalist cirrus.  The
+## `salt_offset` keeps each layer's cloud layout independent & deterministic.
+const CLOUD_STYLES := [
+	{"type": "cirrus",  "count": 10, "alpha": 0.30, "puff_scale": 1.0, "salt_offset": 0},
+	{"type": "cumulus", "count": 10, "alpha": 0.22, "puff_scale": 0.8, "salt_offset": 1},
+	{"type": "cumulus", "count": 12, "alpha": 0.15, "puff_scale": 1.1, "salt_offset": 2},
+]
+
+## Minimum number of periods a layer tile must span so Godot's parallax
+## mirroring always covers the viewport.  Godot computes its mirror repeat from
+## the *screen* width and ignores camera zoom, so at the title-screen zoom
+## (0.3) the visible world slice is ~2560/0.3 ≈ 8533 local units wide.  We size
+## each tile to comfortably exceed that with margin for larger displays.
+const MIN_ZOOM := 0.3
+const MAX_VIEWPORT := 2560.0
+const COVER_LOCAL := MAX_VIEWPORT / MIN_ZOOM * 1.4
+
+func _coverage_periods(period: float) -> int:
+	return int(ceil(COVER_LOCAL / period)) + 1
 
 func _ready() -> void:
 	# Sky only; parallax waits for the explicit `generate(seed)` call from
@@ -70,22 +89,32 @@ func generate(seed: int) -> void:
 	parallax = ParallaxBackground.new()
 	parallax.layer = -15                       # behind world (0), in front of sky (-20)
 	add_child(parallax)
-	for spec in LAYER_SPECS:
+	for i in range(LAYER_SPECS.size()):
+		var spec: Dictionary = LAYER_SPECS[i]
 		var s: float = spec["scale"]
 		var period := TERRAIN_LENGTH * s       # D6 mirroring math
+		var span := _coverage_periods(period)  # wide enough to fill the screen
 		var layer := ParallaxLayer.new()
 		layer.motion_scale = Vector2(s, s)
 		layer.motion_mirroring = Vector2(period, 0.0)
 		parallax.add_child(layer)
 		var ridge := ParallaxScenery.build_ridge_points(
 			TerrainNoise.derive_seed(seed, spec["salt"]),
-			period, spec["base"], spec["amp"], spec["freq"], spec["seg"])
+			period, spec["base"], spec["amp"], spec["freq"], spec["seg"], span)
 		layer.add_child(ParallaxScenery.make_ridge_polygon(
 			ridge, period, spec["floor"], spec["color"]))
 		layer.add_child(ParallaxScenery.make_trim_line(ridge, spec["color"]))
-	# Layer 3 atmosphere (D9): clouds ride the fastest layer (index 2) at 0.6 rate.
-	var cloud_layer := parallax.get_child(2) as ParallaxLayer
-	for puff in ParallaxScenery.build_clouds(
-			TerrainNoise.derive_seed(seed, CLOUD_SALT),
-			TERRAIN_LENGTH * LAYER_SPECS[2]["scale"], CLOUD_COUNT):
-		cloud_layer.add_child(puff)
+		# Clouds on EVERY layer (T-clouds): distant = minimalist cirrus, near =
+		# puffy translucent cumulus.  Per-layer seed keeps layouts independent.
+		var cstyle: Dictionary = CLOUD_STYLES[i]
+		var clouds: Array[Polygon2D] = []
+		var cseed: int = TerrainNoise.derive_seed(seed, CLOUD_SALT + int(cstyle["salt_offset"]))
+		if cstyle["type"] == "cirrus":
+			clouds = ParallaxScenery.build_cirrus_clouds(
+				cseed, period, int(cstyle["count"]), float(cstyle["alpha"]))
+		else:
+			clouds = ParallaxScenery.build_cumulus_clouds(
+				cseed, period, int(cstyle["count"]), float(cstyle["alpha"]),
+				float(cstyle["puff_scale"]))
+		for puff in clouds:
+			layer.add_child(puff)

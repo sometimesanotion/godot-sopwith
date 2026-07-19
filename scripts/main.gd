@@ -11,7 +11,8 @@ const VIEWPORT_MIN_X := 0.0
 const VIEWPORT_MAX_X := 1280.0
 const HOME_BASE := Vector2(5300, 650)
 
-# Enemy runways span [base_x + 50, base_x + 50 + 500].  Planes spawn 30 px in
+# Enemy runways span [base_x + 50, base_x + 50 + LEN] (rightward) or
+# [base_x - 50 - LEN, base_x - 50] (leftward), LEN = Terrain.RUNWAY_LENGTH.
 # from the runway edge facing their takeoff direction (so they have the full
 # runway ahead for the roll): rightward launchers sit on the left edge, leftward
 # launchers (the inverted east-side bases) sit on the right edge.  Both are
@@ -389,13 +390,11 @@ func _spawn_enemies_and_targets() -> void:
 		var ground_y := 650.0
 		if terrain and terrain.has_method("get_ground_height_at"):
 			ground_y = terrain.get_ground_height_at(base_x)
-		# Runway sits on the side of the homebase that matches the takeoff
-		# direction: rightward bases → runway to the right of base_x
-		# ([base_x+50, base_x+550]); leftward bases → runway to the left
-		# ([base_x-550, base_x-50]).  The plane parks 30 px in from the runway
-		# edge facing its takeoff direction.
-		var runway_left: float = base_x - 550.0 if faces_left else base_x + 50.0
-		var runway_right: float = runway_left + 500.0       # Terrain.RUNWAY_LENGTH
+		# Runway span: rightward bases → [base_x+50, base_x+50+LEN] (runway on
+		# the right); leftward bases → [base_x-50-LEN, base_x-50] (runway on
+		# the left).  LEN = Terrain.RUNWAY_LENGTH (widened 20% in T-runway).
+		var runway_left: float = (base_x - (Terrain.RUNWAY_LENGTH + 50.0)) if faces_left else (base_x + 50.0)
+		var runway_right: float = runway_left + Terrain.RUNWAY_LENGTH
 		var spawn_x: float = (runway_right - ENEMY_SPAWN_RUNWAY_EDGE_MARGIN) if faces_left \
 							else (runway_left + ENEMY_SPAWN_RUNWAY_EDGE_MARGIN)
 		var spawn_pos := Vector2(spawn_x, ground_y - Biplane.GROUND_SURFACE_OFFSET)
@@ -439,7 +438,7 @@ func _spawn_enemies_and_targets() -> void:
 		enemies.append(enemy)
 		if terrain and terrain.has_method("add_runway"):
 			# Runway start = runway_left (rightward bases: base_x+50, leftward
-			# bases: base_x-550).  add_runway(x) registers [x, x+500].
+			# bases: base_x-50-LEN).  add_runway(x) registers [x, x+RUNWAY_LENGTH].
 			terrain.add_runway(runway_left)
 
 	var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
@@ -505,11 +504,14 @@ func _validate_base_layout(bases: Array[float]) -> void:
 		if d < MIN_ENEMY_DISTANCE:
 			push_warning("Base layout: base at x=%f too close to player (d=%.1f < MIN_ENEMY_DISTANCE=%.1f)"
 				% [base_x, d, MIN_ENEMY_DISTANCE])
-		# Enemy runway is added at (base_x + 50) with length 500 (per the
-		# ENEMY_SPAWN_RUNWAY_OFFSET comment): [base_x+50, base_x+550].
-		if base_x + 50.0 < 0.0 or base_x + 550.0 > TERRAIN_LENGTH:
+		# Enemy runway is added at runway_left (rightward: base_x+50, leftward:
+		# base_x-50-LEN) with length LEN = Terrain.RUNWAY_LENGTH (T-runway, +20%).
+		# The widest span across both orientations is [base_x-50-LEN, base_x+50+LEN].
+		var span_min: float = base_x - 50.0 - Terrain.RUNWAY_LENGTH
+		var span_max: float = base_x + 50.0 + Terrain.RUNWAY_LENGTH
+		if span_min < 0.0 or span_max > TERRAIN_LENGTH:
 			push_warning("Base layout: base at x=%f runway does not fit in map (%.1f..%.1f)"
-				% [base_x, base_x + 50.0, base_x + 550.0])
+				% [base_x, span_min, span_max])
 	# Pairwise check (catches two adjacent east bases).
 	for i in range(bases.size()):
 		for j in range(i + 1, bases.size()):
@@ -556,12 +558,12 @@ func _create_enemy_bases() -> void:
 
 		# Mirror the runway-side decision from _spawn_enemies_and_targets:
 		# rightward bases have their runway on the right ([home_x+50,
-		# home_x+550]), leftward bases on the left ([home_x-550, home_x-50]).
-		# Buildings go on the OPPOSITE side from the takeoff direction (so the
-		# plane rolls AWAY from its own homebase on takeoff).
+		# home_x+50+LEN]); leftward bases on the left ([home_x-50-LEN,
+		# home_x-50]).  Buildings go on the OPPOSITE side from the takeoff
+		# direction (so the plane rolls AWAY from its own homebase on takeoff).
 		var faces_left: bool = enemy_base_faces_left[base_idx] if base_idx < enemy_base_faces_left.size() else (home_x > PLAYER_SPAWN_X)
-		var runway_left: float = home_x - 550.0 if faces_left else home_x + 50.0
-		var runway_right: float = runway_left + 500.0
+		var runway_left: float = (home_x - (Terrain.RUNWAY_LENGTH + 50.0)) if faces_left else (home_x + 50.0)
+		var runway_right: float = runway_left + Terrain.RUNWAY_LENGTH
 
 		var building_hw = _get_target_half_width("building")
 

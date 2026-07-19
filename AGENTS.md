@@ -25,7 +25,7 @@ Key directories: scripts/, scenes/, scenes/particles/, shaders/
 
 ## World layout (M6)
 
-- `Terrain.RUNWAY_START = 5300.0`, `Terrain.RUNWAY_END = 5800.0` (player runway, exactly `BASE_Y` across the span — physics contract, D5).
+- `Terrain.RUNWAY_START = 5300.0`, `Terrain.RUNWAY_END = 5900.0` (player runway, exactly `BASE_Y` across the span — physics contract, D5; `RUNWAY_LENGTH = 600`, 20% wider than the original 500).  `RUNWAY_APRON = 320.0` keeps a flat `BASE_Y` mesa on both sides of every runway so homebases are not in valleys.
 - `Main.PLAYER_SPAWN_X = 5330.0`, `Main.HOME_BASE = Vector2(5300, 650)` (minimap home marker follows the runway).
 - `Main.possible_bases = [2400, 8000, 10500, 13000, 15500]` — 1 base west of the player (`faces_left = false`, rightward launch), 4 east (`faces_left = true`, `spawn_rot = PI`, leftward launch).
 - `Main.MIN_ENEMY_DISTANCE = 2458.0` (wrap-aware; every base pair clears it — asserted by `tools/verify_base_layout.gd`).
