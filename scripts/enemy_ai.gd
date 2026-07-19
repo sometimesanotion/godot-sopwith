@@ -1390,11 +1390,14 @@ func _is_fuel_low() -> bool:
 # ---------------------------------------------------------------------------
 
 func _apply_input(pitch: float, throttle_amount: float) -> void:
+	## The pitch command is forwarded verbatim; the is_barrel_rolled inversion
+	## lives inside Biplane.set_ai_input() so the AI wrapper does not double-flip
+	## the command (which previously cancelled the inversion out and made
+	## leftward-spawned, is_barrel_rolled=true AI planes pitch into the ground
+	## on takeoff instead of climbing).
 	if not biplane.has_method("set_ai_input"):
 		return
-	var avatar = _get_avatar()
-	var effective_pitch = -pitch if (avatar and avatar.is_barrel_rolled) else pitch
-	biplane.set_ai_input(effective_pitch, throttle_amount)
+	biplane.set_ai_input(pitch, throttle_amount)
 
 # ---------------------------------------------------------------------------
 # AUTOPILOT / LANDING

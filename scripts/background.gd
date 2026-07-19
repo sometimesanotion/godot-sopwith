@@ -36,9 +36,9 @@ var _generated := false
 # --- Layer 1: Farthest monolithic Alps (slowest, highest, barely tracks) ---
 const LAYER1_MOTION_SCALE_X := 0.05
 const LAYER1_MOTION_SCALE_Y := 0.25
-const LAYER1_BASELINE_Y     := 800.0
+const LAYER1_BASELINE_Y     := 820.0
 const LAYER1_FLOOR_Y        := 1600.0
-const LAYER1_AMPLITUDE_PX   := 380.0
+const LAYER1_AMPLITUDE_PX   := 480.0
 const LAYER1_FREQUENCY      := 0.0018
 const LAYER1_SEGMENT_PX     := 64.0
 const LAYER1_SEED_SALT      := 201
@@ -106,10 +106,10 @@ const CLOUD_SALT := 204
 #   salt_offset : distinguishes each layer's cloud noise from the others.
 # =============================================================================
 const CLOUD_STYLES := [
-	{"type": "cirrus_narrow", "count": 5, "alpha": 0.07, "cy_min": -200.0,
-	 "cy_max": 270.0, "salt_offset": 0},
-	{"type": "cirrus_narrow", "count": 8, "alpha": 0.05, "cy_min": 0.0,
-	 "cy_max": 120.0, "salt_offset": 1},
+	{"type": "cirrus_narrow", "count": 6, "alpha": 0.04, "cy_min": -400.0,
+	 "cy_max": 100.0, "salt_offset": 0},
+	{"type": "cirrus_narrow", "count": 8, "alpha": 0.02, "cy_min": -200.0,
+	 "cy_max": 60.0, "salt_offset": 1},
 	{"type": "none", "count": 0, "salt_offset": 2},
 ]
 

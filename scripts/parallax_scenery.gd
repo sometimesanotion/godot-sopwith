@@ -10,12 +10,12 @@ const COBALT_ALPS_CREST := Color(0.08, 0.15, 0.50)
 const COBALT_ALPS_BASE  := Color(0.12, 0.20, 0.55)
 
 ## Layer 2 (Mid): Misty transition hills.
-const MID_MOUNTAIN_CREST := Color(0.10, 0.24, 0.36)
-const MID_MOUNTAIN_BASE  := Color(0.15, 0.35, 0.40)
+const MID_MOUNTAIN_CREST := Color(0.12, 0.24, 0.36)
+const MID_MOUNTAIN_BASE  := Color(0.16, 0.35, 0.40)
 
 ## Layer 3 (Nearest): Foreground backdrop hills.
-const FOREGROUND_HILL_CREST := Color(0.08, 0.26, 0.14)
-const FOREGROUND_HILL_BASE  := Color(0.10, 0.32, 0.22)
+const FOREGROUND_HILL_CREST := Color(0.10, 0.28, 0.20)
+const FOREGROUND_HILL_BASE  := Color(0.12, 0.32, 0.24)
 
 const DEFAULT_SNOW_LINE_Y := 530.0
 const FLIGHT_CEILING_PX := 2000.0
@@ -152,7 +152,7 @@ static func _close_snow_run(run: PackedVector2Array, snow_line_y: float,
 ## increase in extent (and a 1500% increase in area), satisfying the brief under
 ## either interpretation while staying seamless (layers tile via motion_mirroring,
 ## so oversized puffs simply wrap the period).
-const CLOUD_GEOMETRY_SCALE := 4.0
+const CLOUD_GEOMETRY_SCALE := 6.0
 
 ## Flat-bottomed / dome-topped cumulus silhouette.
 static func _cumulus_puff_verts(center: Vector2, rx: float, ry: float,
