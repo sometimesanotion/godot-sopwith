@@ -34,7 +34,7 @@ var terrain_polygon: Polygon2D
 var terrain_polygons: Array[Polygon2D] = []
 var runways: Array[Vector2] = []
 
-@export var ground_color: Color = Color(0.12, 0.35, 0.12)
+@export var ground_color: Color = Color(0.05, 0.30, 0.10)
 @export var runway_color: Color = Color(0.35, 0.35, 0.4)
 
 func _ready() -> void:

@@ -6,16 +6,16 @@ class_name ParallaxScenery
 # =============================================================================
 
 ## Layer 1 (Farthest): Monolithic Alps. Deep regal cobalt blues.
-const COBALT_ALPS_CREST := Color(0.16, 0.24, 0.58)
-const COBALT_ALPS_BASE  := Color(0.24, 0.48, 0.70)
+const COBALT_ALPS_CREST := Color(0.08, 0.15, 0.50)
+const COBALT_ALPS_BASE  := Color(0.12, 0.20, 0.55)
 
 ## Layer 2 (Mid): Misty transition hills.
-const MID_MOUNTAIN_CREST := Color(0.08, 0.30, 0.34)
-const MID_MOUNTAIN_BASE  := Color(0.20, 0.40, 0.40)
+const MID_MOUNTAIN_CREST := Color(0.10, 0.24, 0.36)
+const MID_MOUNTAIN_BASE  := Color(0.15, 0.35, 0.40)
 
 ## Layer 3 (Nearest): Foreground backdrop hills.
-const FOREGROUND_HILL_CREST := Color(0.08, 0.30, 0.20)
-const FOREGROUND_HILL_BASE  := Color(0.12, 0.35, 0.24)
+const FOREGROUND_HILL_CREST := Color(0.08, 0.26, 0.14)
+const FOREGROUND_HILL_BASE  := Color(0.10, 0.32, 0.22)
 
 const DEFAULT_SNOW_LINE_Y := 530.0
 const FLIGHT_CEILING_PX := 2000.0
