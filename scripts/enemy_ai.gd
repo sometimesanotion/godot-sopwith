@@ -32,7 +32,8 @@ extends Node
 # CONSTANTS  (shared, never written at runtime)
 # ---------------------------------------------------------------------------
 
-const TERRAIN_LENGTH := 16384.0
+# Terrain wrap length is owned by Biplane — reference Biplane.TERRAIN_LENGTH
+# everywhere so wrap math can never silently diverge from the world size.
 
 # Altitude thresholds (pixels above terrain)
 const PATROL_ALTITUDE                := 250.0
@@ -431,9 +432,11 @@ func _apply_state_output() -> float:
 		return ai_fsm.current_pitch_override
 
 	# 2) Steering mode — track the state's aim, derive pitch from heading.
+	#    The gain profile is whatever the active state last set on the FSM
+	#    (ATTACK while pursuing, CRUISE otherwise).
 	if ai_fsm.current_aim_point != Vector2.INF:
 		_steer_to_aim(ai_fsm.current_aim_point)
-		return _pitch_from_heading(false)
+		return _pitch_from_heading(ai_fsm.current_pitch_profile)
 
 	# 3) No intent (e.g. just-entered state, destroyed).  Hold heading,
 	#    zero pitch.  The reflexes will still apply.
@@ -447,7 +450,7 @@ func _steer_to_aim(aim_point: Vector2) -> void:
 	if not biplane:
 		return
 	var my_pos := biplane.global_position
-	var dx := wrapf(aim_point.x - my_pos.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+	var dx := wrapf(aim_point.x - my_pos.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
 	var dy := aim_point.y - my_pos.y
 	var target_heading := atan2(dy, dx)
 	var rate := HEADING_LERP_FACTOR
@@ -460,8 +463,10 @@ func _steer_to_aim(aim_point: Vector2) -> void:
 ## This is the same heading → pitch controller the legacy code used; the
 ## crucial difference is that the error is read in the GRAVITY FRAME so
 ## the same heading error produces the same pitch command for an upright
-## rightward plane and an inverted leftward plane.
-func _pitch_from_heading(is_engaging: bool) -> float:
+## rightward plane and an inverted leftward plane.  `profile` selects the
+## gain set: ATTACK (aggressive combat gains, used while pursuing) or
+## CRUISE (conservative, used for patrol / return / recovery).
+func _pitch_from_heading(profile: int = AIStateMachine.PitchProfile.CRUISE) -> float:
 	if not biplane:
 		return 0.0
 
@@ -480,31 +485,29 @@ func _pitch_from_heading(is_engaging: bool) -> float:
 	var stall_speed: float = 21.4
 	if avatar:
 		stall_speed = avatar.stall_speed_ms
-	var ppm: float = 10.0
-	if "pixels_per_meter" in biplane:
-		ppm = biplane.get("pixels_per_meter")
+	var ppm: float = biplane.pixels_per_meter if biplane else 13.0
 	var speed_ms    = biplane.velocity.length() / ppm
 	var speed_ratio = clampf(speed_ms / maxf(stall_speed, 1.0), 0.6, 3.0)
 	# speed_t: 0.0 = near stall, 1.0 = cruise and above
 	var speed_t     = clampf((speed_ratio - 0.6) / 2.4, 0.0, 1.0)
 
-	# --- AoA (only blended in for CRUISE — Option B) ---
+	# --- AoA (blended in only for the CRUISE profile) ---
 	var aoa_ratio := 0.0
-	if not is_engaging and biplane.velocity.length() > 0.5:
+	if profile != AIStateMachine.PitchProfile.ATTACK and biplane.velocity.length() > 0.5:
 		var max_aoa: float = 0.279
 		if avatar:
 			max_aoa = deg_to_rad(avatar.model_params.get("max_aoa", 16.0))
 		var actual_aoa = absf(wrapf(biplane.rotation - biplane.velocity.angle(), -PI, PI))
 		aoa_ratio = clampf(actual_aoa / maxf(max_aoa, 0.01), 0.0, 1.0)
 
-	# --- Select profile (Option B) ---
+	# --- Select profile ---
 	var sens_base: float
 	var sens_low: float
 	var damp_max: float
 	var damp_min: float
 	var ang_vel_damp: float
 
-	if is_engaging:
+	if profile == AIStateMachine.PitchProfile.ATTACK:
 		sens_base    = PITCH_SENS_ENGAGE_BASE
 		sens_low     = PITCH_SENS_ENGAGE_LOW
 		damp_max     = PITCH_DAMP_ENGAGE_MAX
@@ -555,9 +558,7 @@ func _takeoff_pitch(avatar) -> float:
 	if not biplane:
 		return 0.0
 	var speed = biplane.velocity.length()
-	var ppm: float = 16.0
-	if "pixels_per_meter" in biplane:
-		ppm = biplane.get("pixels_per_meter")
+	var ppm: float = biplane.pixels_per_meter if biplane else 16.0
 	var stall_speed: float = avatar.stall_speed_ms if avatar else 21.4
 
 	# On the ground: hold level until rotate speed, then a tiny nose-up
@@ -586,7 +587,7 @@ func _takeoff_pitch(avatar) -> float:
 func _patrol_aim_point(patrol_time: float) -> Vector2:
 	if not biplane:
 		return Vector2.INF
-	var patrol_x  = clampf(home_base_x, TERRAIN_LENGTH * 0.33, TERRAIN_LENGTH * 0.67)
+	var patrol_x  = clampf(home_base_x, Biplane.TERRAIN_LENGTH * 0.33, Biplane.TERRAIN_LENGTH * 0.67)
 	var ground_y  = _get_ground_height(patrol_x)
 	var osc       = sin(patrol_time * ALTITUDE_OSCILLATION_SPEED) * ALTITUDE_OSCILLATION_AMP
 	# While the player is airborne, cruise above their altitude so the patrol
@@ -611,7 +612,7 @@ func _evade_aim_point() -> Vector2:
 	var away := 1.0
 	if target:
 		var dx := wrapf(target.global_position.x - my_pos.x,
-			-TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+			-Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
 		away = -signf(dx)
 		if away == 0.0:
 			away = 1.0
@@ -640,7 +641,7 @@ func _return_aim_and_throttle() -> Array:
 		return [Vector2.INF, 1.0]
 
 	var dx         = wrapf(home_base_x - biplane.global_position.x,
-		-TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+		-Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
 	var dist_x     = absf(dx)
 	var alt        = _get_altitude_above_ground()
 	var ground_y   = _get_ground_height(home_base_x)
@@ -707,13 +708,13 @@ func _engaging_aim_and_throttle() -> Array:
 				# directions — a rightward upright plane and a leftward
 				# inverted plane both pitch up and arc over the target.
 				var dir_to_player := signf(wrapf(target.global_position.x - biplane.global_position.x,
-					-TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5))
+					-Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5))
 				if dir_to_player == 0.0:
 					dir_to_player = 1.0
 				aim = Vector2(
 					biplane.global_position.x
 						+ wrapf(target.global_position.x - biplane.global_position.x,
-							-TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+							-Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
 						+ dir_to_player * IMMELMANN_PAST_DIST,
 					biplane.global_position.y - IMMELMANN_CLIMB_ALT)
 				turn_rate = ENGAGE_TURN_HI
@@ -846,7 +847,16 @@ func _update_recovery_mode() -> void:
 		p.recovery_mode = RECOVERY_CLIMB
 		p.recovery_mode_timer = 0.0
 	elif sr < EXTEND_ENTER_SPEED_RATIO:
-		p.recovery_mode = RECOVERY_DIVE
+		# Low energy: break away to rebuild it.  Dive to trade altitude for
+		# speed when close (extend away from the fight), or climb to build
+		# potential energy when already far from the target — exactly the
+		# energy state the next attack will draw on.
+		var dist := _get_wrapped_distance(biplane.global_position.x,
+			target.global_position.x) if target else INF
+		if dist < ENGAGEMENT_RANGE * 0.5:
+			p.recovery_mode = RECOVERY_DIVE
+		else:
+			p.recovery_mode = RECOVERY_CLIMB
 		p.recovery_mode_timer = 0.0
 	else:
 		p.recovery_mode = RECOVERY_NONE
@@ -870,7 +880,7 @@ func _engage_turn_rate() -> float:
 ## altitude.  The waypoint is never aimed below the terrain.
 func _recover_waypoint(mode: int) -> Vector2:
 	var my_pos = biplane.global_position
-	var dx := wrapf(target.global_position.x - my_pos.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+	var dx := wrapf(target.global_position.x - my_pos.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
 	var away := -signf(dx)
 	if away == 0.0:
 		away = signf(biplane.velocity.x)
@@ -921,7 +931,7 @@ func _speed_ratio() -> float:
 		return 1.0
 	var avatar = _get_avatar()
 	var stall: float = avatar.stall_speed_ms if avatar else 21.4
-	var ppm: float = biplane.get("pixels_per_meter") if "pixels_per_meter" in biplane else 10.0
+	var ppm: float = biplane.pixels_per_meter if biplane else 10.0
 	return biplane.velocity.length() / ppm / maxf(stall, 1.0)
 
 func _has_energy_advantage() -> bool:
@@ -944,7 +954,7 @@ func _should_evade_defensively() -> bool:
 	if not biplane or not target or not _is_target_alive():
 		return false
 	var to_tgt := target.global_position - biplane.global_position
-	to_tgt.x = wrapf(to_tgt.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+	to_tgt.x = wrapf(to_tgt.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
 	var dist := to_tgt.length()
 	if dist > DEFENSIVE_RANGE or dist < 1.0:
 		return false
@@ -993,7 +1003,7 @@ func _stall_recovery() -> Array:
 	# Steer toward the recovery heading in the gravity frame.
 	pilots[0].desired_heading      = recovery_heading
 	pilots[0].steer_turn_rate      = -1.0
-	var pitch := _pitch_from_heading(false)
+	var pitch := _pitch_from_heading(AIStateMachine.PitchProfile.CRUISE)
 	return [pitch, 1.0]
 
 # ---------------------------------------------------------------------------
@@ -1014,7 +1024,7 @@ func _compute_engage_throttle() -> float:
 	var avatar = _get_avatar()
 	if not avatar:
 		return 1.0
-	var ppm: float = biplane.get("pixels_per_meter") if "pixels_per_meter" in biplane else 16.0
+	var ppm: float = biplane.pixels_per_meter if biplane else 16.0
 	var max_speed_px: float = avatar.model_params.get("max_speed_ms", 50.6) * ppm
 	if biplane.velocity.y > 250.0 \
 			and biplane.velocity.length() > max_speed_px * 0.85 \
@@ -1045,7 +1055,7 @@ func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true, 
 	# down.
 	var ground_avoid := allow_ground_avoid
 	if ai_fsm.current_key == &"returning":
-		var dx = wrapf(home_base_x - biplane.global_position.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+		var dx = wrapf(home_base_x - biplane.global_position.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
 		if absf(dx) < RETURN_FINAL_DIST:
 			ground_avoid = false
 
@@ -1138,7 +1148,7 @@ func _energy_stall_reflex(pitch: float, throttle: float) -> Array:
 		return [pitch, throttle]
 
 	var stall_speed: float = avatar.stall_speed_ms if avatar.stall_speed_ms else 21.4
-	var ppm: float = biplane.get("pixels_per_meter") if "pixels_per_meter" in biplane else 10.0
+	var ppm: float = biplane.pixels_per_meter if biplane else 10.0
 	var speed_ms: float = biplane.velocity.length() / ppm
 	var speed_ratio: float = speed_ms / maxf(stall_speed, 1.0)
 
@@ -1238,7 +1248,7 @@ func _terrain_projection_reflex() -> float:
 func _lead_pursuit_point(target_pos: Vector2, lead_factor: float) -> Vector2:
 	if not biplane or not target:
 		return target_pos
-	var dx         = wrapf(target_pos.x - biplane.global_position.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+	var dx         = wrapf(target_pos.x - biplane.global_position.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
 	var dy         = target_pos.y - biplane.global_position.y
 	var dist       = sqrt(dx * dx + dy * dy)
 	var target_vel = target.velocity if "velocity" in target else Vector2.ZERO
@@ -1265,7 +1275,7 @@ func _try_fire_weapon() -> void:
 		return
 	var my_pos    = biplane.global_position
 	var tgt_pos   = target.global_position
-	var dx        = wrapf(tgt_pos.x - my_pos.x, -TERRAIN_LENGTH * 0.5, TERRAIN_LENGTH * 0.5)
+	var dx        = wrapf(tgt_pos.x - my_pos.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
 	var dy        = tgt_pos.y - my_pos.y
 	var dist      = sqrt(dx * dx + dy * dy)
 	if dist > MAX_FIRE_RANGE or dist < MIN_FIRE_RANGE:
@@ -1392,7 +1402,7 @@ func _get_altitude_above_ground_for(node: Node2D) -> float:
 
 func _get_wrapped_distance(x1: float, x2: float) -> float:
 	var d = absf(x1 - x2)
-	return TERRAIN_LENGTH - d if d > TERRAIN_LENGTH * 0.5 else d
+	return Biplane.TERRAIN_LENGTH - d if d > Biplane.TERRAIN_LENGTH * 0.5 else d
 
 func _is_grounded() -> bool:
 	if biplane and biplane.has_method("is_grounded") and biplane.has_method("get_avatar_data"):
@@ -1492,6 +1502,10 @@ func _check_flip_needed() -> void:
 	var avatar = _get_avatar()
 	if not avatar or avatar.is_flipping:
 		return
+	# Cooldown after a flip so the orientation/velocity mismatch at the
+	# tail end of a roll can't immediately re-trigger another flip.
+	if pilots[0].flip_cooldown > 0.0:
+		return
 
 	# Flip when the world travel direction (sign of velocity.x) disagrees
 	# with the nose's travel direction (+1 rightward / -1 leftward).  The
@@ -1502,6 +1516,7 @@ func _check_flip_needed() -> void:
 		return
 	if signf(biplane.velocity.x) != avatar.travel_sign():
 		biplane.do_flip(avatar)
+		pilots[0].flip_cooldown = 0.8
 
 func take_damage(amount: float, attacker: Node) -> void:
 	var owner: Node = null

@@ -41,10 +41,17 @@ func update(_delta: float) -> void:
 
 	# Aim + throttle.  Aim covers all attack types (air / ground / bomb);
 	# the helper returns Vector2.INF if it can't decide so the controller
-	# just holds heading.
+	# just holds heading.  Cruise-vs-attack pitch gains are chosen from the
+	# recovery sub-mode: while PURSUE (energy sufficient) the plane presses
+	# with the aggressive ATTACK profile; while RECOVER_DIVE/RECOVER_CLIMB
+	# (low energy) it falls back to CRUISE so it preserves what little
+	# energy it has while breaking away.
 	var pack: Array = ai._engaging_aim_and_throttle()
 	fsm.current_aim_point   = pack[0]
 	fsm.current_throttle    = pack[1]
+	fsm.current_pitch_profile = AIStateMachine.PitchProfile.ATTACK \
+		if ai.pilots[0].recovery_mode == ai.RECOVERY_NONE \
+		else AIStateMachine.PitchProfile.CRUISE
 
 	# Open fire every tick (the helper checks range / cone internally).
 	ai._try_fire_weapon()

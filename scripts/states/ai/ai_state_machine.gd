@@ -3,6 +3,15 @@ extends StateMachine
 
 var ai_controller: Node = null
 
+## Pitch-gain profile the controller should use when deriving pitch from
+## the heading error.  CRUISE = conservative gains (patrol / return /
+## takeoff / recovery); ATTACK = aggressive combat gains (pressing an
+## attack).  The engaging state raises this to ATTACK only while it is
+## actually pursuing (energy sufficient); recovery / other states leave
+## it at CRUISE so energy is preserved.  Reset on every transition so a
+## new state starts from the conservative default.
+enum PitchProfile { CRUISE, ATTACK }
+
 ## ---------------------------------------------------------------------
 ## STATE OUTPUT FIELDS
 ## ---------------------------------------------------------------------
@@ -31,6 +40,10 @@ var current_pitch_override: float = INF
 ## Throttle the AI is requesting.  Defaults to 1.0; the state may lower
 ## it (e.g. the return-path flare) without touching anything else.
 var current_throttle: float = 1.0
+
+## Pitch-gain profile currently in effect (see PitchProfile).  Written by
+## the engaging state; read by enemy_ai._pitch_from_heading().
+var current_pitch_profile: int = PitchProfile.CRUISE
 
 ## ---------------------------------------------------------------------
 ## STICKINESS / HYSTERESIS
@@ -90,6 +103,7 @@ func _change_state(state_name: StringName) -> void:
 	current_aim_point = Vector2.INF
 	current_pitch_override = INF
 	current_throttle = 1.0
+	current_pitch_profile = PitchProfile.CRUISE
 	current_state.enter()
 	state_changed.emit(current_state)
 
