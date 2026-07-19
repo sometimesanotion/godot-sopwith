@@ -106,12 +106,11 @@ const CLOUD_SALT := 204
 #   salt_offset : distinguishes each layer's cloud noise from the others.
 # =============================================================================
 const CLOUD_STYLES := [
-	{"type": "cirrus_narrow", "count": 12, "alpha": 0.05, "cy_min": 20.0,
-	 "cy_max": 340.0, "salt_offset": 0},
-	{"type": "stratum", "count": 18, "alpha": 0.09, "cy_min": 80.0,
-	 "cy_max": 540.0, "salt_offset": 1},
-	{"type": "ceiling", "count": 30, "alpha_min": 0.06, "alpha_max": 0.12,
-	 "salt_offset": 2},
+	{"type": "cirrus_narrow", "count": 5, "alpha": 0.07, "cy_min": -200.0,
+	 "cy_max": 270.0, "salt_offset": 0},
+	{"type": "cirrus_narrow", "count": 8, "alpha": 0.05, "cy_min": 0.0,
+	 "cy_max": 120.0, "salt_offset": 1},
+	{"type": "none", "count": 0, "salt_offset": 2},
 ]
 
 # Global horizontal-motion multiplier applied to every layer's X scale.
