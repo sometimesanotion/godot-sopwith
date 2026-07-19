@@ -28,10 +28,10 @@ const RUNWAY_BLEND_WIDTH := 192.0     # amplitude ramp from apron edge to natura
 
 # --- Terrain synthesis (D4 multi-frequency noise) ---
 const MACRO_FREQUENCY  := 0.0012      # sweeping plains ↔ mountains
-const MICRO_FREQUENCY  := 0.008       # preserves current surface character
+const MICRO_FREQUENCY  := 0.003       # M7: lowered from 0.008 → smoother, more majestic ridges
 const MACRO_AMPLITUDE  := 260.0       # peak macro relief (± this about BASE_Y)
-const MICRO_AMP_MIN    := 12.0        # plains: nearly smooth
-const MICRO_AMP_MAX    := 60.0        # mountains: current ruggedness
+const MICRO_AMP_MIN    := 8.0         # M7: lowered from 12.0 to match the smoother micro freq
+const MICRO_AMP_MAX    := 45.0        # M7: lowered from 60.0 — softer mountain character
 
 # --- Deterministic noise salts (keep stable for reproducible worlds) ---
 const _SALT_MACRO := 101
