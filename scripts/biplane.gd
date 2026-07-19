@@ -1174,7 +1174,7 @@ func _build_flight_input(avatar: AvatarData, state: PhysicsDirectBodyState2D) ->
 	inp.tilt_angle = gc.tilt_angle
 	inp.global_position_y = global_position.y
 	inp.ground_y = gc.ground_y
-	inp.is_barrel_rolled = avatar.is_barrel_rolled
+	inp.is_barrel_rolled = avatar.travel_sign() < 0.0
 	inp.engine_cutoff = avatar.engine_cutoff
 	inp.mass_kg = avatar.mass_kg
 	inp.model_params = avatar.model_params
@@ -1476,7 +1476,7 @@ func _start_flip(avatar: AvatarData) -> void:
 		_flip_tween.kill()
 	avatar.is_flipping   = true
 	avatar.flip_progress = 0.0
-	avatar.flip_direction = 1 if not avatar.is_barrel_rolled else -1
+	avatar.flip_direction = int(avatar.travel_sign())
 	_flip_tween = create_tween()
 	_flip_tween.set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
 	_flip_tween.tween_method(_update_flip.bind(avatar), 0.0, 1.0, FLIP_DURATION)
@@ -1959,7 +1959,7 @@ func reset_visual_transform(avatar: AvatarData = null) -> void:
 	visual.scale    = Vector2.ONE
 	visual.rotation = 0.0
 	visual.position = Vector2.ZERO
-	if avatar and avatar.is_barrel_rolled:
+	if avatar and avatar.travel_sign() < 0.0:
 		visual.scale.y = -1.0
 	if avatar:
 		_update_ground_ray(avatar)
@@ -2296,7 +2296,7 @@ func get_bombs(avatar: AvatarData) -> int:
 	return avatar.bombs
 
 func is_barrel_rolled(avatar: AvatarData) -> bool:
-	return avatar.is_barrel_rolled if avatar else false
+	return avatar.travel_sign() < 0.0 if avatar else false
 
 func set_player(avatar: AvatarData, p: bool) -> void:
 	if GameManager:
@@ -2451,7 +2451,7 @@ func _debug_check_ground_forensics(avatar: AvatarData, state: PhysicsDirectBodyS
 			"gc_tilt_deg": snapped(rad_to_deg(gc.tilt_angle), 1.0),
 			"gc_slope_deg": snapped(rad_to_deg(gc.slope_angle), 1.0),
 			"pitch_deg": snapped(rad_to_deg(avatar.pitch_angle), 1.0),
-			"is_barrel_rolled": avatar.is_barrel_rolled,
+			"is_barrel_rolled": avatar.travel_sign() < 0.0,
 			"damage_pct": snapped(avatar.damage.damage_percent * 100.0, 1.0),
 		})
 

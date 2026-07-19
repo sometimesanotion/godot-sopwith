@@ -182,6 +182,19 @@ const EXTEND_ENTER_SPEED_RATIO  := 1.35
 const FLYAWAY_TURNAROUND_ALTITUDE    := 600.0   # px above ground
 const FLYAWAY_TURNAROUND_SPEED_RATIO := 1.7     # speed / stall_speed
 
+# Immelmann fly-away turnaround: build the reversal aim as a point PAST the
+# player (along the approach axis) and HIGH above the plane.  In the gravity
+# frame the relative vector resolves to a large NEGATIVE angle_diff (climb)
+# for BOTH travel directions, so a rightward upright plane and a leftward
+# inverted plane both pitch UP and arc over the target to reverse heading.
+# (Pointing the aim directly at the player produced a 180° gap in world
+# space; the controller picked the positive half of that gap and dove —
+# flying straight down, perpendicular to the player's horizontal path.)
+# Sized for a 20-30 m/s Sopwith: enough climb to reverse heading without
+# bleeding so much speed that the apex stall traps the plane below it.
+const IMMELMANN_PAST_DIST: float     = 600.0   # px past the player, along the approach axis
+const IMMELMANN_CLIMB_ALT: float     = 800.0   # px above current altitude (climb ceiling)
+
 # RECOVER — the only break-off paths from PURSUE.  The default engage state is
 # to turn and fire; we only break off when the energy state makes a fight
 # impossible.  Two cases, exactly as the player would expect a skilled
@@ -537,7 +550,19 @@ func _compute_engage_pitch() -> float:
 			if _is_flying_away() \
 					and (_get_altitude_above_ground() > FLYAWAY_TURNAROUND_ALTITUDE \
 					     or _speed_ratio() > FLYAWAY_TURNAROUND_SPEED_RATIO):
-				aim = _lead_pursuit_point(target_pos, 1.0)
+				# Immelmann turnaround: aim PAST the player and HIGH above.
+				# The relative vector (toward-player + past, and up) maps in
+				# the gravity frame to a large negative angle_diff (climb) for
+				# BOTH travel directions — a rightward upright plane and a
+				# leftward inverted plane both pitch up and arc over the
+				# target.  See IMMELMANN_* constants above for the rationale.
+				var dir_to_player := signf(dx)
+				if dir_to_player == 0.0:
+					dir_to_player = 1.0
+				aim = Vector2(
+					biplane.global_position.x + dx + dir_to_player * IMMELMANN_PAST_DIST,
+					biplane.global_position.y - IMMELMANN_CLIMB_ALT
+				)
 				turn_rate = ENGAGE_TURN_HI
 			_steer_toward(aim, turn_rate)
 		_:

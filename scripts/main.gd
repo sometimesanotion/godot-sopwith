@@ -417,8 +417,10 @@ func _spawn_enemies_and_targets() -> void:
 			# D10: parked enemies must already be inverted if they will launch
 			# leftward; biplane.respawn() does this on every respawn, so the
 			# initial spawn just needs to match (otherwise the plane visually
-			# flips on its first death).
-			enemy_avatar.is_barrel_rolled = faces_left
+			# flips on its first death).  Set via the geometric helper so the
+			# field is always derived from the spawn rotation, never branched
+			# on by callers.
+			enemy_avatar.is_barrel_rolled = Biplane.AvatarData.rotation_is_leftward(spawn_rot)
 			if enemy.has_method("reset_visual_transform"):
 				enemy.reset_visual_transform(enemy_avatar)
 		if enemy.has_method("set_home_base") and enemy.has_method("get_avatar_data"):
