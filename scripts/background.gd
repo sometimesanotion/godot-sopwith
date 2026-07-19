@@ -98,19 +98,22 @@ const CLOUD_SALT := 204
 # =============================================================================
 # CLOUD STYLING (per parallax layer)
 # =============================================================================
-#   type       : "cirrus_narrow" | "stratum" | "ceiling" | "none"
-#   count      : number of cloud clusters generated for the layer.
-#   alpha*     : opacity (alpha_min/alpha_max range for "ceiling").
-#   cy_min/    : vertical band the cloud centers are placed within (Y placement;
-#   cy_max       larger Y = lower in the sky).
+# Only cirrus streaks are used. Each entry is the cloud config for the matching
+# layer index; `count == 0` disables clouds for that layer (Layer 3 here).
+#   count   : number of cirrus clusters generated for the layer.
+#   alpha   : opacity multiplier for the streaks.
+#   cy_min/ : vertical band the streak centers are placed within (Y placement;
+#   cy_max   larger Y = lower in the sky).
 #   salt_offset : distinguishes each layer's cloud noise from the others.
+#   scale   : independent per-layer cloud scale coefficient (see
+#             ParallaxScenery.build_cirrus_clouds).
 # =============================================================================
-const CLOUD_STYLES := [
-	{"type": "cirrus_narrow", "count": 6, "alpha": 0.04, "cy_min": -400.0,
-	 "cy_max": 100.0, "salt_offset": 0},
-	{"type": "cirrus_narrow", "count": 8, "alpha": 0.02, "cy_min": -200.0,
-	 "cy_max": 60.0, "salt_offset": 1},
-	{"type": "none", "count": 0, "salt_offset": 2},
+const CLOUD_LAYERS := [
+	{"count": 6, "alpha": 0.04, "cy_min": -400.0, "cy_max": 100.0,
+	 "salt_offset": 0, "scale": 6.0},
+	{"count": 8, "alpha": 0.02, "cy_min": -200.0, "cy_max": 60.0,
+	 "salt_offset": 1, "scale": 6.0},
+	{"count": 0, "salt_offset": 2, "scale": 6.0},
 ]
 
 # Global horizontal-motion multiplier applied to every layer's X scale.
@@ -122,9 +125,6 @@ const SKY_HORIZON_Y := 800.0
 
 # Default snow line for any non-Layer-1 gradient layer that opts into snow.
 const SNOW_LINE_Y := ParallaxScenery.DEFAULT_SNOW_LINE_Y
-const CEILING_CLOUD_CEILING_Y := ParallaxScenery.DEFAULT_GROUND_Y \
-		- ParallaxScenery.FLIGHT_CEILING_PX
-const LAYER3_CLOUD_TOP_Y := ParallaxScenery.LAYER3_CLOUD_TOP_Y
 
 # Viewport coverage for parallax mirroring.
 const MIN_ZOOM := 0.3
@@ -200,30 +200,15 @@ func generate(seed: int) -> void:
 				var snow_line: float = spec.get("snow_line", SNOW_LINE_Y)
 				for cap in ParallaxScenery.build_snow_caps(ridge, snow_line):
 					layer.add_child(cap)
-		# Cloud decoration
-		var cstyle: Dictionary = CLOUD_STYLES[i]
-		var clouds: Array[Polygon2D] = []
-		var cseed: int = TerrainNoise.derive_seed(
-			seed, CLOUD_SALT + int(cstyle["salt_offset"]))
-		match String(cstyle["type"]):
-			"cirrus_narrow":
-				clouds = ParallaxScenery.build_cirrus_clouds(
-					cseed, period, int(cstyle["count"]), float(cstyle["alpha"]),
-					float(cstyle["cy_min"]), float(cstyle["cy_max"]))
-			# "stratum":
-			# 	clouds = ParallaxScenery.build_stratum_clouds(
-			# 		cseed, period, int(cstyle["count"]), float(cstyle["alpha"]),
-			# 		float(cstyle["cy_min"]), float(cstyle["cy_max"]))
-			# "ceiling":
-			# 	clouds = ParallaxScenery.build_ceiling_clouds(
-			# 		cseed, period, LAYER3_CLOUD_TOP_Y, CEILING_CLOUD_CEILING_Y,
-			# 		int(cstyle["count"]), float(cstyle["alpha_min"]),
-			# 		float(cstyle["alpha_max"]))
-			"none", "":
-				clouds = []
-			_:
-				push_warning("Background: unknown cloud type '%s' on layer %d"
-						% [cstyle["type"], i])
-				clouds = []
-		for puff in clouds:
-			layer.add_child(puff)
+		# Cloud decoration (cirrus only; count == 0 disables a layer)
+		var cstyle: Dictionary = CLOUD_LAYERS[i]
+		var ccount: int = cstyle["count"]
+		if ccount > 0:
+			var cseed: int = TerrainNoise.derive_seed(
+				seed, CLOUD_SALT + int(cstyle["salt_offset"]))
+			var clouds := ParallaxScenery.build_cirrus_clouds(
+				cseed, period, ccount, float(cstyle["alpha"]),
+				float(cstyle["cy_min"]), float(cstyle["cy_max"]),
+				float(cstyle["scale"]))
+			for puff in clouds:
+				layer.add_child(puff)
