@@ -1,22 +1,34 @@
 extends Node2D
+## Owns the sky gradient (unchanged) and assembles the deterministic, seed-driven
+## 3-layer vector parallax (D6–D9).  `generate(seed)` is called by main.gd after
+## `terrain.generate()`; the seed is the world seed so terrain + backdrop agree.
 
 const TERRAIN_LENGTH := 16384.0
 
-var camera: Camera2D
-var mountain_data: Array[Dictionary] = []
-var cloud_data: Array[Dictionary] = []
 var sky_layer: CanvasLayer
 var sky_rect: ColorRect
 var sky_material: ShaderMaterial
 
-## Camera world-x cached once per _draw so every wrapped element shares the
-## same tiling reference (and we don't query the viewport per element).
-var _cam_x_cache: float = 0.0
+var parallax: ParallaxBackground
+var _generated := false
+
+## Parallax layer specifications (D6).  `period = TERRAIN_LENGTH * scale` is the
+## mirroring period that makes each layer wrap seamlessly at the map seam.
+const LAYER_SPECS := [
+	{"salt": 201, "scale": 0.1, "freq": 0.004, "amp": 420.0, "base": 650.0,
+	 "seg": 32.0, "floor": 1400.0, "color": Color(0.62, 0.68, 0.78)},
+	{"salt": 202, "scale": 0.3, "freq": 0.008, "amp": 180.0, "base": 680.0,
+	 "seg": 48.0, "floor": 1400.0, "color": Color(0.35, 0.52, 0.48)},
+	{"salt": 203, "scale": 0.6, "freq": 0.014, "amp": 90.0,  "base": 720.0,
+	 "seg": 64.0, "floor": 1400.0, "color": Color(0.24, 0.42, 0.30)},
+]
+const CLOUD_SALT := 204
+const CLOUD_COUNT := 14
 
 func _ready() -> void:
-	if SvgManager and SvgManager.has_sprite("cloud"):
-		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	_generate_background()
+	# Sky only; parallax waits for the explicit `generate(seed)` call from
+	# main.gd so the world seed is shared (D7).  This removes the prior
+	# randomize()-driven background that disagreed with the terrain seed (T3).
 	_create_sky_gradient()
 
 func _create_sky_gradient() -> void:
@@ -34,33 +46,6 @@ func _create_sky_gradient() -> void:
 	sky_rect.size = get_viewport_rect().size
 	sky_layer.add_child(sky_rect)
 
-func _generate_background() -> void:
-	randomize()
-	for i in range(8):
-		var px := randf() * TERRAIN_LENGTH
-		mountain_data.append({
-			"pos": Vector2(px, 500 + randf() * 150),
-			"height": 80 + randf() * 150
-		})
-	for i in range(20):
-		var cx := randf() * TERRAIN_LENGTH
-		var cy := 400 - randf() * 1500
-		var cloud := {
-			"pos": Vector2(cx, cy),
-			"puffs": [],
-			"width": 200 + randf() * 300,
-			"height": 160 + randf() * 80
-		}
-		var num_puffs := 100 + randi() % 100
-		for j in range(num_puffs):
-			var px: float = (randf() - 0.5) * cloud["width"]
-			var py: float = (randf() - 0.5) * cloud["height"]
-			var pr: float = 25 + randf() * 40
-			var shade: float = 0.55 + randf() * 0.25
-			var alpha: float = 0.5 + randf() * 0.3
-			cloud["puffs"].append({"offset": Vector2(px, py), "radius": pr, "color": Color(shade, shade, shade, alpha)})
-		cloud_data.append(cloud)
-
 func _process(_delta: float) -> void:
 	if sky_rect and sky_rect.size != get_viewport_rect().size:
 		sky_rect.size = get_viewport_rect().size
@@ -74,67 +59,33 @@ func _process(_delta: float) -> void:
 		if main_camera:
 			sky_material.set_shader_parameter("camera_y", main_camera.position.y)
 
-func _draw() -> void:
-	_cam_x_cache = _camera_world_x()
-	_draw_mountains()
-	_draw_clouds()
-
-## World-x position of the active camera, used to centre the tiling modulus.
-func _camera_world_x() -> float:
-	var cam = get_viewport().get_camera_2d()
-	if cam:
-		return cam.position.x
-	return 0.0
-
-## Copy indices `k` whose position `base_x + k*TERRAIN_LENGTH` falls inside the
-## visible world-x band (viewport half-width + the element's own half-extent).
-## Only k ∈ {-1, 0, 1} can ever be on-screen — the viewport (even at minimum
-## zoom, plus the element's width) is far narrower than TERRAIN_LENGTH.  The
-## result: in the middle of the map only k=0 passes (a single draw, no extra
-## redraw); the k=-1 / k=+1 copies are only drawn when the camera is actually
-## within a screen width of the wrap seam and that copy is genuinely visible.
-func _tile_k_range(base_x: float, half_extent: float) -> Array[int]:
-	var half_w := 2000.0
-	var cam = get_viewport().get_camera_2d()
-	if cam:
-		half_w = (get_viewport_rect().size.x / cam.zoom.x) * 0.5
-	var band_half := half_w + half_extent
-	var ks: Array[int] = []
-	for k in [-1, 0, 1]:
-		if absf(base_x + k * TERRAIN_LENGTH - _cam_x_cache) <= band_half:
-			ks.append(k)
-	return ks
-
-func _draw_mountains() -> void:
-	for data in mountain_data:
-		var pos: Vector2 = data["pos"]
-		var height: float = data["height"]
-		for k in _tile_k_range(pos.x, 620.0):
-			var x := pos.x + k * TERRAIN_LENGTH
-			var points = PackedVector2Array([
-				Vector2(x - 600, 750),
-				Vector2(x - 300, 750 - height),
-				Vector2(x - 120, 550 - height),
-				Vector2(x + 120, 550 - height - 30),
-				Vector2(x + 300, 750 - height - 30),
-				Vector2(x + 600, 750)
-			])
-			draw_colored_polygon(points, Color(0.10, 0.20, 0.40))
-
-func _draw_clouds() -> void:
-	if SvgManager and SvgManager.has_sprite("cloud"):
-		for cloud in cloud_data:
-			var pos: Vector2 = cloud["pos"]
-			var w: float = cloud["width"]
-			var h: float = cloud["height"]
-			for k in _tile_k_range(pos.x, w * 0.5 + 70.0):
-				SvgManager.draw_sprite_centered(self, "cloud", Vector2(pos.x + k * TERRAIN_LENGTH, pos.y), Vector2(w, h))
+## Assemble the deterministic, seed-driven 3-layer vector parallax (D6–D9).
+## Called explicitly by main.gd after terrain.generate() so the world seed is
+## shared.  Idempotent: the first call builds everything; subsequent calls are
+## no-ops.  All children are static — zero per-frame `_draw` (D9 / T4 fix).
+func generate(seed: int) -> void:
+	if _generated:
 		return
-
-	for cloud in cloud_data:
-		var cy: float = cloud["pos"].y
-		for k in _tile_k_range(cloud["pos"].x, cloud["width"] * 0.5 + 70.0):
-			var base_x: float = cloud["pos"].x + k * TERRAIN_LENGTH
-			for puff in cloud["puffs"]:
-				var pos: Vector2 = Vector2(base_x, cy) + puff["offset"]
-				draw_circle(pos, puff["radius"], puff["color"])
+	_generated = true
+	parallax = ParallaxBackground.new()
+	parallax.layer = -15                       # behind world (0), in front of sky (-20)
+	add_child(parallax)
+	for spec in LAYER_SPECS:
+		var s: float = spec["scale"]
+		var period := TERRAIN_LENGTH * s       # D6 mirroring math
+		var layer := ParallaxLayer.new()
+		layer.motion_scale = Vector2(s, s)
+		layer.motion_mirroring = Vector2(period, 0.0)
+		parallax.add_child(layer)
+		var ridge := ParallaxScenery.build_ridge_points(
+			TerrainNoise.derive_seed(seed, spec["salt"]),
+			period, spec["base"], spec["amp"], spec["freq"], spec["seg"])
+		layer.add_child(ParallaxScenery.make_ridge_polygon(
+			ridge, period, spec["floor"], spec["color"]))
+		layer.add_child(ParallaxScenery.make_trim_line(ridge, spec["color"]))
+	# Layer 3 atmosphere (D9): clouds ride the fastest layer (index 2) at 0.6 rate.
+	var cloud_layer := parallax.get_child(2) as ParallaxLayer
+	for puff in ParallaxScenery.build_clouds(
+			TerrainNoise.derive_seed(seed, CLOUD_SALT),
+			TERRAIN_LENGTH * LAYER_SPECS[2]["scale"], CLOUD_COUNT):
+		cloud_layer.add_child(puff)

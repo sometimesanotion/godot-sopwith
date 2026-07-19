@@ -3,22 +3,24 @@ extends Node2D
 @onready var camera: Camera2D = $Camera2D
 @onready var biplane: Biplane = $Biplane
 @onready var terrain: Node2D = $Terrain
+@onready var background: Node2D = $Background
 @onready var ui: CanvasLayer = $UI
 
 const TERRAIN_LENGTH := 16384.0
 const VIEWPORT_MIN_X := 0.0
 const VIEWPORT_MAX_X := 1280.0
-const HOME_BASE := Vector2(6500, 650)
+const HOME_BASE := Vector2(5300, 650)
 
-const RUNWAY_START := 6500.0
-const RUNWAY_END := 7100.0
-# Enemy runways are added at (base_x + 50) with length 500, so their midpoint is
-# (base_x + 50) + 250 = base_x + 300.  Planes spawn at the midpoint (not the left
-# edge at base_x + 50) so their collision shape clears the buildings placed just
-# to the left of the runway, which they were otherwise striking on spawn.
-const ENEMY_SPAWN_RUNWAY_OFFSET := 80.0
+# Enemy runways span [base_x + 50, base_x + 50 + 500].  Planes spawn 30 px in
+# from the runway edge facing their takeoff direction (so they have the full
+# runway ahead for the roll): rightward launchers sit on the left edge, leftward
+# launchers (the inverted east-side bases) sit on the right edge.  Both are
+# the same distance from the building cluster that lives just before the
+# runway's "back" end.
+const ENEMY_SPAWN_RUNWAY_EDGE_MARGIN := 30.0
+const ENEMY_SPAWN_RUNWAY_OFFSET := 50.0 + ENEMY_SPAWN_RUNWAY_EDGE_MARGIN  # 80.0
 
-const PLAYER_SPAWN_X := 6530.0
+const PLAYER_SPAWN_X := 5330.0
 const SAFE_ZONE_RADIUS := 1500.0
 const MIN_ENEMY_DISTANCE := 2458.0
 
@@ -203,6 +205,8 @@ func _show_startup_world() -> void:
 	if terrain and terrain.has_method("generate"):
 		terrain.generate()
 		terrain.visible = true
+	if background and background.has_method("generate"):
+		background.generate(terrain.resolved_seed)
 	if camera:
 		camera.enabled = true
 		camera.position = Vector2(TERRAIN_LENGTH * 0.5, 400)
@@ -333,6 +337,10 @@ const COW_SCENE := preload("res://scenes/cow.tscn")
 const BIRD_FLOCK_SCENE := preload("res://scenes/bird_flock.tscn")
 
 var enemy_home_positions: Array[float] = []
+## Parallel to enemy_home_positions: true if this base launches leftward
+## (runway sits on the left of base_x, buildings on the right).  Set in
+## _spawn_enemies_and_targets; consumed by _create_enemy_bases.
+var enemy_base_faces_left: Array[bool] = []
 
 func _spawn_enemies_and_targets() -> void:
 	enemies.clear()
@@ -340,15 +348,19 @@ func _spawn_enemies_and_targets() -> void:
 	_occupied_positions.clear()
 
 	var num_bases: int = GameManager.enemy_homebases if GameManager else 4
+	# D10 base layout: one base west of the player, the rest east.  The east
+	# bases spawn inverted (leftward launch) via `faces_left`.  Consecutive
+	# bases are spaced 2500 px apart (≥ MIN_ENEMY_DISTANCE) and all runways
+	# fit inside the map; both invariants are checked by _validate_base_layout.
 	var possible_bases: Array[float] = [
-		2458.0,
-		4916.0,
-		7500.0,
-		10374.0,
-		12500.0,
-		14832.0
+		2400.0,
+		8000.0,
+		10500.0,
+		13000.0,
+		15500.0,
 	]
 	possible_bases = possible_bases.slice(0, num_bases)
+	_validate_base_layout(possible_bases)
 
 	var spawn_enemies: bool = GameManager.enemy_planes if GameManager else true
 
@@ -365,14 +377,30 @@ func _spawn_enemies_and_targets() -> void:
 	for i in range(possible_bases.size()):
 		var base_x: float = possible_bases[i]
 		enemy_home_positions.append(base_x)
+		# D10: enemies east of the player spawn inverted and launch leftward.
+		# Respawn path (`biplane.respawn`) already handles inversion via the
+		# homebase `spawn_rotation`; we just need the initial spawn to match.
+		var faces_left := base_x > PLAYER_SPAWN_X
+		enemy_base_faces_left.append(faces_left)
 		if not spawn_enemies:
 			continue
+		var spawn_rot := PI if faces_left else 0.0
 		var enemy: RigidBody2D = ENEMY_SCENE.instantiate()
 		var ground_y := 650.0
 		if terrain and terrain.has_method("get_ground_height_at"):
 			ground_y = terrain.get_ground_height_at(base_x)
-		enemy.position = Vector2(base_x + ENEMY_SPAWN_RUNWAY_OFFSET, ground_y - Biplane.GROUND_SURFACE_OFFSET)
-		enemy.rotation = 0
+		# Runway sits on the side of the homebase that matches the takeoff
+		# direction: rightward bases → runway to the right of base_x
+		# ([base_x+50, base_x+550]); leftward bases → runway to the left
+		# ([base_x-550, base_x-50]).  The plane parks 30 px in from the runway
+		# edge facing its takeoff direction.
+		var runway_left: float = base_x - 550.0 if faces_left else base_x + 50.0
+		var runway_right: float = runway_left + 500.0       # Terrain.RUNWAY_LENGTH
+		var spawn_x: float = (runway_right - ENEMY_SPAWN_RUNWAY_EDGE_MARGIN) if faces_left \
+							else (runway_left + ENEMY_SPAWN_RUNWAY_EDGE_MARGIN)
+		var spawn_pos := Vector2(spawn_x, ground_y - Biplane.GROUND_SURFACE_OFFSET)
+		enemy.position = spawn_pos
+		enemy.rotation = spawn_rot
 		enemy.add_to_group("destructible")
 		if enemy.has_node("EnemyAI"):
 			var ai := enemy.get_node("EnemyAI")
@@ -381,17 +409,28 @@ func _spawn_enemies_and_targets() -> void:
 			ai.home_base_x = base_x
 			ai.unlimited_fuel_ammo = is_vs_computer
 		if enemy.has_method("setup_faction_homebase"):
-			enemy.setup_faction_homebase(i, base_x, 200.0, Vector2(base_x + ENEMY_SPAWN_RUNWAY_OFFSET, ground_y - Biplane.GROUND_SURFACE_OFFSET), 0.0, enemy_faction_enum)
+			enemy.setup_faction_homebase(i, base_x, 200.0, spawn_pos, spawn_rot, enemy_faction_enum)
 		if enemy.has_method("get_avatar_data"):
 			var enemy_avatar = enemy.get_avatar_data(0)
 			if enemy.has_method("assign_plane_model") and enemy.has_method("get_default_plane_model"):
 				var enemy_model = enemy.get_default_plane_model(enemy_faction_enum)
 				enemy.assign_plane_model(enemy_avatar, enemy_model)
+			# D10: parked enemies must already be inverted if they will launch
+			# leftward; biplane.respawn() does this on every respawn, so the
+			# initial spawn just needs to match (otherwise the plane visually
+			# flips on its first death).
+			enemy_avatar.is_barrel_rolled = faces_left
+			if enemy.has_method("reset_visual_transform"):
+				enemy.reset_visual_transform(enemy_avatar)
 		if enemy.has_method("set_home_base") and enemy.has_method("get_avatar_data"):
 			enemy.set_home_base(enemy.get_avatar_data(0), i)
 		if enemy.has_method("set_game_active"):
 			enemy.set_game_active(true)
 		enemy.is_player_controlled = false
+		if enemy.has_node("EnemyAI"):
+			# Initial heading must match the parked orientation so the AI
+			# doesn't try to yaw 180° on the first decision tick.
+			enemy.get_node("EnemyAI").pilots[0].desired_heading = spawn_rot
 		if is_vs_computer:
 			var takeoff_delay := i * 1.5
 			if enemy.has_node("EnemyAI"):
@@ -399,7 +438,9 @@ func _spawn_enemies_and_targets() -> void:
 		add_child(enemy)
 		enemies.append(enemy)
 		if terrain and terrain.has_method("add_runway"):
-			terrain.add_runway(base_x + 50)
+			# Runway start = runway_left (rightward bases: base_x+50, leftward
+			# bases: base_x-550).  add_runway(x) registers [x, x+500].
+			terrain.add_runway(runway_left)
 
 	var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
 	var cow_count_map: Dictionary = {"None": 0, "Few": 6, "Normal": 12, "Many": 24}
@@ -416,7 +457,8 @@ func _spawn_enemies_and_targets() -> void:
 				break
 			attempts += 1
 		var cow: Node2D = COW_SCENE.instantiate()
-		cow.position = Vector2(cow_x, 650)
+		var cow_y: float = terrain.get_ground_height_at(cow_x) if terrain and terrain.has_method("get_ground_height_at") else 650.0
+		cow.position = Vector2(cow_x, cow_y)
 		add_child(cow)
 
 	var bird_count_map: Dictionary = {"None": 0, "Few": 3, "Normal": 5, "Many": 8}
@@ -445,19 +487,47 @@ func _is_position_occupied(x: float, half_width: float) -> bool:
 func _mark_position_occupied(x: float, half_width: float) -> void:
 	_occupied_positions.append(Vector2(x, half_width))
 
-func _create_home_base() -> void:
-	var ground_y := 650.0
-	if terrain and terrain.has_method("get_ground_height_at"):
-		ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
+## Wrap-aware distance: returns the shortest arc between two x positions on the
+## world torus (D10).  Used by `_validate_base_layout` so a base at x=200 and
+## another at x=16200 are correctly seen as ~384 apart, not 16000.
+func _wrap_distance(a: float, b: float) -> float:
+	var d := absf(a - b)
+	return minf(d, TERRAIN_LENGTH - d)
 
-	var runway_left = RUNWAY_START - 150.0
+## Debug-only: assert every base clears MIN_ENEMY_DISTANCE from the player
+## (wrap-aware) and that each base's runway fits inside the map.  Push-warns on
+## violation.  Called from _spawn_enemies_and_targets in debug builds (M6.3).
+func _validate_base_layout(bases: Array[float]) -> void:
+	if not OS.is_debug_build():
+		return
+	for base_x in bases:
+		var d := _wrap_distance(base_x, PLAYER_SPAWN_X)
+		if d < MIN_ENEMY_DISTANCE:
+			push_warning("Base layout: base at x=%f too close to player (d=%.1f < MIN_ENEMY_DISTANCE=%.1f)"
+				% [base_x, d, MIN_ENEMY_DISTANCE])
+		# Enemy runway is added at (base_x + 50) with length 500 (per the
+		# ENEMY_SPAWN_RUNWAY_OFFSET comment): [base_x+50, base_x+550].
+		if base_x + 50.0 < 0.0 or base_x + 550.0 > TERRAIN_LENGTH:
+			push_warning("Base layout: base at x=%f runway does not fit in map (%.1f..%.1f)"
+				% [base_x, base_x + 50.0, base_x + 550.0])
+	# Pairwise check (catches two adjacent east bases).
+	for i in range(bases.size()):
+		for j in range(i + 1, bases.size()):
+			var d2 := _wrap_distance(bases[i], bases[j])
+			if d2 < MIN_ENEMY_DISTANCE:
+				push_warning("Base layout: bases at x=%f and x=%f too close (d=%.1f)"
+					% [bases[i], bases[j], d2])
+
+func _create_home_base() -> void:
+	var runway_left = Terrain.RUNWAY_START - 150.0
 	var building_hw = _get_target_half_width("building")
 
 	for i in range(2):
 		var building_x = runway_left - 10 - building_hw - i * (building_hw * 2 + 10)
 		var building := GROUND_TARGET_SCENE.instantiate()
 		building.target_type = "building"
-		building.position = Vector2(building_x, ground_y)
+		var by: float = terrain.get_ground_height_at(building_x) if terrain and terrain.has_method("get_ground_height_at") else 650.0
+		building.position = Vector2(building_x, by)
 		building.has_aa = false
 		building.is_enemy = false
 		add_child(building)
@@ -470,7 +540,8 @@ func _create_home_base() -> void:
 		var depot_x = last_building_x - building_hw - 10 - depot_hw - i * (depot_hw * 2 + 10)
 		var fuel_depot := GROUND_TARGET_SCENE.instantiate()
 		fuel_depot.target_type = "fuel_depot"
-		fuel_depot.position = Vector2(depot_x, ground_y)
+		var dy: float = terrain.get_ground_height_at(depot_x) if terrain and terrain.has_method("get_ground_height_at") else 650.0
+		fuel_depot.position = Vector2(depot_x, dy)
 		fuel_depot.has_aa = false
 		fuel_depot.is_enemy = false
 		add_child(fuel_depot)
@@ -478,22 +549,40 @@ func _create_home_base() -> void:
 
 func _create_enemy_bases() -> void:
 	var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
-	for home_x in enemy_home_positions:
+	for base_idx in range(enemy_home_positions.size()):
+		var home_x: float = enemy_home_positions[base_idx]
 		if abs(home_x - PLAYER_SPAWN_X) < SAFE_ZONE_RADIUS:
 			continue
 
-		var ground_y := 650.0
-		if terrain and terrain.has_method("get_ground_height_at"):
-			ground_y = terrain.get_ground_height_at(home_x)
+		# Mirror the runway-side decision from _spawn_enemies_and_targets:
+		# rightward bases have their runway on the right ([home_x+50,
+		# home_x+550]), leftward bases on the left ([home_x-550, home_x-50]).
+		# Buildings go on the OPPOSITE side from the takeoff direction (so the
+		# plane rolls AWAY from its own homebase on takeoff).
+		var faces_left: bool = enemy_base_faces_left[base_idx] if base_idx < enemy_base_faces_left.size() else (home_x > PLAYER_SPAWN_X)
+		var runway_left: float = home_x - 550.0 if faces_left else home_x + 50.0
+		var runway_right: float = runway_left + 500.0
 
-		var runway_left = home_x + 50
 		var building_hw = _get_target_half_width("building")
 
+		# `build_dir` is +1 for buildings placed toward +x, -1 for -x.
+		# For rightward bases (runway on the right of home_x), buildings go
+		# LEFT of the runway: building_x = runway_left - 10 - hw - i*step.
+		# For leftward  bases (runway on the left  of home_x), buildings go
+		# RIGHT of the runway: building_x = runway_right + 10 + hw + i*step.
+		var build_dir: float = -1.0 if not faces_left else 1.0
+		var building_step: float = building_hw * 2.0 + 10.0
+		var first_building_x: float = runway_left - 10.0 - building_hw if not faces_left \
+									  else runway_right + 10.0 + building_hw
 		for i in range(2):
-			var building_x = runway_left - 10 - building_hw - i * (building_hw * 2 + 10)
+			var building_x: float = first_building_x + build_dir * i * building_step
 			var building := GROUND_TARGET_SCENE.instantiate()
 			building.target_type = "building"
-			building.position = Vector2(building_x, ground_y)
+			# Per-building terrain sampling (D5 blend zone can already be
+			# visibly off BASE_Y beyond ~80 px from the runway edge; tanks
+			# further out, on grass, need it most).
+			var by: float = terrain.get_ground_height_at(building_x) if terrain and terrain.has_method("get_ground_height_at") else 650.0
+			building.position = Vector2(building_x, by)
 			building.has_aa = true
 			building.is_enemy = true
 			building.add_to_group("enemy_target")
@@ -501,13 +590,16 @@ func _create_enemy_bases() -> void:
 			_mark_position_occupied(building_x, building_hw)
 
 		var depot_hw = _get_target_half_width("fuel_depot")
-		var last_building_x = runway_left - 10 - building_hw - 1 * (building_hw * 2 + 10)
+		var last_building_x: float = first_building_x + build_dir * 1 * building_step
+		var first_depot_x: float = last_building_x + build_dir * (building_hw + 10.0 + depot_hw)
+		var depot_step: float = depot_hw * 2.0 + 10.0
 
 		for i in range(2):
-			var depot_x = last_building_x - building_hw - 10 - depot_hw - i * (depot_hw * 2 + 10)
+			var depot_x: float = first_depot_x + build_dir * i * depot_step
 			var fuel_depot := GROUND_TARGET_SCENE.instantiate()
 			fuel_depot.target_type = "fuel_depot"
-			fuel_depot.position = Vector2(depot_x, ground_y)
+			var dy: float = terrain.get_ground_height_at(depot_x) if terrain and terrain.has_method("get_ground_height_at") else 650.0
+			fuel_depot.position = Vector2(depot_x, dy)
 			fuel_depot.has_aa = false
 			fuel_depot.is_enemy = true
 			fuel_depot.add_to_group("enemy_target")
@@ -520,23 +612,23 @@ func _create_enemy_bases() -> void:
 		for i in range(extra_count):
 			var target_type: String = ["building", "hangar", "tank"].pick_random()
 			var target_hw: float = _get_target_half_width(target_type)
-			var target_x: float = home_x - 200 - i * 160
+			# Place extras on the building side (opposite the runway), so they
+			# don't pile up on the runway.  For rightward: left of home_x.
+			# For leftward:  right of home_x.
+			var target_step: float = 160.0
+			var target_x: float = home_x + build_dir * (200.0 + i * target_step)
 			var attempts := 0
 			while attempts < 20:
 				if not _is_position_occupied(target_x, target_hw):
 					break
-				target_x -= target_hw * 2 + 10
+				target_x += build_dir * (target_hw * 2.0 + 10.0)
 				attempts += 1
 			if _is_position_occupied(target_x, target_hw):
 				continue
 			var target: Node2D = GROUND_TARGET_SCENE.instantiate()
 			target.target_type = target_type
-			var target_ground_y := ground_y
-			if terrain and terrain.has_method("get_ground_height_at"):
-				target_ground_y = terrain.get_ground_height_at(target_x)
-				target.position = Vector2(target_x, target_ground_y)
-			else:
-				target.position = Vector2(target_x, ground_y)
+			var target_ground_y: float = terrain.get_ground_height_at(target_x) if terrain and terrain.has_method("get_ground_height_at") else 650.0
+			target.position = Vector2(target_x, target_ground_y)
 			if target_type == "building":
 				target.has_aa = false
 			else:

@@ -1,22 +1,40 @@
 extends Node2D
+class_name Terrain
 
 const TERRAIN_LENGTH := 16384.0
 const TERRAIN_LOW_BOUND := 3000.0
 const SEGMENT_WIDTH := 32.0
-const RUNWAY_START := 6500.0
-const RUNWAY_END := 7100.0
+const RUNWAY_START := 5300.0
+const RUNWAY_END := 5800.0
 const RUNWAY_LENGTH := 500.0
 const BASE_Y := 650.0
 
-var noise: FastNoiseLite
+# --- Multi-frequency synthesis (D4) ---
+const MACRO_FREQUENCY  := 0.0012
+const MICRO_FREQUENCY  := 0.008    # preserves current surface character
+const MACRO_AMPLITUDE  := 260.0
+const MICRO_AMP_MIN    := 12.0     # plains: nearly smooth
+const MICRO_AMP_MAX    := 60.0     # mountains: current ruggedness
+const RUNWAY_BLEND_WIDTH := 192.0  # off-span amplitude ramp (D5)
+
+const _SALT_MACRO := 101
+const _SALT_MICRO := 102
+
+var macro_noise: FastNoiseLite
+var micro_noise: FastNoiseLite
+var resolved_seed: int = 0
 var ground_points: PackedVector2Array = []
 var terrain_body: StaticBody2D
 var terrain_polygon: Polygon2D
 var terrain_polygons: Array[Polygon2D] = []
+var trim_lines: Array[Line2D] = []
 var runways: Array[Vector2] = []
 
 @export var ground_color: Color = Color(0.12, 0.35, 0.12)
 @export var runway_color: Color = Color(0.35, 0.35, 0.4)
+@export var trim_color: Color = Color(0.25, 0.48, 0.25)  # ≈ ground_color.lightened(0.15)
+
+const TRIM_WIDTH := 2.5
 
 func _ready() -> void:
 	runways.append(Vector2(RUNWAY_START, RUNWAY_END))
@@ -34,7 +52,7 @@ func add_runway(x: float) -> void:
 	runways.append(Vector2(runway_start, runway_end))
 	if ground_points.size() > 0:
 		_generate_terrain()
-		_update_terrain_polygons()
+		_update_terrain_geometry()
 	_create_runway_visual(runway_start, runway_end)
 
 func _create_terrain() -> void:
@@ -62,7 +80,9 @@ func _create_terrain() -> void:
 		add_child(copy)
 		terrain_polygons.append(copy)
 
-	_update_terrain_polygons()
+	_create_trim_lines()
+
+	_update_terrain_geometry()
 
 	# Diagnostic: verify terrain body and visual are aligned
 	var terrain_min_y := INF
@@ -98,7 +118,7 @@ func _create_terrain() -> void:
 	for runway in runways:
 		_create_runway_visual(runway.x, runway.y)
 
-func _update_terrain_polygons() -> void:
+func _update_terrain_geometry() -> void:
 	var poly_points := ground_points.duplicate()
 	poly_points.append(Vector2(TERRAIN_LENGTH, TERRAIN_LOW_BOUND))
 	poly_points.append(Vector2(0, TERRAIN_LOW_BOUND))
@@ -110,6 +130,22 @@ func _update_terrain_polygons() -> void:
 				child.polygon = poly_points
 	for poly in terrain_polygons:
 		poly.polygon = poly_points
+	# Trim lines follow the raw top surface (no floor points) on all three
+	# tiled copies so the crisp outline shadows the terrain across the seam.
+	for line in trim_lines:
+		line.points = ground_points
+
+func _create_trim_lines() -> void:
+	for offset in [-TERRAIN_LENGTH, 0.0, TERRAIN_LENGTH]:
+		var line := Line2D.new()
+		line.default_color = trim_color
+		line.width = TRIM_WIDTH
+		line.joint_mode = Line2D.LINE_JOINT_ROUND
+		line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+		line.end_cap_mode = Line2D.LINE_CAP_ROUND
+		line.position.x = offset
+		add_child(line)            # after polygons → draws on top
+		trim_lines.append(line)
 
 func _create_runway_visual(start: float, end: float) -> void:
 	if SvgManager and SvgManager.has_sprite("runway"):
@@ -136,44 +172,60 @@ func _create_runway_visual(start: float, end: float) -> void:
 	add_child(runway)
 
 func set_noise_seed(seed_value: int) -> void:
-	if noise:
-		noise.seed = seed_value
+	resolved_seed = seed_value
+	if macro_noise:
+		macro_noise.seed = TerrainNoise.derive_seed(resolved_seed, _SALT_MACRO)
+	if micro_noise:
+		micro_noise.seed = TerrainNoise.derive_seed(resolved_seed, _SALT_MICRO)
 
 func _initialize_noise() -> void:
-	noise = FastNoiseLite.new()
 	if GameManager and GameManager.terrain_seed != 0:
-		noise.seed = GameManager.terrain_seed
+		resolved_seed = GameManager.terrain_seed
 	else:
-		noise.seed = randi()
-	noise.noise_type = FastNoiseLite.TYPE_PERLIN
-	noise.frequency = 0.008
-	noise.fractal_octaves = 4
-	noise.fractal_gain = 0.5
+		resolved_seed = randi()
+	macro_noise = TerrainNoise.make_noise(
+		TerrainNoise.derive_seed(resolved_seed, _SALT_MACRO), MACRO_FREQUENCY, 2, 0.5)
+	micro_noise = TerrainNoise.make_noise(
+		TerrainNoise.derive_seed(resolved_seed, _SALT_MICRO), MICRO_FREQUENCY, 4, 0.5)
+
+## Signed height: macro sweeps ±MACRO_AMPLITUDE; micro amplitude is scaled by
+## macro ruggedness so plains stay smooth and mountains get jagged.  y-down:
+## positive macro = mountain = smaller y.
+func _sample_height(x: float) -> float:
+	var macro := TerrainNoise.sample_periodic(macro_noise, x, TERRAIN_LENGTH)
+	var rugged := TerrainNoise.smoothstep01(macro * 0.5 + 0.5)
+	var micro_amp := lerpf(MICRO_AMP_MIN, MICRO_AMP_MAX, rugged)
+	var micro := TerrainNoise.sample_periodic(micro_noise, x, TERRAIN_LENGTH)
+	return BASE_Y - macro * MACRO_AMPLITUDE - micro * micro_amp
+
+## 0.0 exactly on any runway span (physics contract: y == BASE_Y);
+## smoothstep ramp 0→1 over RUNWAY_BLEND_WIDTH outside the span.
+func _runway_flatness(x: float) -> float:
+	var f := 1.0
+	for runway in runways:
+		if x >= runway.x and x <= runway.y:
+			return 0.0
+		var d := minf(absf(x - runway.x), absf(x - runway.y))
+		f = minf(f, d / RUNWAY_BLEND_WIDTH)
+	return TerrainNoise.smoothstep01(f)
 
 func _generate_terrain() -> void:
 	ground_points.clear()
 	var num_segments := int(TERRAIN_LENGTH / SEGMENT_WIDTH)
 	for i in range(num_segments + 1):
 		var x := i * SEGMENT_WIDTH
-		var y: float
-		var on_runway := false
-		for runway in runways:
-			if x >= runway.x and x <= runway.y:
-				on_runway = true
-				break
-		if on_runway:
-			y = BASE_Y
-		else:
-			# Wrap the noise sample so the height field is periodic with period
-			# TERRAIN_LENGTH — the seam at the map edge then matches exactly,
-			# which lets the tiled ground copies connect seamlessly on wrap.
-			var noise_x := fmod(x, TERRAIN_LENGTH)
-			var noise_val := noise.get_noise_2d(noise_x, 0.0)
-			y = BASE_Y + noise_val * 60.0
+		var flatness := _runway_flatness(x)
+		var y := BASE_Y if flatness == 0.0 \
+			else BASE_Y + (_sample_height(x) - BASE_Y) * flatness
 		ground_points.append(Vector2(x, y))
 
 func get_ground_height_at(x: float) -> float:
 	if ground_points.size() < 2:
+		return BASE_Y
+	# Hard physics contract (D5): the runway surface is exactly BASE_Y across the
+	# entire span, regardless of sample-grid alignment.  Returning the exact value
+	# here keeps the collision clamp and every caller consistent with is_on_runway.
+	if is_on_runway(x):
 		return BASE_Y
 	# Wrap into [0, TERRAIN_LENGTH) so the query stays in range after a wrap.
 	x = fmod(x, TERRAIN_LENGTH)
@@ -210,4 +262,4 @@ func get_terrain_info_at(x: float) -> Dictionary:
 	}
 
 func get_visual_line() -> Line2D:
-	return null
+	return trim_lines[0] if trim_lines.size() > 0 else null
