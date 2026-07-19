@@ -59,13 +59,15 @@ const DAMAGE_STATE_NAMES := {
 	4: "DESTROYED"
 }
 
-## Air-combat mode (boom & zoom) for enemy pilots. Order matches
-## EnemyAI.EngageMode: PURSUE, RECOVER_DIVE, RECOVER_CLIMB, IMMELMANN.
-const ENGAGE_MODE_NAMES := {
+## Recovery sub-mode for enemy pilots in combat. Matches the
+## RECOVERY_NONE / RECOVERY_DIVE / RECOVERY_CLIMB constants on EnemyAI
+## (see scripts/enemy_ai.gd).  PURSUE is the default — the plane is
+## tracking and firing.  RECOVER_DIVE / RECOVER_CLIMB are the energy-
+## management break-offs taken when the fight becomes unwinnable.
+const RECOVERY_MODE_NAMES := {
 	0: "PURSUE",
 	1: "RECOVER_DIVE",
 	2: "RECOVER_CLIMB",
-	3: "IMMELMANN"
 }
 
 func _ready() -> void:
@@ -279,7 +281,7 @@ func _update_debug_entry(idx: int, entity: Node, base_ground_y: float, is_player
 
 	var entity_id: String = "P0" if is_player else "E%d" % idx
 	var ai_state_text := "---"
-	var engage_mode_text := "---"
+	var recovery_mode_text := "---"
 	var flight_state_text := "---"
 	var damage_state_text := "---"
 	var alt_text := "---"
@@ -307,8 +309,8 @@ func _update_debug_entry(idx: int, entity: Node, base_ground_y: float, is_player
 			var state_val: int = ai_node.ai_fsm.get_ai_state_enum()
 			ai_state_text = AI_STATE_NAMES.get(state_val, "UNKNOWN")
 			if ai_node.pilots.size() > 0:
-				var em: int = ai_node.pilots[0].engage_mode
-				engage_mode_text = ENGAGE_MODE_NAMES.get(em, "UNKNOWN")
+				var rm: int = ai_node.pilots[0].recovery_mode
+				recovery_mode_text = RECOVERY_MODE_NAMES.get(rm, "UNKNOWN")
 
 	if "flight_state" in avatar:
 		var state_val: int = int(avatar.flight_state)
@@ -320,6 +322,6 @@ func _update_debug_entry(idx: int, entity: Node, base_ground_y: float, is_player
 
 	enemy_labels[label_idx].text = "%s: AI=%s FST=%s" % [entity_id, ai_state_text, flight_state_text]
 	if not is_player:
-		enemy_labels[label_idx + 1].text = " ENG=%s" % engage_mode_text
+		enemy_labels[label_idx + 1].text = " RCV=%s" % recovery_mode_text
 	enemy_labels[label_idx + 2].text = "    DST=%s ALT=%s" % [damage_state_text, alt_text]
 	enemy_labels[label_idx + 3].text = "    SPD=%s FUEL=%d" % [speed_text, avatar.fuel]

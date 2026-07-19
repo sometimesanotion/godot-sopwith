@@ -1,12 +1,23 @@
 extends State
 
-func enter() -> void:
-	var ai = (state_machine as AIStateMachine).ai_controller
-	if ai:
-		ai.pilots[0].patrol_time = 0.0
+## Cruises above the home base, ready to pounce on a target that comes
+## in range.  The state's job is just: where do I want to fly?  The
+## controller converts that into a heading and a pitch command.
+##
+## min_state_time keeps the plane from immediately snapping into an
+## engagement on the first decision tick after a state change (e.g. a
+## freshly-climbed plane is briefly inside engagement range and would
+## otherwise flap engaging ↔ patrolling as the target orbits).
 
-func exit() -> void:
-	pass
+var _patrol_time: float = 0.0
+
+func enter() -> void:
+	_patrol_time = 0.0
+	var fsm: AIStateMachine = state_machine
+	fsm.current_throttle = 1.0
+	fsm.min_state_time = 0.5
+	# current_aim_point is set every update; reset on enter so the
+	# controller holds the last heading for the first frame.
 
 func update(delta: float) -> void:
 	var ai = (state_machine as AIStateMachine).ai_controller
@@ -15,18 +26,23 @@ func update(delta: float) -> void:
 	var avatar = ai._get_avatar()
 	if not avatar:
 		return
-	var pitch = ai._compute_patrol_pitch()
-	var throttle = ai._compute_patrol_throttle(avatar)
-	var reflexed = ai._apply_reflexes(pitch, throttle)
-	ai.pilots[0].last_pitch_input = reflexed[0]
-	ai.pilots[0].last_throttle = reflexed[1]
+	var fsm: AIStateMachine = state_machine
 
-	var dist_to_tgt = ai._get_wrapped_distance(ai.biplane.global_position.x, ai.target.global_position.x)
+	_patrol_time += delta
+	var aim: Vector2 = ai._patrol_aim_point(_patrol_time)
+	fsm.current_aim_point = aim
+	fsm.current_throttle = 1.0
+
+	# Exit gates (only after the stickiness floor has been met).
+	if not fsm.can_transition():
+		return
 	if ai._is_fuel_low():
 		finished.emit(&"returning")
-	# Engage any live target within range, wherever it is — a challenging enemy
-	# hunts the player across the map rather than only when the player wanders
-	# into its own territory.  Distance is wrapped, so ENGAGEMENT_RANGE (9000)
-	# already spans the whole field.
-	elif ai._is_target_alive() and dist_to_tgt < ai.ENGAGEMENT_RANGE:
+		return
+	# Engage any live target within range, wherever it is — a
+	# challenging enemy hunts the player across the map rather than
+	# only when the player wanders into its own territory.  Distance
+	# is wrapped, so ENGAGEMENT_RANGE already spans the whole field.
+	var dist_to_tgt = ai._get_wrapped_distance(ai.biplane.global_position.x, ai.target.global_position.x)
+	if ai._is_target_alive() and dist_to_tgt < ai.ENGAGEMENT_RANGE:
 		finished.emit(&"engaging")
