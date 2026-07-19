@@ -27,21 +27,49 @@ extends Node
 ##       into the speed curve.  This gives immediate snap on dive pull-outs
 ##       without affecting the speed-based sensitivity scaling.
 ##
-## ATTITUDE FRAMES  (gravity-relative, direction-agnostic)
-##   Every pitch quantity the AI produces or consumes is expressed in the
-##   GRAVITY FRAME via the AvatarData attitude helpers (travel_sign,
-##   gravity_pitch, gravity_pitch_rate, gravity_angle, world_angle,
-##   pitch_command_to_rotation_input): 0 = level with the horizon, positive =
-##   nose-down toward the ground, negative = nose-up toward the sky.  A level
-##   plane flying leftward inverted (is_barrel_rolled = true) and one flying
-##   rightward upright therefore read IDENTICALLY, and a given command
-##   produces the same climb/dive for both.  `desired_heading` itself stays a
-##   world-space angle (Vector2.angle()); it is converted to the gravity
-##   frame only when compared against the plane's current pitch.  Raw pitch
-##   overrides (takeoff ladder, panic pull-ups, stall dive) are already
-##   gravity-frame commands — negative = climb, positive = dive.  NO code in
-##   this file re-checks is_barrel_rolled: the single sign conversion lives
-##   in Biplane.set_ai_input() via pitch_command_to_rotation_input().
+## ATTITUDE FRAMES & HELPER API  (Biplane.AvatarData — direction-agnostic)
+## ---------------------------------------------------------------------------
+## Every pitch quantity the AI produces or consumes is expressed in the
+## GRAVITY FRAME: 0 = level with the horizon, positive = nose-down toward the
+## ground, negative = nose-up toward the sky.  A level plane flying leftward
+## inverted and one flying rightward upright read IDENTICALLY, and a given
+## command produces the same climb/dive for both.  This gravity frame is the
+## ONLY frame behaviour code is allowed to reason about — raw world-space
+## rotations and pre-flipped signs were the source of every inverted-plane
+## bug in this file's history.
+##
+## THE HELPERS  (all on Biplane.AvatarData)
+##   travel_sign()                          +1.0 rightward nose, -1.0 leftward
+##   level_rotation()                       0.0 rightward, PI leftward (world)
+##   gravity_pitch()                        pitch relative to the horizon
+##   gravity_pitch_rate()                   pitch rate, sign-corrected
+##   gravity_angle(world_heading)           world heading → gravity frame
+##   world_angle(gravity_pitch_value)       gravity frame → world heading
+##   pitch_command_to_rotation_input(cmd)   gravity command → rotation input
+##   rotation_is_leftward(world_rotation)   static: true when nose aims left
+##
+## VITAL RULES  (every one of these was a real bug; obey them all)
+##   1. NEVER read or branch on `avatar.is_barrel_rolled` in this file.
+##      Use `travel_sign()` for direction-sensitive branches, `gravity_pitch()`
+##      for "is the nose above/below the horizon", `level_rotation()` for a
+##      world-frame rotation reference, and `rotation_is_leftward()` to
+##      derive inverted state from a world rotation.
+##   2. `desired_heading` is a WORLD-SPACE angle (Vector2.angle()).  Convert
+##      it via `gravity_angle()` only at the point of comparison (inside
+##      `_compute_pitch_from_heading`); never pre-convert and store.  The
+##      frame conversion is the pitch controller's responsibility, not the
+##      steer's.
+##   3. Forward pitch commands to `Biplane.set_ai_input()` VERBATIM.  The
+##      single `is_barrel_rolled` sign flip lives in
+##      `pitch_command_to_rotation_input()` inside `set_ai_input`.  Pre-flipping
+##      here double-converts and cancels it out — that previously made
+##      leftward-spawned, inverted AI planes pitch into the ground on
+##      takeoff instead of climbing.
+##   4. Raw pitch overrides (takeoff ladder, panic pull-ups, stall dive,
+##      Immelmann aim) are ALREADY gravity-frame commands: negative = climb,
+##      positive = dive.  Write them directly; the integrator flips them.
+##   5. `set_ai_input()` is the only entry point for AI pitch.  Never
+##      mutate `biplane.rotation` or `avatar.pitch_angle` from the AI.
 ##
 ## WOBBLE FIXES
 ##   • Residual heading-damping term removed (was fighting ang-vel term).
@@ -59,8 +87,6 @@ extends Node
 ##
 ## ENERGY-MODE ENGAGEMENT  (boom & zoom)
 ##   Air combat runs a small mode machine (Pilots.engage_mode) with hysteresis:
-##   • PURSUE — co-energy dogfight; from far out it first climbs to an
-##     altitude perch above the target instead of crawling in slow.
 ##   • PURSUE — the default: turn toward the target, lead-pursuit, fire when
 ##     in cone.  Turn rate scales with energy (high alt OR high speed →
 ##     tighter turn) so a healthy plane snaps hard while a wounded one can
@@ -213,9 +239,9 @@ const RECOVER_MIN_CLEARANCE     := 200.0   # px — recovery waypoint never aims
 const RECOVER_EXIT_SPEED_RATIO  := 1.5     # speed/stall above which RECOVER exits to PURSUE
 const RECOVER_MIN_TIME          := 0.6     # s — hysteresis floor, prevents mode flapping
 const RECOVER_MAX_TIME          := 4.0     # s — never recover forever, force a re-attempt
-# Turn-rate scaling.  The base HEADING_LERP_FACTOR (cruise) is in the constant
-# table; ENGAGE scales it from RECOVER_TURN_LO (low-energy) up to
-# RECOVER_TURN_HI (high-energy), so a healthy fast/high plane snaps harder
+# Turn-rate scaling.  The base HEADING_LERP_FACTOR (cruise) is the default
+# lerp factor.  ENGAGE scales it from ENGAGE_TURN_LO (low-energy) up to
+# ENGAGE_TURN_HI (high-energy), so a healthy fast/high plane snaps harder
 # than a slow/low one.  RECOVER uses a fixed slow rate (the waypoint is
 # already behind us; little yaw is needed).
 const ENGAGE_TURN_LO            := 0.30    # low-energy: lazy turn, save what we have
@@ -247,27 +273,20 @@ const ALTITUDE_OSCILLATION_SPEED := 1.5
 const ALTITUDE_OSCILLATION_AMP   := 30.0
 
 # Pitch control — ENGAGE profile (aggressive, combat authority)
-# const PITCH_SENS_ENGAGE_BASE  := 2.2-3.0   # gain at cruise speed in combat
-# const PITCH_SENS_ENGAGE_LOW   := 0.9-1.0   # gain near stall in combat
 const PITCH_SENS_ENGAGE_BASE  := 2.8   # gain at cruise speed in combat
 const PITCH_SENS_ENGAGE_LOW   := 1.0   # gain near stall in combat
 const PITCH_DAMP_ENGAGE_MAX   := 2.2   # speed-damping at low speed in combat
 const PITCH_DAMP_ENGAGE_MIN   := 0.4   # speed-damping at cruise in combat
-# const ANG_VEL_DAMP_ENGAGE     := 0.25  # flat ang-vel coefficient in combat
 const ANG_VEL_DAMP_ENGAGE     := 0.22  # flat ang-vel coefficient in combat
 
 # Pitch control — CRUISE profile (conservative, patrol / return / takeoff)
-# const PITCH_SENS_CRUISE_BASE  := 1.8-2.2
-# const PITCH_SENS_CRUISE_LOW   := 0.7-0.8
 const PITCH_SENS_CRUISE_BASE  := 2.0
 const PITCH_SENS_CRUISE_LOW   := 0.8
 const PITCH_DAMP_CRUISE_MAX   := 3.0
 const PITCH_DAMP_CRUISE_MIN   := 0.6
-# const ANG_VEL_DAMP_CRUISE     := 0.30-0.50
 const ANG_VEL_DAMP_CRUISE     := 0.40
 
 # Heading smoothing (lerp factor per decision tick)
-# const HEADING_LERP_FACTOR     := 0.30-0.45  # 0 = never turns, 1 = instant snap
 const HEADING_LERP_FACTOR     := 0.6  # 0 = never turns, 1 = instant snap
 # Deadband: angle error below this is treated as "on heading"
 const HEADING_DEADBAND        := 0.10  # radians (~6°)
@@ -1299,7 +1318,6 @@ func _lead_pursuit_point(target_pos: Vector2, lead_factor: float) -> Vector2:
 		predicted.y += 15.0
 	return predicted
 
-## Far-approach: climb to an altitude perch above the target before closing,
 # ---------------------------------------------------------------------------
 # WEAPONS
 # ---------------------------------------------------------------------------
