@@ -69,6 +69,11 @@ const ADVANTAGE_THRESHOLD   := 50.0
 const RETURN_REENGAGE_RANGE := 400.0
 const HOME_PROXIMITY        := 100.0
 
+# Fuel floor (percent of avatar.fuel, 0..100) at or below which a patrolling
+# or evading plane gives up and returns to base to refuel.  The task spec
+# requires a 30% floor; the legacy code used a hardcoded 20.0.
+const FUEL_RETURN_THRESHOLD := 30.0
+
 # Return-to-base landing approach (designed to land gently, not crash)
 const RETURN_GLIDE_SLOPE       := 0.16
 # Once the plane is this close horizontally it is committed to the final: the
@@ -235,6 +240,14 @@ class AIData:
 	# transition doesn't clobber the recovery timer mid-maneuver.
 	var recovery_mode: int        = 0
 	var recovery_mode_timer: float = 0.0
+
+	# Patrol sweep direction: +1.0 = heading toward territory_right,
+	# -1.0 = heading toward territory_left.  Persists on the pilot (not the
+	# FSM) so the back-and-forth sweep continues seamlessly across the
+	# transient states (evade / engage) a patrol may dip into and return
+	# from.  _patrol_aim_point() flips it when the plane reaches the edge
+	# it is aiming for.
+	var patrol_dir: float = 1.0
 
 	func reset_control_outputs() -> void:
 		last_pitch_input = 0.0
@@ -591,15 +604,34 @@ func _takeoff_pitch(avatar) -> float:
 	else:
 		return TAKEOFF_CLIMB_PITCH
 
-## Patrolling aim point.  Above the home base, with a slow altitude
-## oscillation that varies the cruise height by ±ALTITUDE_OSCILLATION_AMP
-## px.  When the player is airborne, ride a higher cruise altitude so the
-## patrol always holds altitude to dive with.
+## Patrolling aim point.  Sweeps the full patrol zone between its two
+## territory edges (home_base_x ± patrol_range/2, see _setup_territory) and
+## reverses course when the plane reaches the edge it is heading toward, so
+## it patrols back across to the other side of its territory.  A slow
+## altitude oscillation varies the cruise height by ±ALTITUDE_OSCILLATION_AMP
+## px, and when the player is airborne the plane rides a higher cruise altitude
+## so the patrol always holds energy to dive with.
 func _patrol_aim_point(patrol_time: float) -> Vector2:
 	if not biplane:
 		return Vector2.INF
-	var patrol_x  = clampf(home_base_x, Biplane.TERRAIN_LENGTH * 0.33, Biplane.TERRAIN_LENGTH * 0.67)
-	var ground_y  = _get_ground_height(patrol_x)
+	var my_x := biplane.global_position.x
+	# The patrol zone spans home_base_x ± patrol_range/2.  Aim at the far
+	# edge we are currently sweeping toward; once the plane reaches that edge
+	# (within a small margin so it doesn't jitter on the boundary) reverse
+	# course so it sweeps back to the opposite side — this is the
+	# "more than patrol_range away from home base" turnaround.
+	var edge_margin := 250.0
+	var aim_x: float
+	if pilots[0].patrol_dir > 0.0:
+		aim_x = territory_right - edge_margin
+		if my_x >= territory_right - edge_margin:
+			pilots[0].patrol_dir = -1.0
+	else:
+		aim_x = territory_left + edge_margin
+		if my_x <= territory_left + edge_margin:
+			pilots[0].patrol_dir = 1.0
+
+	var ground_y  = _get_ground_height(aim_x)
 	var osc       = sin(patrol_time * ALTITUDE_OSCILLATION_SPEED) * ALTITUDE_OSCILLATION_AMP
 	# While the player is airborne, cruise above their altitude so the patrol
 	# always holds potential energy to dive with (capped ≤ PATROL_MAX_ALTITUDE,
@@ -610,7 +642,7 @@ func _patrol_aim_point(patrol_time: float) -> Vector2:
 		var player_alt := _get_altitude_above_ground_for(target)
 		cruise_alt = clampf(player_alt + PATROL_ALTITUDE_ADVANTAGE,
 			PATROL_CRUISE_MIN, PATROL_MAX_ALTITUDE)
-	return Vector2(patrol_x, ground_y - cruise_alt + osc)
+	return Vector2(aim_x, ground_y - cruise_alt + osc)
 
 ## Evade waypoint.  Pick a horizontal direction AWAY from the attacker (or
 ## from our own velocity if no threat is in range) and combine with a
@@ -1428,8 +1460,12 @@ func _get_avatar():
 	return null
 
 func _is_fuel_low() -> bool:
+	# Unlimited fuel never runs low — short-circuit so a "free fuel" skirmish
+	# plane never abandons its patrol to land.
+	if unlimited_fuel_ammo:
+		return false
 	var avatar = _get_avatar()
-	return avatar and avatar.fuel < 20.0
+	return avatar and avatar.fuel < FUEL_RETURN_THRESHOLD
 
 # ---------------------------------------------------------------------------
 # INPUT APPLICATION

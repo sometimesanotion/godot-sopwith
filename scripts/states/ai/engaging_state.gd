@@ -74,5 +74,9 @@ func update(_delta: float) -> void:
 		finished.emit(&"evading")
 	elif damage >= 0.5:
 		finished.emit(&"returning")
-	elif dist_to_tgt > ai.ENGAGEMENT_RANGE * 1.2:
+	# Disengage only once the target leaves the detection envelope (with a
+	# margin so a target hovering near DETECTION_RANGE can't flap the FSM
+	# between patrolling and engaging).  Must stay above the patrol→engage
+	# threshold (ai.DETECTION_RANGE) to keep the hysteresis loop stable.
+	elif dist_to_tgt > ai.DETECTION_RANGE * 1.2:
 		finished.emit(&"patrolling")

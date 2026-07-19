@@ -36,15 +36,18 @@ func update(delta: float) -> void:
 	# Exit gates (only after the stickiness floor has been met).
 	if not fsm.can_transition():
 		return
+
+	# Detection gate first: an opponent anywhere inside DETECTION_RANGE means
+	# this plane is no longer "flying with no opponent in its detection
+	# range", so it commits to an engagement (the spec's implied branch).
+	# Distance is wrapped so the 8000 px range spans the field correctly.
+	var dist_to_tgt = ai._get_wrapped_distance(ai.biplane.global_position.x, ai.target.global_position.x)
+	if ai._is_target_alive() and dist_to_tgt < ai.DETECTION_RANGE:
+		finished.emit(&"engaging")
+		return
+
+	# No opponent in detection range: if fuel is below the return threshold,
+	# land at base to refuel; otherwise keep patrolling.
 	if ai._is_fuel_low():
 		finished.emit(&"returning")
 		return
-	# Engage a live target only when it is inside this plane's patrol
-	# territory — the SAME bound that gates launch.  A challenging enemy
-	# still hunts the player across its own patrol_range, but it does not
-	# abandon its territory and chase the player across the whole (wrapped)
-	# map.  Distance is wrapped, so ENGAGEMENT_RANGE already spans the
-	# field; the territory check is the controlling gate.
-	var dist_to_tgt = ai._get_wrapped_distance(ai.biplane.global_position.x, ai.target.global_position.x)
-	if ai._is_target_alive() and ai._is_player_in_territory() and dist_to_tgt < ai.ENGAGEMENT_RANGE:
-		finished.emit(&"engaging")
