@@ -31,15 +31,6 @@ func _initialize() -> void:
 	ok = _expect(t.get_ground_height_at(-10.0) == t.get_ground_height_at(t.TERRAIN_LENGTH - 10.0),
 		"negative-x wrap") and ok
 
-	# M3: foreground trim lines (3 tiled copies following the raw surface).
-	ok = _expect(t.trim_lines.size() == 3, "trim lines count (3)") and ok
-	ok = _expect(t.get_visual_line() != null, "get_visual_line non-null") and ok
-	var trim_ok := true
-	for line in t.trim_lines:
-		if line.points.size() != pts.size():
-			trim_ok = false
-	ok = _expect(trim_ok, "trim lines match ground point count") and ok
-
 	# Determinism: force a fixed seed and regenerate twice.
 	t.set_noise_seed(424242)
 	t._generate_terrain()

@@ -43,7 +43,6 @@ func _initialize() -> void:
 		ok = _expect(terrain.get_ground_height_at(-10.0)
 				== terrain.get_ground_height_at(terrain.TERRAIN_LENGTH - 10.0),
 			"terrain negative-x wrap matches") and ok
-		ok = _expect(terrain.trim_lines.size() == 3, "terrain trim lines = 3") and ok
 		ok = _expect(terrain.resolved_seed == 424242, "terrain resolved_seed = 424242") and ok
 
 	# --- M4/M5 background parallax + static generation ---------------------
@@ -58,8 +57,6 @@ func _initialize() -> void:
 		# allow the extra layers.
 		ok = _expect(counts[0] >= 80 and counts[0] <= 220,
 			"parallax Polygon2D count in static-generation range (got %d)" % counts[0]) and ok
-		ok = _expect(counts[1] == 3,
-			"parallax Line2D count = 3 ridge trims (got %d)" % counts[1]) and ok
 		# Sky must still exist (background._ready ran in main._ready).
 		ok = _expect(background.sky_layer != null and background.sky_layer.layer == -20,
 			"sky CanvasLayer at layer -20") and ok

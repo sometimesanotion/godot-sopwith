@@ -1,39 +1,27 @@
 extends Node2D
 class_name Terrain
 
-# =============================================================================
-# Tuning constants — grouped at the top so human coders can tweak the world
-# without hunting through the synthesis code (same layout convention as
-# biplane.gd).  Each block is a coherent tuning surface.
-# =============================================================================
-
 # --- World layout ---
-const TERRAIN_LENGTH := 16384.0      # world wrap length; parallax period = this × scale
-const TERRAIN_LOW_BOUND := 3000.0    # y the ground polygon floor is extended to
-const SEGMENT_WIDTH := 32.0          # x-resolution of the terrain polyline
-const BASE_Y := 650.0                # reference ground altitude (runways sit exactly here)
+const TERRAIN_LENGTH := 16384.0
+const TERRAIN_LOW_BOUND := 3000.0
+const SEGMENT_WIDTH := 32.0
+const BASE_Y := 650.0
 
-# --- Runway (flatness / takeoff-corridor tuning) ---
-# The surface is held exactly at BASE_Y across [runway ± apron], then ramped
-# back to the natural terrain over RUNWAY_BLEND_WIDTH.  Widening RUNWAY_APRON
-# gives bases a bigger level mesa (planes take off/land without a wall);
-# narrowing it lets the terrain stay rugged closer to the strip.
-const RUNWAY_START := 5300.0         # player runway left edge
-const RUNWAY_LENGTH := 600.0         # 20% wider than the original 500 (T-runway)
-const RUNWAY_END := RUNWAY_START + RUNWAY_LENGTH   # 5900.0, derived so the
-												  # player runway stays = LENGTH
-const RUNWAY_APRON := 64.0           # flat BASE_Y mesa on each side of a runway
-									  # (was 320; shrunk 20% for less flattening)
-const RUNWAY_BLEND_WIDTH := 192.0     # amplitude ramp from apron edge to natural terrain
+# --- Runway ---
+const RUNWAY_START := 5300.0
+const RUNWAY_LENGTH := 600.0
+const RUNWAY_END := RUNWAY_START + RUNWAY_LENGTH
+const RUNWAY_APRON := 64.0
+const RUNWAY_BLEND_WIDTH := 192.0
 
 # --- Terrain synthesis (D4 multi-frequency noise) ---
-const MACRO_FREQUENCY  := 0.0012      # sweeping plains ↔ mountains
-const MICRO_FREQUENCY  := 0.003       # M7: lowered from 0.008 → smoother, more majestic ridges
-const MACRO_AMPLITUDE  := 260.0       # peak macro relief (± this about BASE_Y)
-const MICRO_AMP_MIN    := 8.0         # M7: lowered from 12.0 to match the smoother micro freq
-const MICRO_AMP_MAX    := 45.0        # M7: lowered from 60.0 — softer mountain character
+const MACRO_FREQUENCY  := 0.0012
+const MICRO_FREQUENCY  := 0.003
+const MACRO_AMPLITUDE  := 260.0
+const MICRO_AMP_MIN    := 8.0
+const MICRO_AMP_MAX    := 45.0
 
-# --- Deterministic noise salts (keep stable for reproducible worlds) ---
+# --- Deterministic noise salts ---
 const _SALT_MACRO := 101
 const _SALT_MICRO := 102
 
@@ -44,14 +32,10 @@ var ground_points: PackedVector2Array = []
 var terrain_body: StaticBody2D
 var terrain_polygon: Polygon2D
 var terrain_polygons: Array[Polygon2D] = []
-var trim_lines: Array[Line2D] = []
 var runways: Array[Vector2] = []
 
 @export var ground_color: Color = Color(0.12, 0.35, 0.12)
 @export var runway_color: Color = Color(0.35, 0.35, 0.4)
-@export var trim_color: Color = Color(0.25, 0.48, 0.25)  # ≈ ground_color.lightened(0.15)
-
-const TRIM_WIDTH := 2.5
 
 func _ready() -> void:
 	runways.append(Vector2(RUNWAY_START, RUNWAY_END))
@@ -85,10 +69,7 @@ func _create_terrain() -> void:
 	terrain_polygon.color = ground_color
 	add_child(terrain_polygon)
 
-	# Tile the ground across three copies (offset by -TERRAIN_LENGTH, 0,
-	# +TERRAIN_LENGTH) so the world wraps seamlessly instead of cutting off at
-	# the map edges.  Only the central copy carries collision; the offsets are
-	# visual only.
+	# Three tiled copies for seamless world wrapping.
 	terrain_polygons = [terrain_polygon]
 	for offset in [-TERRAIN_LENGTH, TERRAIN_LENGTH]:
 		var copy := Polygon2D.new()
@@ -97,11 +78,9 @@ func _create_terrain() -> void:
 		add_child(copy)
 		terrain_polygons.append(copy)
 
-	_create_trim_lines()
-
 	_update_terrain_geometry()
 
-	# Diagnostic: verify terrain body and visual are aligned
+	# Diagnostic: verify terrain body and visual are aligned.
 	var terrain_min_y := INF
 	var terrain_max_y := -INF
 	for pt in ground_points:
@@ -139,30 +118,12 @@ func _update_terrain_geometry() -> void:
 	var poly_points := ground_points.duplicate()
 	poly_points.append(Vector2(TERRAIN_LENGTH, TERRAIN_LOW_BOUND))
 	poly_points.append(Vector2(0, TERRAIN_LOW_BOUND))
-	# The central copy drives the collision body; all copies (including the
-	# -TERRAIN_LENGTH / +TERRAIN_LENGTH visual offsets) share the same outline.
 	if terrain_body:
 		for child in terrain_body.get_children():
 			if child is CollisionPolygon2D:
 				child.polygon = poly_points
 	for poly in terrain_polygons:
 		poly.polygon = poly_points
-	# Trim lines follow the raw top surface (no floor points) on all three
-	# tiled copies so the crisp outline shadows the terrain across the seam.
-	for line in trim_lines:
-		line.points = ground_points
-
-func _create_trim_lines() -> void:
-	for offset in [-TERRAIN_LENGTH, 0.0, TERRAIN_LENGTH]:
-		var line := Line2D.new()
-		line.default_color = trim_color
-		line.width = TRIM_WIDTH
-		line.joint_mode = Line2D.LINE_JOINT_ROUND
-		line.begin_cap_mode = Line2D.LINE_CAP_ROUND
-		line.end_cap_mode = Line2D.LINE_CAP_ROUND
-		line.position.x = offset
-		add_child(line)            # after polygons → draws on top
-		trim_lines.append(line)
 
 func _create_runway_visual(start: float, end: float) -> void:
 	if SvgManager and SvgManager.has_sprite("runway"):
@@ -205,9 +166,8 @@ func _initialize_noise() -> void:
 	micro_noise = TerrainNoise.make_noise(
 		TerrainNoise.derive_seed(resolved_seed, _SALT_MICRO), MICRO_FREQUENCY, 4, 0.5)
 
-## Signed height: macro sweeps ±MACRO_AMPLITUDE; micro amplitude is scaled by
-## macro ruggedness so plains stay smooth and mountains get jagged.  y-down:
-## positive macro = mountain = smaller y.
+# Signed height: macro sweeps ±MACRO_AMPLITUDE; micro amplitude scales with
+# macro ruggedness so plains stay smooth and mountains get jagged.
 func _sample_height(x: float) -> float:
 	var macro := TerrainNoise.sample_periodic(macro_noise, x, TERRAIN_LENGTH)
 	var rugged := TerrainNoise.smoothstep01(macro * 0.5 + 0.5)
@@ -215,9 +175,7 @@ func _sample_height(x: float) -> float:
 	var micro := TerrainNoise.sample_periodic(micro_noise, x, TERRAIN_LENGTH)
 	return BASE_Y - macro * MACRO_AMPLITUDE - micro * micro_amp
 
-## 0.0 exactly on any runway span AND across its flat apron (T-base-elevation:
-## homebases sit on a level mesa so planes take off/land without an adjacent
-## wall); smoothstep ramp 0→1 over RUNWAY_BLEND_WIDTH outside the apron.
+# 0.0 on any runway span + apron; smoothsteps to 1 over RUNWAY_BLEND_WIDTH.
 func _runway_flatness(x: float) -> float:
 	var f := 1.0
 	for runway in runways:
@@ -242,12 +200,9 @@ func _generate_terrain() -> void:
 func get_ground_height_at(x: float) -> float:
 	if ground_points.size() < 2:
 		return BASE_Y
-	# Hard physics contract (D5): the runway surface is exactly BASE_Y across the
-	# entire span, regardless of sample-grid alignment.  Returning the exact value
-	# here keeps the collision clamp and every caller consistent with is_on_runway.
+	# Runway surface is exactly BASE_Y regardless of sample-grid alignment.
 	if is_on_runway(x):
 		return BASE_Y
-	# Wrap into [0, TERRAIN_LENGTH) so the query stays in range after a wrap.
 	x = fmod(x, TERRAIN_LENGTH)
 	if x < 0.0:
 		x += TERRAIN_LENGTH
@@ -282,4 +237,4 @@ func get_terrain_info_at(x: float) -> Dictionary:
 	}
 
 func get_visual_line() -> Line2D:
-	return trim_lines[0] if trim_lines.size() > 0 else null
+	return null
