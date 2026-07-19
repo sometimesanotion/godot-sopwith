@@ -3,16 +3,26 @@
 class_name ParallaxScenery
 
 # =============================================================================
-# Layer styling constants (M7 atmospheric perspective)
+# Layer styling constants — French-countryside / Alps palette (M7)
 # =============================================================================
 
-## Cobalt peak color — used for the mid-background mountain layer's
-## GradientTexture2D top stop and snow-cap trim.  Spec: Color(0.2, 0.3, 0.55).
-const COBALT_PEAK_COLOR := Color(0.2, 0.3, 0.55)
+## Layer 1 (farthest): the distant Alps.  Solid cobalt body — the deep,
+## regal blue that fades into the background haze.  Spec: Color(0.2, 0.35, 0.6).
+const COBALT_ALPS_COLOR := Color(0.2, 0.35, 0.6)
 
-## Lighter, hazier blue-grey base stop — fades the mountain's lower polygon
-## edge into the sky gradient (atmospheric perspective).
-const COBALT_BASE_COLOR := Color(0.55, 0.62, 0.72)
+## Layer 2 (mid): intermediate foothills gradient base — a faint aqua/mist
+## hue that blends into the horizon.
+const AQUA_MIST_COLOR := Color(0.78, 0.88, 0.90)
+
+## Layer 2 (mid): foothills gradient crest — a soft, atmospheric green.
+const SOFT_GREEN_COLOR := Color(0.42, 0.66, 0.50)
+
+## Layer 3 (nearest): foreground hills gradient base — a paler teal.
+const PALER_TEAL_COLOR := Color(0.62, 0.84, 0.82)
+
+## Layer 3 (nearest): foreground hills gradient crest — a rich, soft
+## countryside green that bridges to the player's real terrain.
+const COUNTRYSIDE_GREEN_COLOR := Color(0.30, 0.58, 0.40)
 
 ## Snow line threshold (y) for the cobalt mountain layer.  Ridge vertices
 ## above this (smaller y) receive a white snow-cap polygon.  Tuned so the
@@ -25,18 +35,18 @@ const DEFAULT_SNOW_LINE_Y := 530.0
 ## flight-ceiling cloud band.
 const FLIGHT_CEILING_PX := 2000.0
 
-## Vertical band height for the flight-ceiling clouds on the nearest
-## parallax layer.  200 m at 13 px/m = 2 600 px would extend below ground
-## in this coordinate system, so the band is clamped to a 400 px (~31 m)
-## strip that still gives a strong "ceiling" cue when the camera climbs.
-## The "200 m below ceiling" intent is preserved as the band's anchor at
-## FLIGHT_CEILING_PX (the band is positioned there, not below the ground).
-const CEILING_CLOUD_BAND_PX := 400.0
+## World-space pixels per meter (matches Biplane.pixels_per_meter).  Used to
+## convert the Layer 3 cloud band's lower altitude bound to world Y.
+const METERS_TO_PX := 13.0
 
-## Bias power for ceiling-cloud y distribution.  > 1 packs clouds toward
-## the ceiling (smaller y); < 1 spreads them toward the lower band edge.
-## 1.8 gives a heavy cluster in the upper stratosphere with a soft fade.
-const CEILING_CLOUD_BIAS_POWER := 1.8
+## Lower altitude bound of the Layer 3 cumulus band, in meters above ground.
+## Clouds stratify seamlessly from this altitude up to the flight-ceiling cap.
+const CLOUD_BAND_MIN_ALTITUDE_M := 600.0
+
+## World Y of the Layer 3 cloud band's top edge (600 m above ground).
+## World Y grows downward, so the *higher* altitude is the *smaller* y:
+##   650 - 600 * 13 = -7150.
+const LAYER3_CLOUD_TOP_Y := DEFAULT_GROUND_Y - CLOUD_BAND_MIN_ALTITUDE_M * METERS_TO_PX
 
 ## Default ground Y for converting ceiling altitude → world Y.  Mirrors
 ## Terrain.BASE_Y (650.0); kept local so this module stays node-free.
@@ -101,20 +111,27 @@ static func make_trim_line(ridge: PackedVector2Array, color: Color,
 	return line
 
 # =============================================================================
-# Cobalt mountain layer (Layer 2 — mid background)
+# Gradient-filled mountain layer (shared by Layers 2 & 3)
 # =============================================================================
 
-## Build a vertical GradientTexture2D for the cobalt mountain polygon.
-## The texture's TOP samples `peak_color` and the BOTTOM samples `base_color`,
-## which (after texture_offset/texture_scale remapping in the caller) places
-## the cobalt at the highest ridge vertices and the hazier blue-grey at the
-## mountain base.  fill_from/fill_to define a top-to-bottom linear fill so
-## the gradient interpolates smoothly along world-y.
-static func make_cobalt_gradient(peak_color: Color, base_color: Color,
+## Build a vertical GradientTexture2D: TOP samples `peak_color`, BOTTOM
+## samples `base_color`.  After the caller's texture_offset/texture_scale
+## remap, the peak color lands on the highest ridge vertices and the base
+## color on the mountain foot — i.e. atmospheric perspective on one polygon.
+## fill_from/fill_to define a top-to-bottom linear fill so the gradient
+## interpolates smoothly along world-y.
+static func make_vertical_gradient(peak_color: Color, base_color: Color,
 		width: int = 2, height: int = COBALT_GRADIENT_HEIGHT) -> GradientTexture2D:
 	var grad := Gradient.new()
-	grad.add_point(0.0, peak_color)
-	grad.add_point(1.0, base_color)
+	# M7 bug-fix: Gradient.new() ships with TWO default stops — black at
+	# offset 0 and WHITE at offset 1.  add_point() inserts *additional*
+	# stops, so the white stop survived at offset 1 and any out-of-range /
+	# boundary sample rendered stark white (the "white infill" artifact).
+	# Overwrite the default stops in place instead of adding new ones.
+	grad.set_color(0, peak_color)
+	grad.set_color(1, base_color)
+	grad.set_offset(0, 0.0)
+	grad.set_offset(1, 1.0)
 	var tex := GradientTexture2D.new()
 	tex.gradient = grad
 	tex.width = width
@@ -124,13 +141,14 @@ static func make_cobalt_gradient(peak_color: Color, base_color: Color,
 	tex.fill_to = Vector2(0.5, 1.0)     # bottom edge → offset 1 → base_color
 	return tex
 
-## Build the cobalt mountain polygon: ridge silhouette closed at `floor_y`,
-## filled by a vertical gradient (cobalt peak → blue-grey base) that maps
-## per-vertex world-y to the texture's vertical axis.  This produces
-## atmospheric perspective on a single Polygon2D — no per-vertex colors and
-## no shader needed.  `polygon.color` is set to white so the texture is
-## rendered unmodified; the texture's own alpha controls coverage.
-static func build_cobalt_mountain_polygon(ridge: PackedVector2Array, period: float,
+## Build a gradient-filled mountain polygon: ridge silhouette closed at
+## `floor_y`, filled by a vertical gradient (peak_color crest → base_color
+## foot) mapping per-vertex world-y onto the texture's vertical axis.
+## `polygon.color` is INTENTIONALLY white (1,1,1,1): for a *textured*
+## Polygon2D the vertex color modulates the texture, so white = "render the
+## texture unmodified".  This is NOT the white-infill bug — that bug lived in
+## the Gradient's leftover default white *stop*, fixed in make_vertical_gradient.
+static func build_gradient_mountain_polygon(ridge: PackedVector2Array, period: float,
 		floor_y: float, peak_color: Color, base_color: Color) -> Polygon2D:
 	var poly := Polygon2D.new()
 	var pts := ridge.duplicate()
@@ -142,21 +160,30 @@ static func build_cobalt_mountain_polygon(ridge: PackedVector2Array, period: flo
 	pts.append(Vector2(end_x, floor_y))
 	pts.append(Vector2(0.0, floor_y))
 	poly.polygon = pts
-	poly.color = Color(1.0, 1.0, 1.0, 1.0)   # texture provides the color
+	poly.color = Color(1.0, 1.0, 1.0, 1.0)   # texture provides the color (intended)
 	# Find the highest peak (smallest y) for the texture remap anchor.
 	var peak_y: float = INF
 	for pt in ridge:
 		peak_y = minf(peak_y, pt.y)
-	if peak_y >= floor_y:
-		peak_y = floor_y - 1.0  # degenerate: no relief, just return as-is
-	var tex := make_cobalt_gradient(peak_color, base_color)
+	# Exact bounding delta between the highest ridge vertex and the closure
+	# floor.  Guard against degenerate relief so the scale never divides by
+	# (or multiplies into) zero.
+	var height_delta := floor_y - peak_y
+	if height_delta < 1.0:
+		height_delta = 1.0
+		peak_y = floor_y - height_delta
+	var tex := make_vertical_gradient(peak_color, base_color)
 	poly.texture = tex
+	# Trap the gradient inside the polygon bounds: never tile, never sample
+	# past the edge stops (edge sampling was the second white-infill source).
+	poly.texture_repeat = CanvasItem.TEXTURE_REPEAT_DISABLED
 	# UV mapping: polygon y=peak_y → texture y=0 (peak_color);
 	#             polygon y=floor_y → texture y=COBALT_GRADIENT_HEIGHT (base_color).
-	# Polygon2D uses `uv = (local_pos - texture_offset) / texture_scale`.
+	# Polygon2D uses `uv = (local_pos - texture_offset) / texture_scale`, so
+	# scale.y = height_delta / COBALT_GRADIENT_HEIGHT maps local pixels →
+	# texture rows exactly, with no division overrun.
 	poly.texture_offset = Vector2(0.0, peak_y)
-	poly.texture_scale = Vector2(1.0,
-			(floor_y - peak_y) / float(COBALT_GRADIENT_HEIGHT))
+	poly.texture_scale = Vector2(1.0, height_delta / float(COBALT_GRADIENT_HEIGHT))
 	return poly
 
 ## Build the snow-cap overlay polygons for the cobalt mountain layer.
@@ -199,45 +226,91 @@ static func _close_snow_run(run: PackedVector2Array, snow_line_y: float,
 	return poly
 
 # =============================================================================
-# Flight-ceiling clouds (Layer 3 — nearest parallax)
+# Cloud geometry helpers (M7 cumulus profile)
 # =============================================================================
 
-## Build a layer of distinct, semi-transparent white puffy clouds clustered
-## heavily in the upper stratosphere.  Each cluster is 4–8 overlapping
-## rounded ellipse puffs (16-vertex polygons) sized like small cumulus
-## humps, biased toward `ceiling_y` (low y) so the densest concentration
-## sits just below the player's maximum altitude.  The band is anchored at
-## `ceiling_y` (= DEFAULT_GROUND_Y - FLIGHT_CEILING_PX by default) and
-## extends downward by `band_px`.  All clusters stay within the mirror
-## period and wrap seamlessly with the rest of the parallax.
-static func build_ceiling_clouds(seed: int, period: float, ceiling_y: float,
-		band_px: float, count: int, alpha: float) -> Array[Polygon2D]:
+## Stylized cumulus puff outline: the TOP half (sin(a) < 0 — smaller y is up
+## in world space) keeps the full round arc so overlapping puffs stack into
+## heavy, billowing crowns, while the BOTTOM half is compressed by
+## `bottom_flatten` (0.0 = perfectly flat base, 1.0 = full ellipse).  The
+## result is the classic flat-bottomed / dome-topped cumulus silhouette.
+static func _cumulus_puff_verts(center: Vector2, rx: float, ry: float,
+		vert_count: int, bottom_flatten: float) -> PackedVector2Array:
+	var verts := PackedVector2Array()
+	for k in range(vert_count):
+		var a := TAU * k / float(vert_count)
+		var sy := sin(a)
+		var vert_scale := 1.0 if sy < 0.0 else bottom_flatten
+		verts.append(center + Vector2(cos(a) * rx, sy * ry * vert_scale))
+	return verts
+
+# =============================================================================
+# Flight-band cumulus (Layer 3 — nearest parallax)
+# =============================================================================
+
+## Build massive, translucent cumulus distributed seamlessly through the
+## whole flight band: vertically from `band_top_y` (600 m above ground,
+## LAYER3_CLOUD_TOP_Y) down to `band_bottom_y` (the flight-ceiling cap,
+## DEFAULT_GROUND_Y - FLIGHT_CEILING_PX).  Distribution is uniform — no
+## thin ceiling strip.  Each cluster is 4–8 overlapping flat-bottomed
+## cumulus puffs at doubled baseline radii (rx 110–260) so they read as
+## distinct, massive air masses; per-puff alpha stays in the delicate
+## [alpha_min, alpha_max] ≈ [0.1, 0.2] band so the layer reads as light,
+## translucent vector air.  All clusters are inset from the period seam so
+## mirroring wraps without artifacts.
+static func build_ceiling_clouds(seed: int, period: float, band_top_y: float,
+		band_bottom_y: float, count: int, alpha_min: float,
+		alpha_max: float) -> Array[Polygon2D]:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed
 	var clouds: Array[Polygon2D] = []
-	# Puff reach: max radius × cluster spread + one max radius.  Same math as
-	# the cumulus builder so clusters never cross the period seam.
-	var reach := 130.0 * 1.4 + 130.0
+	# Seam reach with the doubled radii: max rx (260) × cluster spread (1.4)
+	# + one max rx — clusters never cross the mirror-period boundary.
+	var reach := 260.0 * 1.4 + 260.0
 	for i in range(count):
 		var cx := reach + rng.randf() * (period - 2.0 * reach)
-		# Bias toward the ceiling: t = u^power, u ~ U(0,1), power > 1 packs
-		# mass near t=0 (the ceiling).  Result: cy near ceiling_y, with a
-		# soft tail into the lower stratosphere.
-		var t := pow(rng.randf(), CEILING_CLOUD_BIAS_POWER)
-		var cy := ceiling_y + t * band_px
+		# Uniform stratification across the whole flight band.
+		var cy := rng.randf_range(band_top_y, band_bottom_y)
 		var puffs := rng.randi_range(4, 8)
 		for j in range(puffs):
 			var puff := Polygon2D.new()
-			var rx := rng.randf_range(55.0, 130.0)
-			var ry := rx * rng.randf_range(0.5, 0.7)        # rounder, puffier
+			var rx := rng.randf_range(110.0, 260.0)       # 2× the old 55–130
+			var ry := rx * rng.randf_range(0.5, 0.7)      # rounder crowns
 			var center := Vector2(cx + rng.randf_range(-rx, rx) * 1.4,
-								  cy + rng.randf_range(-15.0, 15.0))
-			var verts := PackedVector2Array()
-			for k in range(16):
-				var a := TAU * k / 16.0
-				verts.append(center + Vector2(cos(a) * rx, sin(a) * ry))
-			puff.polygon = verts
-			puff.color = Color(1.0, 1.0, 1.0, alpha * rng.randf_range(0.7, 1.0))
+								  cy + rng.randf_range(-0.35, 0.35) * ry)
+			puff.polygon = _cumulus_puff_verts(center, rx, ry, 16, 0.3)
+			puff.color = Color(1.0, 1.0, 1.0, rng.randf_range(alpha_min, alpha_max))
+			clouds.append(puff)
+	return clouds
+
+# =============================================================================
+# Stratum clouds (Layer 2 — mid parallax)
+# =============================================================================
+
+## Mid-tier stratum: a crisp midpoint between Layer 1's ultra-thin cirrus
+## streaks and Layer 3's massive cumulus hills.  Medium vertical thickness
+## (ry ≈ 0.35–0.5 · rx), gently rounded tops over flat bases (same cumulus
+## profile, less extreme), sprinkled through the middle air corridors
+## (cy_min–cy_max) at a low alpha (≈ 0.15).  Seam-safe reach inset as usual.
+static func build_stratum_clouds(seed: int, period: float, count: int,
+		alpha: float, cy_min: float, cy_max: float) -> Array[Polygon2D]:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var clouds: Array[Polygon2D] = []
+	# Reach: max rx (200) × spread (1.2) + one max rx.
+	var reach := 200.0 * 1.2 + 200.0
+	for i in range(count):
+		var cx := reach + rng.randf() * (period - 2.0 * reach)
+		var cy := rng.randf_range(cy_min, cy_max)
+		var puffs := rng.randi_range(2, 4)
+		for j in range(puffs):
+			var puff := Polygon2D.new()
+			var rx := rng.randf_range(120.0, 200.0)
+			var ry := rx * rng.randf_range(0.35, 0.5)      # medium thickness
+			var center := Vector2(cx + rng.randf_range(-rx, rx) * 1.2,
+								  cy + rng.randf_range(-0.25, 0.25) * ry)
+			puff.polygon = _cumulus_puff_verts(center, rx, ry, 14, 0.4)
+			puff.color = Color(1.0, 1.0, 1.0, alpha * rng.randf_range(0.8, 1.0))
 			clouds.append(puff)
 	return clouds
 
@@ -265,11 +338,7 @@ static func build_cumulus_clouds(seed: int, period: float, count: int,
 			var ry := rx * rng.randf_range(0.45, 0.65)        # rounder = puffier
 			var center := Vector2(cx + rng.randf_range(-rx, rx) * 1.6,
 								  cy + rng.randf_range(-18.0, 18.0))
-			var verts := PackedVector2Array()
-			for k in range(14):
-				var a := TAU * k / 14.0
-				verts.append(center + Vector2(cos(a) * rx, sin(a) * ry))
-			puff.polygon = verts
+			puff.polygon = _cumulus_puff_verts(center, rx, ry, 14, 0.35)
 			puff.color = Color(1.0, 1.0, 1.0, alpha * rng.randf_range(0.8, 1.0))
 			clouds.append(puff)
 	return clouds
