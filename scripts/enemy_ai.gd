@@ -122,8 +122,8 @@ const IMPACT_ALT_MARGIN              := 30.0
 # maximum wrapped separation (TERRAIN_LENGTH/2 = 8192) so any alive target is
 # engageable; the territory gate still restricts *airborne* targets to the
 # enemy's own side, while a grounded player is a valid target anywhere.
-const DETECTION_RANGE       := 20000.0
-const ENGAGEMENT_RANGE      := 6000.0
+const DETECTION_RANGE       := 10000.0
+const ENGAGEMENT_RANGE      := 8000.0
 const MAX_FIRE_RANGE        := 700.0
 const MIN_FIRE_RANGE        := 30.0
 const FIRE_CONE_ANGLE       := 0.42
