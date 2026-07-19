@@ -201,6 +201,11 @@ const TAKEOFF_BUILD_SPEED  := 90.0
 const TAKEOFF_ROTATE_SPEED := 120.0
 const TAKEOFF_PITCH        := -0.05
 const TAKEOFF_CLIMB_PITCH  := -0.10
+# Below this AGL the climb tilt is capped to 90% of the plane's max landing
+# tilt (see _takeoff_pitch) so AI pilots don't loop themselves into a crash
+# during the initial climb-out.  Covers the whole takeoff (the state hands off
+# to patrolling above PATROL_ALTITUDE).
+const TAKEOFF_TILT_LIMIT_ALT := 250.0
 
 # Bombing
 const GROUND_ATTACK_ALTITUDE    := 300.0
@@ -595,14 +600,30 @@ func _takeoff_pitch(avatar) -> float:
 	# raw m/s stall value.
 	var alt = _get_altitude_above_ground()
 	var rotate_speed_px: float = stall_speed * ppm * 2.0
+	var command: float
 	if speed < rotate_speed_px:
-		return clampf(-0.03 * (speed / rotate_speed_px), -0.03, 0.0)
+		command = clampf(-0.03 * (speed / rotate_speed_px), -0.03, 0.0)
 	elif alt < 100.0:
-		return -0.05
+		command = -0.05
 	elif alt < 200.0:
-		return -0.08
+		command = -0.08
 	else:
-		return TAKEOFF_CLIMB_PITCH
+		command = TAKEOFF_CLIMB_PITCH
+
+	# Near the ground, keep the nose-up tilt within 90% of the plane's max
+	# landing tilt so AI pilots can't pitch themselves into a crash on the
+	# initial climb.  gravity_pitch() is negative for nose-up; the limiter
+	# eases the climb command toward zero as the tilt nears the cap (soft, so
+	# it asymptotes to the limit instead of slamming the airframe into it).
+	if alt < TAKEOFF_TILT_LIMIT_ALT and command < 0.0 and avatar:
+		var max_tilt_rad := deg_to_rad(avatar.max_landing_tilt * 0.8)
+		var climb_tilt := maxf(0.0, -avatar.gravity_pitch())
+		var headroom := max_tilt_rad - climb_tilt
+		if headroom <= 0.0:
+			command = 0.0
+		else:
+			command = command * clampf(headroom / max_tilt_rad, 0.0, 1.0)
+	return command
 
 ## Patrolling aim point.  Sweeps the full patrol zone between its two
 ## territory edges (home_base_x ± patrol_range/2, see _setup_territory) and

@@ -11,13 +11,15 @@ const BASE_Y := 650.0
 const RUNWAY_START := 5300.0
 const RUNWAY_LENGTH := 700.0
 const RUNWAY_END := RUNWAY_START + RUNWAY_LENGTH
-const RUNWAY_APRON := 50.0
-# Blend width: the off-runway transition ramps from the runway's own elevation
-# to the surrounding terrain over this distance (D5).  Because every runway is
-# seated exactly on the smooth base-elevation sweep (see _base_elevation), the
-# step at the apron edge is only the HILLS/MICRO texture, so this width just
-# controls how gradually local hills rise from each base — not cliff avoidance.
+const RUNWAY_APRON := 320.0
+# Flat mesa half-width on each side of a runway.  Every homebase sits on a flat
+# strip (runway span + 2*apron) so planes take off and land without meeting a
+# cliff.  Between mesas the terrain ramps smoothly (smoothstep, zero slope at
+# both ends) from one base elevation to the next — this is what removes the
+# mesa/ravine cliffs the old linear blend produced.
 const RUNWAY_BLEND_WIDTH := 350.0
+# Width over which the HILLS texture ramps from 0 (on the mesa) back to full
+# amplitude out in the connecting terrain between bases.
 
 # --- Terrain synthesis (D4 multi-frequency noise) ---
 # Three independent layers shape the height:
@@ -25,14 +27,20 @@ const RUNWAY_BLEND_WIDTH := 350.0
 #     become that base's elevation, and a smooth curve (straight/cosine slopes)
 #     is interpolated THROUGH those per-homebase heights.  This makes the
 #     terrain sweep continuously between bases with no cliffs, and every
-#     runway sits exactly on the landscape.  Dominant term near homebases.
+#     runway sits exactly on the landscape.  Dominant term near homebases — it
+#     is the ONLY knob controlling how far apart homebases sit on the Y axis,
+#     so a wide amplitude is what gives the world its large-scale ruggedness.
 #   * HILLS  — a medium-frequency noise adding the local valleys/hills texture
 #     on top of the region sweep (flattened near runways by the blend).
 #   * MICRO  — tiny bumps only.
 const REGION_FREQUENCY := 0.00035
-const REGION_AMPLITUDE := 300.0
+const REGION_AMPLITUDE := 400.0
+# Keep seated runways inside a playable vertical band (well clear of the top
+# edge and of TERRAIN_LOW_BOUND) while still allowing a wide Y spread.
+const RUNWAY_MIN_Y := 200.0
+const RUNWAY_MAX_Y := 1000.0
 const HILLS_FREQUENCY  := 0.0012
-const HILLS_AMPLITUDE  := 240.0
+const HILLS_AMPLITUDE  := 300.0
 const MICRO_FREQUENCY  := 0.003
 const MICRO_AMP_MIN    := 4.0
 const MICRO_AMP_MAX    := 22.0
@@ -47,7 +55,6 @@ var hills_noise: FastNoiseLite
 var micro_noise: FastNoiseLite
 var resolved_seed: int = 0
 # Per-homebase (x, height) control points the base-elevation sweep is built from.
-var base_controls: Array[Vector2] = []
 var ground_points: PackedVector2Array = []
 var terrain_body: StaticBody2D
 var terrain_polygon: Polygon2D
@@ -207,92 +214,121 @@ func _initialize_noise() -> void:
 	micro_noise = TerrainNoise.make_noise(
 		TerrainNoise.derive_seed(resolved_seed, _SALT_MICRO), MICRO_FREQUENCY, 4, 0.5)
 
-# Seat every runway on the smooth region noise at its centre and rebuild the
-# base-elevation control points (one per runway, sorted by x).  Called from
-# _generate_terrain so heights are always fresh, even if runways were
-# registered after the initial noise setup or generate() is re-run.
+# Seat every runway on the region noise at its centre so each homebase sits at
+# its own elevation.  Called from _generate_terrain so heights are always fresh,
+# even if runways were registered after the initial noise setup or generate()
+# is re-run.
 func _seat_runways() -> void:
-	base_controls.clear()
-	var pts: Array[Vector2] = []
+	if not region_noise:
+		return
 	for rw in runways:
 		var center := (rw.start + rw.end) * 0.5
-		rw.height = BASE_Y \
+		var h := BASE_Y \
 			- TerrainNoise.sample_periodic(region_noise, center, TERRAIN_LENGTH) * REGION_AMPLITUDE
-		pts.append(Vector2(center, rw.height))
-	pts.sort_custom(func(a: Vector2, b: Vector2) -> bool: return a.x < b.x)
-	base_controls = pts
+		rw.height = clampf(h, RUNWAY_MIN_Y, RUNWAY_MAX_Y)
 
-# Smooth (cosine) sweep THROUGH the per-homebase control points, periodic over
-# the map (wraps between the last and first base).  This is what guarantees the
-# terrain connects every homebase height with gentle, cliff-free slopes.
+# --- Wrap-safe periodic interval helpers (all coordinates modulo the map) ---
+func _in_forward_interval(x: float, start: float, end: float) -> bool:
+	var l := fposmod(start, TERRAIN_LENGTH)
+	var r := fposmod(end, TERRAIN_LENGTH)
+	if l <= r:
+		return x >= l and x <= r
+	return x >= l or x <= r
+
+func _forward_fraction(x: float, start: float, end: float) -> float:
+	var l := fposmod(start, TERRAIN_LENGTH)
+	var r := fposmod(end, TERRAIN_LENGTH)
+	var span := r - l
+	if span <= 0.0:
+		span += TERRAIN_LENGTH
+	var xx := fposmod(x, TERRAIN_LENGTH)
+	if xx < l:
+		xx += TERRAIN_LENGTH
+	return (xx - l) / span
+
+func _distance_to_interval(x: float, start: float, end: float) -> float:
+	if _in_forward_interval(x, start, end):
+		return 0.0
+	var l := fposmod(start, TERRAIN_LENGTH)
+	var r := fposmod(end, TERRAIN_LENGTH)
+	var xx := fposmod(x, TERRAIN_LENGTH)
+	var d_start := l - xx
+	if d_start <= 0.0:
+		d_start += TERRAIN_LENGTH
+	var d_end := xx - r
+	if d_end <= 0.0:
+		d_end += TERRAIN_LENGTH
+	return minf(d_start, d_end)
+
+# Base elevation: a flat mesa at each runway's height across [start-apron,
+# end+apron], joined to the neighbouring bases by a smoothstep ramp (zero slope
+# at the mesa edges, so no cliffs).  Periodic: the last base ramps back to the
+# first across the x = 0 wrap seam.  With a single runway the whole map is the
+# base elevation (hills are layered on separately, see _generate_terrain).
 func _base_elevation(x: float) -> float:
-	var n := base_controls.size()
+	var n := runways.size()
 	if n == 0:
 		return BASE_Y
 	if n == 1:
-		return base_controls[0].y
+		return runways[0].height
+	var sorted := runways.duplicate()
+	sorted.sort_custom(func(a: Runway, b: Runway) -> bool: return a.start < b.start)
 	x = fposmod(x, TERRAIN_LENGTH)
+	for rw in sorted:
+		var l := fposmod(rw.start - RUNWAY_APRON, TERRAIN_LENGTH)
+		var r := fposmod(rw.end + RUNWAY_APRON, TERRAIN_LENGTH)
+		if _in_forward_interval(x, l, r):
+			return rw.height
 	for i in range(n):
-		var a := base_controls[i]
-		var b := base_controls[(i + 1) % n]
-		var bx := b.x
-		if bx <= a.x:
-			bx += TERRAIN_LENGTH
-		var xx := x
-		if xx < a.x:
-			xx += TERRAIN_LENGTH
-		if xx >= a.x and xx <= bx:
-			var t := (xx - a.x) / (bx - a.x)
+		var a: Runway = sorted[i]
+		var b: Runway = sorted[(i + 1) % n]
+		var ar := fposmod(a.end + RUNWAY_APRON, TERRAIN_LENGTH)
+		var bl := fposmod(b.start - RUNWAY_APRON, TERRAIN_LENGTH)
+		if ar <= bl and _in_forward_interval(x, ar, bl):
+			var t := _forward_fraction(x, ar, bl)
 			t = t * t * (3.0 - 2.0 * t)   # smoothstep for C1 continuity
-			return lerpf(a.y, b.y, t)
-	return base_controls[0].y
+			return lerpf(a.height, b.height, t)
+	return sorted[0].height
 
-# Signed height = smooth base sweep (homebase-aligned) + hills + micro bumps.
-# The base sweep passes exactly through every runway's height, so the terrain
-# is flat at each base and slopes smoothly between them.
-func _sample_height(x: float) -> float:
-	var hills := TerrainNoise.sample_periodic(hills_noise, x, TERRAIN_LENGTH)
-	var rugged := TerrainNoise.smoothstep01(hills * 0.5 + 0.5)
-	var micro_amp := lerpf(MICRO_AMP_MIN, MICRO_AMP_MAX, rugged)
-	var micro := TerrainNoise.sample_periodic(micro_noise, x, TERRAIN_LENGTH)
-	return _base_elevation(x) + hills * HILLS_AMPLITUDE - micro * micro_amp
-
-# 0.0 on any runway span + apron; smoothsteps to 1 over RUNWAY_BLEND_WIDTH.
-func _runway_flatness(x: float) -> float:
-	var f := 1.0
-	for runway in runways:
-		var a := runway.start - RUNWAY_APRON
-		var b := runway.end + RUNWAY_APRON
-		if x >= a and x <= b:
-			return 0.0
-		var d := minf(absf(x - a), absf(x - b))
-		f = minf(f, d / RUNWAY_BLEND_WIDTH)
-	return TerrainNoise.smoothstep01(f)
-
-# The flat elevation of the runway whose flat/blend region contains x, or
-# BASE_Y when x is fully off-runway (only used while flatness == 0 anyway).
-func _runway_height(x: float) -> float:
-	for runway in runways:
-		if x >= runway.start - RUNWAY_APRON and x <= runway.end + RUNWAY_APRON:
-			return runway.height
-	return BASE_Y
+# 0 on any runway mesa, ramping to 1 over RUNWAY_BLEND_WIDTH out into the
+# connecting terrain.  Suppresses the HILLS texture right at bases so mesa edges
+# never drop into a ravine.
+func _hills_factor(x: float) -> float:
+	var n := runways.size()
+	if n == 0:
+		return 1.0
+	var sorted := runways.duplicate()
+	sorted.sort_custom(func(a: Runway, b: Runway) -> bool: return a.start < b.start)
+	var best := 1.0
+	for rw in sorted:
+		var l := fposmod(rw.start - RUNWAY_APRON, TERRAIN_LENGTH)
+		var r := fposmod(rw.end + RUNWAY_APRON, TERRAIN_LENGTH)
+		var d := _distance_to_interval(x, l, r)
+		best = minf(best, TerrainNoise.smoothstep01(d / RUNWAY_BLEND_WIDTH))
+	return best
 
 func _generate_terrain() -> void:
-	# (Re)seat every runway on the region noise and rebuild the base sweep so
-	# heights are always correct even if runways were added after the initial
-	# noise setup or generate() is re-run.
+	# (Re)seat every runway on the region noise so heights are always correct
+	# even if runways were added after the initial noise setup or generate()
+	# is re-run.
 	if region_noise:
 		_seat_runways()
 	ground_points.clear()
 	var num_segments := int(TERRAIN_LENGTH / SEGMENT_WIDTH)
 	for i in range(num_segments + 1):
 		var x := i * SEGMENT_WIDTH
-		var flatness := _runway_flatness(x)
-		var rw_height := _runway_height(x)
-		# On the runway the surface is flat at this base's specific elevation;
-		# off it, blended toward the surrounding terrain (base sweep + hills).
-		var y := rw_height if flatness == 0.0 \
-			else lerpf(rw_height, _sample_height(x), flatness)
+		# Flat mesa at each base: _base_elevation() is the constant runway
+		# height across [start-apron, end+apron] (zero slope, exactly matching
+		# the runway), and _hills_factor() is 0 there too — so BOTH the hills
+		# and the micro texture are fully suppressed on the apron, giving it
+		# strictly zero slope relative to the runway.  Both ramp back in
+		# (smoothstep) over RUNWAY_BLEND_WIDTH beyond the apron edge.
+		var hf := _hills_factor(x)
+		var hills := TerrainNoise.sample_periodic(hills_noise, x, TERRAIN_LENGTH)
+		var rugged := TerrainNoise.smoothstep01(hills * 0.5 + 0.5)
+		var micro_amp := lerpf(MICRO_AMP_MIN, MICRO_AMP_MAX, rugged)
+		var micro := TerrainNoise.sample_periodic(micro_noise, x, TERRAIN_LENGTH)
+		var y := _base_elevation(x) + (hills * HILLS_AMPLITUDE - micro * micro_amp) * hf
 		ground_points.append(Vector2(x, y))
 
 func get_ground_height_at(x: float) -> float:
