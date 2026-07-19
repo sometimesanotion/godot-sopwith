@@ -434,6 +434,57 @@ class AvatarData:
 	var flip_progress:  float = 0.0
 	var flip_direction: int   = 0   ## 1 = upright→inverted, -1 = inverted→upright
 
+	## ── Attitude frame helpers ───────────────────────────────────────────
+	## One small API hides every is_barrel_rolled / left-vs-right branch.
+	## The GRAVITY FRAME measures pitch against the horizon: 0 = level,
+	## positive = nose-down toward the ground, negative = nose-up toward the
+	## sky — IDENTICAL for a level plane flying leftward inverted and one
+	## flying rightward upright.  Pitch commands share that convention
+	## (negative = climb, positive = dive — the same one the AI takeoff
+	## outputs use), so behaviour code never re-checks is_barrel_rolled; the
+	## single conversion back into the rotation frame happens in
+	## pitch_command_to_rotation_input().
+
+	## +1.0 when the nose points rightward, -1.0 when leftward (inverted).
+	func travel_sign() -> float:
+		return -1.0 if is_barrel_rolled else 1.0
+
+	## World rotation (rad) of perfectly level flight along the travel direction.
+	func level_rotation() -> float:
+		return PI if is_barrel_rolled else 0.0
+
+	## Current pitch relative to gravity: 0 = level, positive = nose down,
+	## negative = nose up — same reading for the same attitude in either
+	## travel direction.
+	func gravity_pitch() -> float:
+		return travel_sign() * wrapf(pitch_angle - level_rotation(), -PI, PI)
+
+	## Pitch rate in the gravity frame (positive = rotating toward the ground).
+	func gravity_pitch_rate() -> float:
+		return travel_sign() * angular_velocity
+
+	## Convert a world-space heading angle (Vector2.angle() convention) into
+	## the gravity frame so it can be compared with gravity_pitch()
+	## regardless of travel direction.
+	func gravity_angle(heading: float) -> float:
+		return travel_sign() * wrapf(heading - level_rotation(), -PI, PI)
+
+	## Inverse of gravity_angle(): gravity-relative pitch → world heading angle.
+	func world_angle(gravity_pitch_angle: float) -> float:
+		return level_rotation() + travel_sign() * gravity_pitch_angle
+
+	## Convert a gravity-frame pitch command (negative = climb, positive =
+	## dive) into the rotation-frame control input.  THE one place the
+	## is_barrel_rolled sign flip happens: AI and player code always command
+	## in the gravity frame; only the integrator consumes this.
+	func pitch_command_to_rotation_input(pitch_cmd: float) -> float:
+		return travel_sign() * pitch_cmd
+
+	## True when a world rotation aims the nose leftward — the canonical
+	## derivation of is_barrel_rolled from a spawn/teleport rotation.
+	static func rotation_is_leftward(rot: float) -> bool:
+		return absf(wrapf(rot, -PI, PI)) > PI / 2.0
+
 	# Control flags
 	var has_hit_ground:    bool = false
 	var crash_processed:    bool = false
@@ -795,8 +846,8 @@ func _draw_ai_debug_lines(avatar: AvatarData) -> void:
 	var pitch_input: float = pilot.last_pitch_input as float
 	var pitch_len := absf(pitch_input) * MAX_LEN * 0.6
 	if pitch_len > 5.0:
-		# Pitch input is relative to the plane's forward axis.
-		# Positive pitch = nose down (rotate CW), negative = nose up (rotate CCW).
+		# Pitch input is gravity-relative (the AI command convention):
+		# positive = dive toward the ground, negative = climb toward the sky.
 		var pitch_angle: float = pitch_input * 0.5  # scale for visibility
 		var pitch_dir := heading_dir.rotated(pitch_angle)
 		var pitch_local := to_local(global_position + pitch_dir * pitch_len)
@@ -896,8 +947,9 @@ func _get_ground_contact(avatar: AvatarData) -> GroundContact:
 	gc.ground_normal = Vector2(-sin(gc.slope_angle), -cos(gc.slope_angle))
 
 	## Tilt: how far the plane heading deviates from lying flat on the slope.
-	var inv_offset := PI if avatar.is_barrel_rolled else 0.0
-	var eff_pitch  := avatar.pitch_angle + inv_offset
+	## level_rotation() folds the inverted (leftward) 180° offset into the
+	## comparison so tilt reads identically in either travel direction.
+	var eff_pitch  := avatar.pitch_angle + avatar.level_rotation()
 	var rel_angle  := fposmod(eff_pitch - gc.slope_angle + PI, TAU) - PI
 	gc.tilt_angle  = abs(rel_angle)
 
@@ -961,7 +1013,7 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 		var avatar := get_avatar_data(0)
 		if avatar:
 			avatar.pitch_angle = _teleport_rotation
-			avatar.is_barrel_rolled = absf(_teleport_rotation) > PI / 2.0
+			avatar.is_barrel_rolled = AvatarData.rotation_is_leftward(_teleport_rotation)
 			rotation = _teleport_rotation
 			DLog.info("teleport", {
 				"pre_angvel": snapped(pre_av, 4),
@@ -1334,13 +1386,15 @@ func _handle_input(avatar: AvatarData, delta: float) -> void:
 	if not is_player_controlled:
 		return
 
+	# Player pitch commands are gravity-relative: pull_up = climb (negative),
+	# pull_down = dive (positive).  Convert once into the rotation frame so an
+	# inverted (leftward) plane rotates the correct way.
 	var pitch_input := 0.0
 	if Input.is_action_pressed("pull_up"):
 		pitch_input = -1.0
 	elif Input.is_action_pressed("pull_down"):
 		pitch_input = 1.0
-	if avatar.is_barrel_rolled:
-		pitch_input = -pitch_input
+	pitch_input = avatar.pitch_command_to_rotation_input(pitch_input)
 	pitch_input *= avatar.control_effectiveness
 
 	if not avatar.engine_cutoff:
@@ -1382,9 +1436,14 @@ func set_ai_input(pitch: float, throttle_amount: float) -> void:
 			continue
 		avatar.throttle_target = clampf(throttle_amount, min_throttle, max_throttle)
 		avatar.throttle = move_toward(avatar.throttle, avatar.throttle_target, 5.0 * dt)
-		var input_pitch: float = pitch * avatar.control_effectiveness
-		if avatar.is_barrel_rolled:
-			input_pitch = -input_pitch
+		# `pitch` arrives gravity-relative (negative = climb, positive = dive —
+		# the takeoff convention).  pitch_command_to_rotation_input() is the ONE
+		# is_barrel_rolled sign flip, converting it into the rotation frame so a
+		# leftward/inverted plane rotates toward the commanded attitude instead
+		# of away from it.  Callers must NOT pre-flip the command (that
+		# double-flip previously made leftward AI planes pitch into the ground).
+		var input_pitch: float = avatar.pitch_command_to_rotation_input(
+			pitch * avatar.control_effectiveness)
 		var model_params = avatar.model_params
 		var eff_rot_speed: float = model_params.get("rotation_speed", 5.0) * (1.0 - avatar.damage.damage_percent * 0.4)
 		var pre_av := avatar.angular_velocity
@@ -1574,11 +1633,9 @@ func fire_gun(avatar: AvatarData) -> void:
 	if GameManager and is_player_controlled:
 		GameManager.ammo_changed.emit(avatar.id, avatar.ammo)
 
-	var inv: bool = avatar.is_barrel_rolled
 	var model_params = avatar.model_params
 	var base_offset: Vector2 = avatar.bullet_spawn_offset
-	if inv:
-		base_offset.y *= -1
+	base_offset.y *= avatar.travel_sign()   # flip the gun offset when inverted
 	var spawn_off: Vector2 = base_offset.rotated(avatar.pitch_angle)
 	var spawn_pos: Vector2 = global_position + spawn_off
 	var direction: Vector2 = Vector2(cos(avatar.pitch_angle), sin(avatar.pitch_angle))
@@ -1608,11 +1665,9 @@ func drop_bomb(avatar: AvatarData) -> void:
 	if GameManager and is_player_controlled:
 		GameManager.bombs_changed.emit(avatar.id, avatar.bombs)
 
-	var inv: bool = avatar.is_barrel_rolled
 	var model_params = avatar.model_params
 	var base_offset: Vector2 = avatar.bomb_spawn_offset
-	if inv:
-		base_offset.y *= -1
+	base_offset.y *= avatar.travel_sign()   # flip the bomb offset when inverted
 	var spawn_off: Vector2 = base_offset.rotated(avatar.pitch_angle)
 	var spawn_pos: Vector2 = global_position + spawn_off
 
@@ -1941,7 +1996,7 @@ func _update_ground_ray(avatar: AvatarData) -> void:
 	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
 	if ground_ray:
 		var base_offset: float = 26.0
-		ground_ray.target_position = Vector2(0, -base_offset if avatar.is_barrel_rolled else base_offset)
+		ground_ray.target_position = Vector2(0, base_offset * avatar.travel_sign())
 
 ## Derive a normalised impact intensity + effect energy from the plane's speed
 ## at the moment of destruction.  Force scales linearly with impact speed
@@ -2284,7 +2339,7 @@ func respawn(avatar_id: int, camera_ref: Camera2D = null) -> bool:
 
 	reset_flight_state(avatar_id)
 
-	avatar.is_barrel_rolled = absf(spawn_rot) > PI / 2.0
+	avatar.is_barrel_rolled = AvatarData.rotation_is_leftward(spawn_rot)
 	avatar.pitch_angle = spawn_rot
 	rotation = spawn_rot
 	apply_homebase_model(avatar)

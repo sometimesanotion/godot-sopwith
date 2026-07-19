@@ -27,6 +27,22 @@ extends Node
 ##       into the speed curve.  This gives immediate snap on dive pull-outs
 ##       without affecting the speed-based sensitivity scaling.
 ##
+## ATTITUDE FRAMES  (gravity-relative, direction-agnostic)
+##   Every pitch quantity the AI produces or consumes is expressed in the
+##   GRAVITY FRAME via the AvatarData attitude helpers (travel_sign,
+##   gravity_pitch, gravity_pitch_rate, gravity_angle, world_angle,
+##   pitch_command_to_rotation_input): 0 = level with the horizon, positive =
+##   nose-down toward the ground, negative = nose-up toward the sky.  A level
+##   plane flying leftward inverted (is_barrel_rolled = true) and one flying
+##   rightward upright therefore read IDENTICALLY, and a given command
+##   produces the same climb/dive for both.  `desired_heading` itself stays a
+##   world-space angle (Vector2.angle()); it is converted to the gravity
+##   frame only when compared against the plane's current pitch.  Raw pitch
+##   overrides (takeoff ladder, panic pull-ups, stall dive) are already
+##   gravity-frame commands — negative = climb, positive = dive.  NO code in
+##   this file re-checks is_barrel_rolled: the single sign conversion lives
+##   in Biplane.set_ai_input() via pitch_command_to_rotation_input().
+##
 ## WOBBLE FIXES
 ##   • Residual heading-damping term removed (was fighting ang-vel term).
 ##   • desired_heading lerped each tick instead of hard-set, filtering noise
@@ -768,15 +784,28 @@ func _compute_return_pitch() -> float:
 
 ## is_engaging = true  → ENGAGE profile (aggressive, AoA blend suppressed)
 ## is_engaging = false → CRUISE profile (conservative, AoA blend active)
+##
+## The heading error is computed in the GRAVITY FRAME (see ATTITUDE FRAMES
+## above): desired_heading (world-space) and the plane's current pitch are
+## both converted before being compared, so the same error commands the same
+## climb/dive whether the plane is flying rightward upright or leftward
+## inverted.  (The old rotation-space diff read with the opposite sign for
+## inverted planes, steering every heading-guided behaviour away from its
+## target attitude whenever is_barrel_rolled was true.)
 func _compute_pitch_from_heading(is_engaging: bool) -> float:
 	if not biplane:
 		return 0.0
 
-	var angle_diff = wrapf(pilots[0].desired_heading - biplane.rotation, -PI, PI)
+	var avatar = _get_avatar()
+
+	var angle_diff: float
+	if avatar:
+		angle_diff = wrapf(avatar.gravity_angle(pilots[0].desired_heading) \
+			- avatar.gravity_pitch(), -PI, PI)
+	else:
+		angle_diff = wrapf(pilots[0].desired_heading - biplane.rotation, -PI, PI)
 	if absf(angle_diff) < HEADING_DEADBAND:
 		return 0.0
-
-	var avatar = _get_avatar()
 
 	# --- Speed ratio ---
 	var stall_speed: float = 21.4
@@ -828,7 +857,10 @@ func _compute_pitch_from_heading(is_engaging: bool) -> float:
 
 	# Angular velocity damping — flat decoupled coefficient (Option C).
 	# Carries the stabilisation load; no longer tangled with the speed curve.
-	var angular_vel: float = avatar.angular_velocity if avatar else 0.0
+	# Read in the gravity frame so it DAMPS for both travel directions (in the
+	# rotation frame an inverted plane's climb/dive rates have flipped signs,
+	# which previously turned this term into anti-damping when inverted).
+	var angular_vel: float = avatar.gravity_pitch_rate() if avatar else 0.0
 	var ang_damp_term      = angular_vel * ang_vel_damp
 
 	# Combine: sensitivity * error  minus  ang-vel term  minus  speed-scaled heading damp.
@@ -846,6 +878,9 @@ func _compute_pitch_from_heading(is_engaging: bool) -> float:
 # ---------------------------------------------------------------------------
 
 ## Smoothly steers pilots[0].desired_heading toward aim_point each decision tick.
+## desired_heading stays a WORLD-SPACE angle (Vector2.angle()); the conversion
+## into the gravity frame happens only when it is consumed in
+## _compute_pitch_from_heading(), so steering never branches on direction.
 ## Lerping rather than hard-setting filters single-frame jitter from a moving
 ## target and prevents the heading from flipping sign between ticks.
 ## Pass turn_rate < 0 to use the default HEADING_LERP_FACTOR; otherwise the
@@ -884,7 +919,12 @@ func _stall_reflex() -> bool:
 		return false   # recovered — release the override
 
 	# Hard override: aim ~5° above the relative wind for a touch of lift.
-	var recovery_heading      = biplane.velocity.angle() - deg_to_rad(5.0)
+	# Computed in the gravity frame so "above" means toward the sky in either
+	# travel direction — in world space a leftward/inverted plane's "above"
+	# has the opposite angle sign, so the old raw-angle math aimed it BELOW
+	# the wind and deepened the stall instead of recovering.
+	var wind_gp      = avatar.gravity_angle(biplane.velocity.angle())
+	var recovery_heading = avatar.world_angle(wind_gp - deg_to_rad(5.0))
 	pilots[0].desired_heading      = recovery_heading
 	pilots[0].last_pitch_input     = _compute_pitch_from_heading(false)
 	pilots[0].last_throttle        = 1.0
@@ -1155,7 +1195,13 @@ func _energy_stall_reflex(pitch: float, throttle: float) -> Array:
 func _pull_up_reflex() -> float:
 	if not biplane or _get_altitude_above_ground() > PULL_UP_ALTITUDE:
 		return 0.0
-	return -0.5 if biplane.rotation > 0.1 else 0.0
+	# Nose below the horizon → pull up.  gravity_pitch() reads identically in
+	# either travel direction (the old raw `rotation > 0.1` check was always
+	# true for an inverted plane, firing even when it was already climbing).
+	var avatar = _get_avatar()
+	if not avatar:
+		return 0.0
+	return -0.5 if avatar.gravity_pitch() > 0.1 else 0.0
 
 func _altitude_reflex() -> float:
 	if not biplane:
@@ -1390,11 +1436,12 @@ func _is_fuel_low() -> bool:
 # ---------------------------------------------------------------------------
 
 func _apply_input(pitch: float, throttle_amount: float) -> void:
-	## The pitch command is forwarded verbatim; the is_barrel_rolled inversion
-	## lives inside Biplane.set_ai_input() so the AI wrapper does not double-flip
-	## the command (which previously cancelled the inversion out and made
-	## leftward-spawned, is_barrel_rolled=true AI planes pitch into the ground
-	## on takeoff instead of climbing).
+	## `pitch` is a gravity-frame command (negative = climb, positive = dive)
+	## and is forwarded verbatim: the single is_barrel_rolled conversion lives
+	## inside Biplane.set_ai_input() via AvatarData.pitch_command_to_rotation_input().
+	## Never flip the sign here — double-flipping cancels the conversion out
+	## (which previously made leftward-spawned, is_barrel_rolled=true AI planes
+	## pitch into the ground on takeoff instead of climbing).
 	if not biplane.has_method("set_ai_input"):
 		return
 	biplane.set_ai_input(pitch, throttle_amount)
@@ -1490,10 +1537,14 @@ func _check_flip_needed() -> void:
 	if not avatar or avatar.is_flipping:
 		return
 
+	# Flip when the world travel direction (sign of velocity.x) disagrees with
+	# the nose's travel direction (+1 rightward / -1 leftward).  The speed
+	# gate keeps the plane from flipping while parked or taxiing slowly.
 	var x_speed = avatar.stall_speed_ms * 10.0
-	var should_be_inverted = biplane.velocity.x <= -1 * x_speed
-	if should_be_inverted != avatar.is_barrel_rolled and abs(biplane.velocity.x) >= x_speed:
-			biplane.do_flip(avatar)
+	if absf(biplane.velocity.x) < x_speed:
+		return
+	if signf(biplane.velocity.x) != avatar.travel_sign():
+		biplane.do_flip(avatar)
 
 func take_damage(amount: float, attacker: Node) -> void:
 	var owner: Node = null
