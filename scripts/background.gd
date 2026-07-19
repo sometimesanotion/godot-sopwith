@@ -106,11 +106,11 @@ const CLOUD_SALT := 204
 #   salt_offset : distinguishes each layer's cloud noise from the others.
 # =============================================================================
 const CLOUD_STYLES := [
-	{"type": "cirrus_narrow", "count": 6, "alpha": 0.08, "cy_min": 20.0,
-	 "cy_max": 300.0, "salt_offset": 0},
-	{"type": "stratum", "count": 10, "alpha": 0.15, "cy_min": 80.0,
-	 "cy_max": 460.0, "salt_offset": 1},
-	{"type": "ceiling", "count": 20, "alpha_min": 0.1, "alpha_max": 0.2,
+	{"type": "cirrus_narrow", "count": 12, "alpha": 0.05, "cy_min": 20.0,
+	 "cy_max": 340.0, "salt_offset": 0},
+	{"type": "stratum", "count": 18, "alpha": 0.09, "cy_min": 80.0,
+	 "cy_max": 540.0, "salt_offset": 1},
+	{"type": "ceiling", "count": 30, "alpha_min": 0.06, "alpha_max": 0.12,
 	 "salt_offset": 2},
 ]
 
@@ -211,15 +211,15 @@ func generate(seed: int) -> void:
 				clouds = ParallaxScenery.build_cirrus_clouds(
 					cseed, period, int(cstyle["count"]), float(cstyle["alpha"]),
 					float(cstyle["cy_min"]), float(cstyle["cy_max"]))
-			"stratum":
-				clouds = ParallaxScenery.build_stratum_clouds(
-					cseed, period, int(cstyle["count"]), float(cstyle["alpha"]),
-					float(cstyle["cy_min"]), float(cstyle["cy_max"]))
-			"ceiling":
-				clouds = ParallaxScenery.build_ceiling_clouds(
-					cseed, period, LAYER3_CLOUD_TOP_Y, CEILING_CLOUD_CEILING_Y,
-					int(cstyle["count"]), float(cstyle["alpha_min"]),
-					float(cstyle["alpha_max"]))
+			# "stratum":
+			# 	clouds = ParallaxScenery.build_stratum_clouds(
+			# 		cseed, period, int(cstyle["count"]), float(cstyle["alpha"]),
+			# 		float(cstyle["cy_min"]), float(cstyle["cy_max"]))
+			# "ceiling":
+			# 	clouds = ParallaxScenery.build_ceiling_clouds(
+			# 		cseed, period, LAYER3_CLOUD_TOP_Y, CEILING_CLOUD_CEILING_Y,
+			# 		int(cstyle["count"]), float(cstyle["alpha_min"]),
+			# 		float(cstyle["alpha_max"]))
 			"none", "":
 				clouds = []
 			_:

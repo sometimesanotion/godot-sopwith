@@ -9,17 +9,17 @@ const BASE_Y := 650.0
 
 # --- Runway ---
 const RUNWAY_START := 5300.0
-const RUNWAY_LENGTH := 600.0
+const RUNWAY_LENGTH := 700.0
 const RUNWAY_END := RUNWAY_START + RUNWAY_LENGTH
-const RUNWAY_APRON := 64.0
+const RUNWAY_APRON := 50.0
 const RUNWAY_BLEND_WIDTH := 192.0
 
 # --- Terrain synthesis (D4 multi-frequency noise) ---
 const MACRO_FREQUENCY  := 0.0012
 const MICRO_FREQUENCY  := 0.003
 const MACRO_AMPLITUDE  := 260.0
-const MICRO_AMP_MIN    := 8.0
-const MICRO_AMP_MAX    := 45.0
+const MICRO_AMP_MIN    := 6.0
+const MICRO_AMP_MAX    := 28.0
 
 # --- Deterministic noise salts ---
 const _SALT_MACRO := 101

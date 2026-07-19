@@ -147,6 +147,13 @@ static func _close_snow_run(run: PackedVector2Array, snow_line_y: float,
 # Cloud geometry
 # =============================================================================
 
+## Global cloud expansion factor. The design brief calls for cloud geometry to
+## grow by at least 300% — scaling the linear radii (rx, ry) by 4.0 is a 300%
+## increase in extent (and a 1500% increase in area), satisfying the brief under
+## either interpretation while staying seamless (layers tile via motion_mirroring,
+## so oversized puffs simply wrap the period).
+const CLOUD_GEOMETRY_SCALE := 4.0
+
 ## Flat-bottomed / dome-topped cumulus silhouette.
 static func _cumulus_puff_verts(center: Vector2, rx: float, ry: float,
 		vert_count: int, bottom_flatten: float) -> PackedVector2Array:
@@ -165,16 +172,17 @@ static func build_ceiling_clouds(seed: int, period: float, band_top_y: float,
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed
 	var clouds: Array[Polygon2D] = []
-	var reach := 260.0 * 1.4 + 260.0
+	var max_rx := 400.0 * CLOUD_GEOMETRY_SCALE
+	var reach := max_rx * 1.4 + max_rx
 	for i in range(count):
 		var cx := reach + rng.randf() * (period - 2.0 * reach)
 		var cy := rng.randf_range(band_top_y, band_bottom_y)
 		var puffs := rng.randi_range(4, 8)
 		for j in range(puffs):
 			var puff := Polygon2D.new()
-			var rx := rng.randf_range(110.0, 260.0)
+			var rx := rng.randf_range(120.0, 400.0) * CLOUD_GEOMETRY_SCALE
 			var ry := rx * rng.randf_range(0.5, 0.7)
-			var center := Vector2(cx + rng.randf_range(-rx, rx) * 1.4,
+			var center := Vector2(cx + rng.randf_range(-rx, rx) * 1.6,
 								  cy + rng.randf_range(-0.35, 0.35) * ry)
 			puff.polygon = _cumulus_puff_verts(center, rx, ry, 16, 0.3)
 			puff.color = Color(1.0, 1.0, 1.0, rng.randf_range(alpha_min, alpha_max))
@@ -187,16 +195,17 @@ static func build_stratum_clouds(seed: int, period: float, count: int,
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed
 	var clouds: Array[Polygon2D] = []
-	var reach := 200.0 * 1.2 + 200.0
+	var max_rx := 200.0 * CLOUD_GEOMETRY_SCALE
+	var reach := max_rx * 1.2 + max_rx
 	for i in range(count):
 		var cx := reach + rng.randf() * (period - 2.0 * reach)
 		var cy := rng.randf_range(cy_min, cy_max)
 		var puffs := rng.randi_range(2, 4)
 		for j in range(puffs):
 			var puff := Polygon2D.new()
-			var rx := rng.randf_range(120.0, 200.0)
+			var rx := rng.randf_range(120.0, 200.0) * CLOUD_GEOMETRY_SCALE
 			var ry := rx * rng.randf_range(0.35, 0.5)
-			var center := Vector2(cx + rng.randf_range(-rx, rx) * 1.2,
+			var center := Vector2(cx + rng.randf_range(-rx, rx) * 1.5,
 								  cy + rng.randf_range(-0.25, 0.25) * ry)
 			puff.polygon = _cumulus_puff_verts(center, rx, ry, 14, 0.4)
 			puff.color = Color(1.0, 1.0, 1.0, alpha * rng.randf_range(0.8, 1.0))
@@ -212,7 +221,7 @@ static func build_cumulus_clouds(seed: int, period: float, count: int,
 	var reach := 121.0 * puff_scale * 1.6 + 121.0 * puff_scale
 	for i in range(count):
 		var cx := reach + rng.randf() * (period - 2.0 * reach)
-		var cy := rng.randf_range(120.0, 460.0)
+		var cy := rng.randf_range(120.0, 360.0)
 		var puffs := rng.randi_range(3, 7)
 		for j in range(puffs):
 			var puff := Polygon2D.new()
@@ -231,17 +240,18 @@ static func build_cirrus_clouds(seed: int, period: float, count: int,
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed
 	var clouds: Array[Polygon2D] = []
-	var reach := 260.0 * 1.3 + 260.0
+	var max_rx := 260.0 * CLOUD_GEOMETRY_SCALE
+	var reach := max_rx * 1.3 + max_rx
 	for i in range(count):
 		var cx := reach + rng.randf() * (period - 2.0 * reach)
 		var cy := rng.randf_range(cy_min, cy_max)
 		var streaks := rng.randi_range(2, 4)
 		for s in range(streaks):
 			var streak := Polygon2D.new()
-			var rx := rng.randf_range(120.0, 260.0)
-			var ry := rng.randf_range(5.0, 12.0)
+			var rx := rng.randf_range(120.0, 260.0) * CLOUD_GEOMETRY_SCALE
+			var ry := rng.randf_range(5.0, 12.0) * CLOUD_GEOMETRY_SCALE
 			var sx := cx + rng.randf_range(-rx * 0.3, rx * 0.3)
-			var sy := cy + float(s) * rng.randf_range(10.0, 22.0)
+			var sy := cy + float(s) * rng.randf_range(10.0, 22.0) * CLOUD_GEOMETRY_SCALE
 			var verts := PackedVector2Array()
 			for k in range(16):
 				var a := TAU * k / 16.0
