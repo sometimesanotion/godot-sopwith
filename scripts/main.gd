@@ -386,10 +386,6 @@ func _spawn_enemies_and_targets() -> void:
 		if not spawn_enemies:
 			continue
 		var spawn_rot := PI if faces_left else 0.0
-		var enemy: RigidBody2D = ENEMY_SCENE.instantiate()
-		var ground_y := 650.0
-		if terrain and terrain.has_method("get_ground_height_at"):
-			ground_y = terrain.get_ground_height_at(base_x)
 		# Runway span: rightward bases → [base_x+50, base_x+50+LEN] (runway on
 		# the right); leftward bases → [base_x-50-LEN, base_x-50] (runway on
 		# the left).  LEN = Terrain.RUNWAY_LENGTH (widened 20% in T-runway).
@@ -397,6 +393,14 @@ func _spawn_enemies_and_targets() -> void:
 		var runway_right: float = runway_left + Terrain.RUNWAY_LENGTH
 		var spawn_x: float = (runway_right - ENEMY_SPAWN_RUNWAY_EDGE_MARGIN) if faces_left \
 							else (runway_left + ENEMY_SPAWN_RUNWAY_EDGE_MARGIN)
+		# Register the runway first so the surrounding terrain (and therefore
+		# this base's spawn elevation) is built around its own height.
+		if terrain and terrain.has_method("add_runway"):
+			terrain.add_runway(runway_left)
+		var enemy: RigidBody2D = ENEMY_SCENE.instantiate()
+		var ground_y := 650.0
+		if terrain and terrain.has_method("get_ground_height_at"):
+			ground_y = terrain.get_ground_height_at(spawn_x)
 		var spawn_pos := Vector2(spawn_x, ground_y - Biplane.GROUND_SURFACE_OFFSET)
 		enemy.position = spawn_pos
 		enemy.rotation = spawn_rot
@@ -449,10 +453,6 @@ func _spawn_enemies_and_targets() -> void:
 				enemy.get_node("EnemyAI").takeoff_delay = takeoff_delay
 		add_child(enemy)
 		enemies.append(enemy)
-		if terrain and terrain.has_method("add_runway"):
-			# Runway start = runway_left (rightward bases: base_x+50, leftward
-			# bases: base_x-50-LEN).  add_runway(x) registers [x, x+RUNWAY_LENGTH].
-			terrain.add_runway(runway_left)
 
 	var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
 	var cow_count_map: Dictionary = {"None": 0, "Few": 6, "Normal": 12, "Many": 24}

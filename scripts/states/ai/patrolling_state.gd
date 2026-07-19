@@ -39,10 +39,12 @@ func update(delta: float) -> void:
 	if ai._is_fuel_low():
 		finished.emit(&"returning")
 		return
-	# Engage any live target within range, wherever it is — a
-	# challenging enemy hunts the player across the map rather than
-	# only when the player wanders into its own territory.  Distance
-	# is wrapped, so ENGAGEMENT_RANGE already spans the whole field.
+	# Engage a live target only when it is inside this plane's patrol
+	# territory — the SAME bound that gates launch.  A challenging enemy
+	# still hunts the player across its own patrol_range, but it does not
+	# abandon its territory and chase the player across the whole (wrapped)
+	# map.  Distance is wrapped, so ENGAGEMENT_RANGE already spans the
+	# field; the territory check is the controlling gate.
 	var dist_to_tgt = ai._get_wrapped_distance(ai.biplane.global_position.x, ai.target.global_position.x)
-	if ai._is_target_alive() and dist_to_tgt < ai.ENGAGEMENT_RANGE:
+	if ai._is_target_alive() and ai._is_player_in_territory() and dist_to_tgt < ai.ENGAGEMENT_RANGE:
 		finished.emit(&"engaging")

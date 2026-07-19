@@ -253,7 +253,7 @@ class AIData:
 
 # Configuration (set by spawner before _ready)
 @export var home_base_x: float  = 1400.0
-@export var patrol_range: float = 2000.0
+@export var patrol_range: float = 6000.0
 @export var takeoff_delay: float = 0.0
 @export var unlimited_fuel_ammo: bool = false
 
@@ -273,7 +273,7 @@ var pilots: Array[AIData] = [AIData.new()]
 var _respawn_id: int = -1
 
 ## Set once per life so the ground-impact re-signal (see biplane.gd respawn
-## timer shortening) does not spawn a second explosion.
+## timer shortening) does not spawn a second explosion.		
 var _crashed_exploded: bool = false
 
 # ---------------------------------------------------------------------------

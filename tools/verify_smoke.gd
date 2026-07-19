@@ -38,8 +38,12 @@ func _initialize() -> void:
 		var pts: PackedVector2Array = terrain.get_ground_points()
 		ok = _expect(pts.size() == 513,
 			"terrain point count = 513 (got %d)" % pts.size()) and ok
-		ok = _expect(terrain.get_ground_height_at(5330.0) == 650.0,
-			"PLAYER_SPAWN_X=5330 ground = BASE_Y=650") and ok
+		var player_rw_height := 0.0
+		for r in terrain.runways:
+			if absf(r.start - terrain.RUNWAY_START) < 1.0:
+				player_rw_height = r.height
+		ok = _expect(absf(terrain.get_ground_height_at(5330.0) - player_rw_height) < 1.0,
+			"PLAYER_SPAWN_X=5330 ground = player runway height %.1f" % player_rw_height) and ok
 		ok = _expect(terrain.get_ground_height_at(-10.0)
 				== terrain.get_ground_height_at(terrain.TERRAIN_LENGTH - 10.0),
 			"terrain negative-x wrap matches") and ok
@@ -75,8 +79,9 @@ func _initialize() -> void:
 	if biplane:
 		ok = _expect(is_equal_approx(biplane.position.x, 5330.0),
 			"biplane.position.x = 5330 (got %.1f)" % biplane.position.x) and ok
-		ok = _expect(biplane.position.y <= 650.0,
-			"biplane above-or-on ground (y=%.1f, BASE_Y=650)" % biplane.position.y) and ok
+		var player_ground: float = terrain.get_ground_height_at(5330.0)
+		ok = _expect(biplane.position.y <= player_ground + 1.0,
+			"biplane above-or-on ground (y=%.1f, ground=%.1f)" % [biplane.position.y, player_ground]) and ok
 		ok = _expect(biplane.rotation == 0.0,
 			"player rotation = 0 (got %.3f)" % biplane.rotation) and ok
 
@@ -210,19 +215,19 @@ func _initialize() -> void:
 		var faces_left: bool = enemy_faces[i] if i < enemy_faces.size() else (home_x > scene.PLAYER_SPAWN_X)
 		# Find the runway span added by this base: it's the one whose
 		# center is closest to home_x.
-		var best_runway: Vector2 = Vector2.ZERO
+		var best_runway = null
 		var best_d: float = INF
 		if terrain and "runways" in terrain:
 			for r in terrain.runways:
-				var rc: float = (r.x + r.y) * 0.5
+				var rc: float = (r.start + r.end) * 0.5
 				var dd: float = absf(rc - home_x)
 				if dd < best_d:
 					best_d = dd
 					best_runway = r
-		var runway_left_correct: bool = (best_runway.x > home_x) if not faces_left else (best_runway.x < home_x)
+		var runway_left_correct: bool = (best_runway.start > home_x) if not faces_left else (best_runway.start < home_x)
 		ok = _expect(runway_left_correct,
 			"base x=%.0f (faces_left=%s) runway [%.0f, %.0f] on %s side"
-				% [home_x, faces_left, best_runway.x, best_runway.y,
+				% [home_x, faces_left, best_runway.start, best_runway.end,
 					"right" if not faces_left else "left"]) and ok
 
 	# T-runway: runways are 20% wider (RUNWAY_LENGTH == 600) on both the player
@@ -231,25 +236,22 @@ func _initialize() -> void:
 		"terrain RUNWAY_LENGTH = 600 (20%% wider than 500)") and ok
 	if terrain and "runways" in terrain:
 		for r in terrain.runways:
-			var rlen: float = r.y - r.x
+			var rlen: float = r.end - r.start
 			ok = _expect(is_equal_approx(rlen, 600.0),
-				"runway [%.0f, %.0f] length=%.0f (== 600)" % [r.x, r.y, rlen]) and ok
+				"runway [%.0f, %.0f] length=%.0f (== 600)" % [r.start, r.end, rlen]) and ok
 
-	# T-base-elevation: every homebase sits on a flat apron (not in a valley)
-	# so planes take off/land on level ground with no adjacent wall.  Sample
-	# the apron on both sides of each runway and require it to read BASE_Y.
-	if terrain:
+	# Per-base elevation: every homebase sits on a flat runway at THAT base's
+	# own elevation (no longer the global 650).  Sample strictly inside the
+	# runway span (where get_ground_height_at short-circuits to the stored
+	# height) and require it to equal the runway's stored height — the whole
+	# point is that runways vary per homebase.
+	if terrain and "runways" in terrain:
 		for r in terrain.runways:
-			var apron: float = terrain.RUNWAY_APRON
-			for off in [50.0, apron * 0.5, apron - 1.0]:
-				var yl: float = terrain.get_ground_height_at(r.x - off)
-				var yr: float = terrain.get_ground_height_at(r.y + off)
-				ok = _expect(absf(yl - terrain.BASE_Y) < 2.0,
-					"runway [%.0f,%.0f] apron-left x=%.0f y=%.1f ≈ BASE_Y"
-						% [r.x, r.y, r.x - off, yl]) and ok
-				ok = _expect(absf(yr - terrain.BASE_Y) < 2.0,
-					"runway [%.0f,%.0f] apron-right x=%.0f y=%.1f ≈ BASE_Y"
-						% [r.x, r.y, r.y + off, yr]) and ok
+			for sx in [r.start + 50.0, (r.start + r.end) * 0.5, r.end - 50.0]:
+				var ys: float = terrain.get_ground_height_at(sx)
+				ok = _expect(absf(ys - r.height) < 2.0,
+					"runway [%.0f,%.0f] surface x=%.0f y=%.1f ≈ base height %.1f"
+						% [r.start, r.end, sx, ys, r.height]) and ok
 
 	# Cow ground-sampling: dynamic per-cow check is fragile in --script mode
 	# (the Cow script depends on the SvgManager autoload, which doesn't load
