@@ -113,7 +113,7 @@ func update_enemies(enemies: Array) -> void:
 		dot.queue_free()
 	
 	for i: int in range(enemies.size()):
-		if enemies[i]:
+		if enemies[i] and is_instance_valid(enemies[i]):
 			var world_pos: Vector2 = enemies[i].global_position
 			var map_x: float = wrapf(world_pos.x, 0.0, TERRAIN_LENGTH) * (MINIMAP_WIDTH / TERRAIN_LENGTH)
 			var map_y: float = _altitude_to_map_y(world_pos.y)

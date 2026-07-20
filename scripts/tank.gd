@@ -48,7 +48,7 @@ func _ready() -> void:
 		"ar_efficiency": 2.0,
 		"max_lift_coeff": 0.0,
 		"max_aoa": 16.0,
-		"max_speed_ms": 12.0,
+		"max_speed_ms": 72.0,
 		"stall_speed_ms": 21.4,
 		"rotation_speed": 1.0,
 		"negative_rotation_speed": 1.0,

@@ -43,7 +43,7 @@ const PATROL_MAX_ALTITUDE            := 1500.0
 const MIN_ALTITUDE_ABOVE_GROUND      := 100.0
 const DANGER_ALTITUDE_ABOVE_GROUND   := 60.0
 const CRITICAL_ALTITUDE_ABOVE_GROUND := 20.0
-const PULL_UP_ALTITUDE               := 200.0
+const PULL_UP_ALTITUDE               := 450.0
 const MAX_ALTITUDE_FRACTION          := 0.4
 const MAX_ALTITUDE                   := 1600.0
 const ENGINE_CUTOFF_AVOID_FRACTION   := 0.8
@@ -291,7 +291,7 @@ class AIData:
 ## Used by the respawn gate: a base with no surviving hangar
 ## can no longer put planes back in the air.
 var homebase_id: int = -1
-@export var patrol_range: float = 5000.0
+@export var patrol_range: float = 8000.0
 @export var takeoff_delay: float = 0.0
 @export var unlimited_fuel_ammo: bool = false
 ## Ground-vehicle (tank) mode.  When true the controller crawls the tank,
@@ -1574,14 +1574,31 @@ func _on_enemy_landed(avatar_id: int) -> void:
 	## so the runway-side respawn timer must not be scheduled for them.
 	if is_ground_vehicle:
 		return
-	## A homebase with no surviving hangar can no longer put planes
-	## back in the air: skip the respawn entirely so the base is
-	## permanently grounded once its last hangar is destroyed.
+	## A homebase with no surviving hangar can no longer put planes back in
+	## the air.  A wreck that lands under those conditions is removed from the
+	## map entirely (see _remove_from_map) instead of being left as a
+	## permanent obstacle — the base is permanently grounded once its last
+	## hangar is destroyed.
 	if homebase_id >= 0 and BuildingRegistry and not BuildingRegistry.has_hangar(homebase_id):
+		_remove_from_map()
 		return
 	## The wreck has hit the ground — queue the fixed 2s respawn.
 	if RespawnManager:
 		RespawnManager.queue_respawn(_respawn_id, RespawnManager.RESPAWN_DELAY)
+
+## Permanently removes this AI plane from the world.  Called when a destroyed
+## plane has no surviving hangar at its homebase and therefore can never
+## respawn: rather than leave the wreck on the map forever, free the node and
+## drop it from Main's live `enemies` list (so the minimap / HUD stop tracking
+## it).  The EnemyAI is a child of the biplane, so freeing the biplane frees
+## this controller too — callers must not touch it afterward.
+func _remove_from_map() -> void:
+	if not biplane or not is_instance_valid(biplane):
+		return
+	var main = biplane.get_parent()
+	if main and "enemies" in main:
+		main.enemies.erase(biplane)
+	biplane.queue_free()
 
 func _on_enemy_respawn_ready(avatar_id: int) -> void:
 	if avatar_id == _respawn_id:
