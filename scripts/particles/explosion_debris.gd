@@ -2,8 +2,8 @@ extends Node2D
 ## Explosion debris with collision-enabled RigidBody2D fragments.
 ## Spawns on crash/destroy events. Debris fragments collide and can damage other objects.
 
-@export var fragment_count: int = 4
-@export var debris_damage: float = 2.0
+@export var fragment_count: int = 6
+@export var debris_damage: float = 30.0
 @export var debris_lifetime: float = 4.0
 ## Mass (kg) of each debris fragment. Lighter fragments impart less kinetic force
 ## when they strike planes, reducing dramatic bouncing. Lower = gentler impacts.
@@ -90,9 +90,6 @@ func _create_fragments() -> void:
 func _create_fragments_with_color(base_color: Color) -> void:
 	for i in range(fragment_count):
 		var frag_color := base_color.darkened(randf() * 0.3)
-		var rb := RigidBody2D.new()
-		rb.contact_monitor = true
-		rb.max_contacts_reported = 2
 
 		var points := PackedVector2Array()
 		var num_points := randi_range(3, 6)
@@ -103,6 +100,20 @@ func _create_fragments_with_color(base_color: Color) -> void:
 			var dist := randf_range(1, 4)
 			points.append(Vector2(cos(angle), sin(angle)) * dist)
 
+		# Real physics body (not an Area) so fast fragments can't tunnel
+		# through a plane between frames — continuous CCD sweeps the motion.
+		# Near-zero mass means the collision impulse on a heavy plane is
+		# negligible: the plane is NOT bounced, only the tiny fragment
+		# ricochets off it.  body_entered still fires, so damage is dealt.
+		var rb := RigidBody2D.new()
+		rb.mass = debris_mass
+		rb.gravity_scale = 1.0
+		rb.linear_damp = 0.5
+		rb.angular_damp = 0.5
+		rb.continuous_cd = RigidBody2D.CCD_MODE_CAST_SHAPE
+		rb.contact_monitor = true
+		rb.max_contacts_reported = 2
+
 		var collision := CollisionPolygon2D.new()
 		collision.polygon = points
 		rb.add_child(collision)
@@ -112,20 +123,24 @@ func _create_fragments_with_color(base_color: Color) -> void:
 		sprite.color = frag_color
 		rb.add_child(sprite)
 
-		rb.gravity_scale = 1.0
-		rb.linear_damp = 0.5
-		rb.angular_damp = 0.5
-		rb.mass = debris_mass
-		# rb.inertia = 0.5
-
 		var random_dir := Vector2(randf_range(-1, 1), randf_range(-1, -0.3)).normalized()
-		var force := random_dir * randf_range(400, 800)
+		var force := random_dir * randf_range(100, 300)
 		rb.linear_velocity = force
 		rb.angular_velocity = randf_range(-5, 5)
 
-		rb.body_entered.connect(_on_fragment_hit.bind())
-		call_deferred("add_child", rb)
+		# Stop fragments colliding with one another (no erratic clumping)
+		# without touching any other body's layers.  Set once the body is in
+		# the tree so its physics RID is valid.
+		rb.tree_entered.connect(_on_fragment_entered_tree.bind(rb))
+
+		rb.body_entered.connect(_on_fragment_hit)
 		_fragments.append(rb)
+		call_deferred("add_child", rb)
+
+func _on_fragment_entered_tree(rb: RigidBody2D) -> void:
+	for other in _fragments:
+		if other != rb and is_instance_valid(other):
+			rb.add_collision_exception_with(other)
 
 func _on_fragment_hit(body: Node) -> void:
 	if body.has_method("take_damage"):

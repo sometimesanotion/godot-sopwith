@@ -8,7 +8,7 @@ const TERRAIN_LENGTH := 16384.0
 # PALETTE CONSTANTS — Final Atmospheric Depth Palette
 # =============================================================================
 ## Layer 1 (Farthest): Monolithic Alps. Deep regal cobalt blues.
-const COBALT_ALPS_CREST := Color(0.06, 0.12, 0.48)
+const COBALT_ALPS_CREST := Color(0.06, 0.14, 0.48)
 const COBALT_ALPS_BASE  := Color(0.10, 0.22, 0.55)
 
 ## Layer 2 (Mid): Misty transition hills.

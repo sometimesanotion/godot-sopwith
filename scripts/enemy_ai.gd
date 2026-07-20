@@ -1392,8 +1392,19 @@ func _try_fire_weapon() -> void:
 	if dist > MAX_FIRE_RANGE or dist < MIN_FIRE_RANGE:
 		return
 	var tgt_vel      = target.velocity if "velocity" in target else Vector2.ZERO
+	var tgt_speed    = tgt_vel.length()
+	# Lead scales with how long the bullet takes to arrive AND the target's
+	# own speed: a near-stationary target is led barely at all, a fast one
+	# is led hard — so the solution is sensitive to target speed (and a
+	# parked plane is no longer led ahead of its nose).
 	var lead_time    = dist / 1600.0
-	var predicted    = tgt_pos + tgt_vel * lead_time
+	var lead         = tgt_vel * lead_time
+	# Random scatter so the AI never holds a perfect firing solution; the
+	# scatter grows with target speed (a jinking target is harder to hold),
+	# keeping shots loose without removing the speed-based lead.
+	var scatter      = randf_range(8.0, 40.0) + tgt_speed * randf_range(0.02, 0.08)
+	lead           += Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * scatter
+	var predicted    = tgt_pos + lead
 	var bullet_dir   = (predicted - my_pos).normalized()
 	var my_hdg       = Vector2(cos(biplane.rotation), sin(biplane.rotation))
 	var angle_diff   = bullet_dir.angle_to(my_hdg)
@@ -1815,4 +1826,11 @@ func _tank_hostile(child: Node, avatar) -> bool:
 		# a tank shouldn't futilely chase an aircraft at altitude.
 		var oa = child.get_primary_entity()
 		return oa and (not oa.is_airborne) and avatar.team != oa.team
+	if child.is_in_group("ground_target"):
+		# Hostile buildings: a structure whose faction opposes the tank's
+		# team.  This lets either side's tanks shell the enemy's base
+		# structures (hangars, depots, AA emplacements), not just vehicles.
+		var building_is_enemy: bool = child.is_enemy
+		var tank_is_enemy: bool = (avatar.team == Biplane.Team.ENEMY)
+		return building_is_enemy != tank_is_enemy
 	return false
