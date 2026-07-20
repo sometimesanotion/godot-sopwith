@@ -213,6 +213,20 @@ const BOMB_OVERHEAD_X_THRESHOLD := 200.0
 const BOMB_ANGLE_TOLERANCE      := 0.175
 
 # ---------------------------------------------------------------------------
+# GROUND VEHICLE (TANK) MODE
+# ---------------------------------------------------------------------------
+# When `is_ground_vehicle` is set, this controller drives a Tank instead of a
+# plane.  The same control channels are reused: the "pitch" axis aims the
+# turret (`AvatarData.turret_angle`) and the "roll" axis flips travel direction
+# (`AvatarData.travel_dir`).  Altitude / stall / terrain-avoid reflexes are
+# irrelevant on the ground, so a dedicated ground controller runs instead of
+# the flight FSM.
+const TANK_FIRE_RANGE := 650.0
+const TANK_FIRE_CONE  := 0.28   # rad (~16°) turret alignment to open fire
+const TANK_TURRET_TURN := 4.0   # rad/s turret slew
+const TANK_PATROL_MARGIN := 200.0
+
+# ---------------------------------------------------------------------------
 # PILOT STATE  (all mutable runtime data for one AI pilot)
 # ---------------------------------------------------------------------------
 
@@ -280,6 +294,10 @@ var homebase_id: int = -1
 @export var patrol_range: float = 5000.0
 @export var takeoff_delay: float = 0.0
 @export var unlimited_fuel_ammo: bool = false
+## Ground-vehicle (tank) mode.  When true the controller crawls the tank,
+## aims its turret, and never touches the flight FSM (altitude / stall /
+## terrain-avoid reflexes are meaningless on the ground).
+@export var is_ground_vehicle: bool = false
 
 var decision_interval: float = 0.02
 var decision_accum: float = 0.0
@@ -361,7 +379,15 @@ func _init_ai_fsm() -> void:
 # ---------------------------------------------------------------------------
 
 func _physics_process(delta: float) -> void:
-	if not target or not biplane:
+	if not biplane:
+		return
+	if not is_ground_vehicle and not target:
+		return
+
+	# Ground vehicles (tanks) run a dedicated controller that reuses the same
+	# control channels as the plane AI but never touches the flight FSM.
+	if is_ground_vehicle and biplane.has_method("set_tank_fire"):
+		_ground_control(delta)
 		return
 
 	if takeoff_delay > 0.0:
@@ -1129,6 +1155,21 @@ func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true, 
 		if absf(dx) < RETURN_FINAL_DIST:
 			ground_avoid = false
 
+	# While still on the runway doing the takeoff roll, the plane is
+	# *supposed* to be low — the low-altitude ground-avoidance reflexes
+	# (altitude panic, pull-up, predictive terrain) must not fire or they
+	# slam the nose up and ram the tail into the ground, over and over.  A
+	# spawned plane sits ~12 px above the terrain, so _altitude_reflex()
+	# returns a full -1.0 and the predictive check reports an "imminent
+	# impact", overriding the takeoff controller's gentle, speed-dependent
+	# rotation with a violent pull-up.  The takeoff controller
+	# (_takeoff_pitch) owns the rotation while rolling; flight reflexes
+	# resume once it has climbed clear of the runway zone (TakingOff hands
+	# off to Patrolling at PATROL_ALTITUDE).  This mirrors the existing
+	# suppression already applied to the GROUNDED state.
+	if ground_avoid and _in_takeoff_roll():
+		ground_avoid = false
+
 	var alt_fix = 0.0
 	var pullup_fix = 0.0
 	var impact_t := INF
@@ -1481,6 +1522,17 @@ func _is_grounded() -> bool:
 			return biplane.is_grounded(avatar)
 	return false
 
+## True while the FSM is in the TakingOff state and the plane has not yet
+## climbed clear of the runway zone.  During this window the AI must rely on
+## the takeoff controller's speed/altitude-dependent pitch curve and never let
+## the low-altitude ground-avoidance reflexes (which treat any height under
+## ~100 px as an emergency) override it with a full pull-up that loops the tail
+## into the dirt.  See _apply_reflexes().
+func _in_takeoff_roll() -> bool:
+	if not ai_fsm or ai_fsm.current_key != &"taking_off":
+		return false
+	return _get_altitude_above_ground() < TAKEOFF_TILT_LIMIT_ALT
+
 func _get_avatar():
 	if biplane and biplane.has_method("get_avatar_data"):
 		return biplane.get_avatar_data(0)
@@ -1518,6 +1570,10 @@ func _on_enemy_crashed(is_midair: bool = false) -> void:
 	_crashed_exploded = true
 
 func _on_enemy_landed(avatar_id: int) -> void:
+	## Ground vehicles (tanks) are spent when destroyed — they never respawn,
+	## so the runway-side respawn timer must not be scheduled for them.
+	if is_ground_vehicle:
+		return
 	## A homebase with no surviving hangar can no longer put planes
 	## back in the air: skip the respawn entirely so the base is
 	## permanently grounded once its last hangar is destroyed.
@@ -1532,6 +1588,10 @@ func _on_enemy_respawn_ready(avatar_id: int) -> void:
 		_do_respawn()
 
 func _do_respawn() -> void:
+	## Ground vehicles (tanks) never respawn — guard against any stray
+	## respawn trigger so a destroyed tank stays a wreck.
+	if is_ground_vehicle:
+		return
 	if not biplane:
 		return
 
@@ -1613,3 +1673,107 @@ func get_biplane() -> RigidBody2D:
 
 func is_enemy() -> bool:
 	return true
+
+# ---------------------------------------------------------------------------
+# GROUND VEHICLE CONTROLLER
+# ---------------------------------------------------------------------------
+
+## Drive a Tank: crawl toward the nearest hostile unit, aim the turret at it,
+## and fire when aligned and in range.  With no target, grind slowly back and
+## forth across the home territory.  The "roll" axis (travel_dir) flips when
+## the target is on the opposite side, and the "pitch" axis (turret_angle) is
+## what sweeps the gun — identical control mapping to a plane.
+func _ground_control(delta: float) -> void:
+	var avatar = _get_avatar()
+	if not avatar:
+		return
+
+	if avatar.flight_state == biplane.FlightState.CRASHED \
+			or avatar.flight_state == biplane.FlightState.FALLING:
+		biplane.set_tank_fire(false)
+		return
+
+	var target = _acquire_tank_target(avatar)
+	var throttle := 1.0
+	var turret_aim := INF
+	var fire := false
+
+	if target:
+		var to_x := wrapf(target.global_position.x - biplane.global_position.x,
+			-Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
+		var dir := signf(to_x) if absf(to_x) > 8.0 else pilots[0].patrol_dir
+		pilots[0].patrol_dir = dir
+		avatar.travel_dir = dir
+		var dist := absf(to_x)
+		# Stop driving once we're basically on top of the target so we don't
+		# shove it around / climb its collision shape.
+		throttle = 1.0 if dist > 25.0 else 0.0
+		turret_aim = (target.global_position - biplane.global_position).angle()
+		var tdiff := absf(wrapf(turret_aim - avatar.turret_angle, -PI, PI))
+		var in_range := biplane.global_position.distance_to(target.global_position) < TANK_FIRE_RANGE
+		fire = in_range and tdiff < TANK_FIRE_CONE
+	else:
+		_tank_patrol(avatar)
+		turret_aim = 0.0 if avatar.travel_dir > 0.0 else PI
+
+	# Body heading follows travel direction (roll axis).
+	avatar.pitch_angle = 0.0 if avatar.travel_dir > 0.0 else PI
+	avatar.is_barrel_rolled = avatar.travel_dir < 0.0
+	biplane.rotation = avatar.pitch_angle
+
+	# Smoothly slew the turret (pitch axis) toward the aim.
+	if turret_aim != INF:
+		var step := TANK_TURRET_TURN * delta
+		avatar.turret_angle = lerp_angle(avatar.turret_angle, turret_aim,
+			clampf(step, 0.0, 1.0))
+
+	# Ramp throttle toward the requested level.
+	avatar.throttle_target = throttle
+	avatar.throttle = move_toward(avatar.throttle, throttle, 2.5 * delta)
+
+	biplane.set_tank_fire(fire)
+
+## Crawl back and forth across the home territory (home_base_x ± patrol_range/2).
+func _tank_patrol(avatar) -> void:
+	var half := patrol_range * 0.5
+	var left := home_base_x - half
+	var right := home_base_x + half
+	if pilots[0].patrol_dir > 0.0:
+		if biplane.global_position.x >= right - TANK_PATROL_MARGIN:
+			pilots[0].patrol_dir = -1.0
+	else:
+		if biplane.global_position.x <= left + TANK_PATROL_MARGIN:
+			pilots[0].patrol_dir = 1.0
+	avatar.travel_dir = pilots[0].patrol_dir
+
+## Nearest hostile unit for a tank: the player's plane, enemy structures
+## (ground_targets in the "enemy_target" group), or hostile tanks.
+func _acquire_tank_target(avatar) -> Node:
+	var parent = biplane.get_parent()
+	if not parent:
+		return null
+	var nearest: Node = null
+	var min_d := INF
+	for child in parent.get_children():
+		if child == biplane:
+			continue
+		if not _tank_hostile(child, avatar):
+			continue
+		var d := biplane.global_position.distance_to(child.global_position)
+		if d < min_d:
+			min_d = d
+			nearest = child
+	return nearest
+
+func _tank_hostile(child: Node, avatar) -> bool:
+	if child.is_in_group("enemy_target"):
+		return avatar.team == Biplane.Team.ALLIED
+	if child.is_in_group("tank") and child != biplane:
+		var oa = child.get_primary_entity()
+		return oa and avatar.is_hostile_to(oa)
+	if child.is_in_group("player"):
+		# Only engage the player plane when it is on the ground (landed) —
+		# a tank shouldn't futilely chase an aircraft at altitude.
+		var oa = child.get_primary_entity()
+		return oa and (not oa.is_airborne) and avatar.team != oa.team
+	return false

@@ -30,6 +30,7 @@ const GAME_OVER_SCENE := preload("res://scenes/game_over.tscn")
 const PAUSE_MENU_SCENE := preload("res://scenes/pause_menu.tscn")
 const ENEMY_SCENE := preload("res://scenes/enemy_biplane.tscn")
 const GROUND_TARGET_SCENE := preload("res://scenes/ground_target.tscn")
+const TANK_SCENE := preload("res://scenes/tank.tscn")
 const MINIMAP_SCENE := preload("res://scenes/minimap.tscn")
 const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
 const LEVEL_COMPLETE_SCENE := preload("res://scenes/level_complete.tscn")
@@ -498,7 +499,7 @@ func _get_target_half_width(target_type: String) -> float:
 		"building": return 52.5
 		"hangar": return 67.5
 		"ammo_depot": return 52.5
-		"fuel_depot": return 30.0
+		"fuel_depot": return 60.0
 		"tank": return 45.0
 		"flak_cannon": return 45.0
 		"machine_gun_nest": return 35.0
@@ -557,15 +558,17 @@ func _validate_base_layout(bases: Array[float]) -> void:
 const PLAYER_HOMEBASE_ID := 0
 
 ## Instantiate one ground target as part of a homebase cluster.  Sets the
-## (shared) homebase id, the enemy flag, and the AA rule: ONLY tanks are
-## armed — hangars, buildings, ammo depots and fuel depots never fire.
+## (shared) homebase id, the enemy flag, and the AA rule: ONLY the flak cannon
+## and machine gun nest are armed — hangars, buildings, ammo depots and fuel
+## depots never fire.  (Tanks are no longer ground targets — they are spawned
+## separately as AI ground vehicles; see _spawn_tank.)
 ## The target is ground-sampled at its x so it sits flush on the terrain.
 func _spawn_base_target(homebase_id: int, target_type: String, x: float, is_enemy: bool) -> void:
 	var t: Node2D = GROUND_TARGET_SCENE.instantiate()
 	t.target_type = target_type
 	t.homebase_id = homebase_id
 	t.is_enemy = is_enemy
-	t.has_aa = (target_type == "tank" or target_type == "flak_cannon" or target_type == "machine_gun_nest")
+	t.has_aa = (target_type == "flak_cannon" or target_type == "machine_gun_nest")
 	var gy: float = terrain.get_ground_height_at(x) if terrain and terrain.has_method("get_ground_height_at") else 650.0
 	t.position = Vector2(x, gy)
 	if is_enemy:
@@ -573,6 +576,58 @@ func _spawn_base_target(homebase_id: int, target_type: String, x: float, is_enem
 	add_child(t)
 	var hw := _get_target_half_width(target_type)
 	_mark_position_occupied(x, hw)
+
+## Spawn a tank ground vehicle for a homebase.  Tanks are NOT buildings — they
+## are Biplane-derived RigidBody2Ds driven by a ground-mode EnemyAI.  They crawl
+## the map, aim a turret at hostile units, and fire machine guns.
+func _spawn_tank(homebase_id: int, base_x: float, x: float, is_enemy: bool, facing_dir: float) -> void:
+	var t: Node2D = TANK_SCENE.instantiate()
+	var gy: float = terrain.get_ground_height_at(x) if terrain and terrain.has_method("get_ground_height_at") else 650.0
+	t.position = Vector2(x, gy)
+	t.rotation = 0.0 if facing_dir > 0.0 else PI
+
+	var faction_enum: int = Biplane.Faction.BRITISH
+	if is_enemy:
+		match _get_enemy_faction(GameManager.player_faction if GameManager else "British"):
+			"German": faction_enum = Biplane.Faction.GERMAN
+			"French": faction_enum = Biplane.Faction.FRENCH
+			_: faction_enum = Biplane.Faction.BRITISH
+	else:
+		match GameManager.player_faction if GameManager else "British":
+			"French": faction_enum = Biplane.Faction.FRENCH
+			"German": faction_enum = Biplane.Faction.GERMAN
+			_: faction_enum = Biplane.Faction.BRITISH
+
+	var av = t.get_avatar_data(0)
+	av.faction = faction_enum
+	av.team = Biplane.Team.ENEMY if is_enemy else Biplane.Team.ALLIED
+	av.homebase_id = homebase_id
+	av.travel_dir = facing_dir
+	av.pitch_angle = 0.0 if facing_dir > 0.0 else PI
+	av.is_barrel_rolled = facing_dir < 0.0
+	if t.has_method("set_home_base"):
+		t.set_home_base(av, homebase_id)
+
+	if t.has_node("EnemyAI"):
+		var ai = t.get_node("EnemyAI")
+		ai.target = biplane
+		ai.biplane = t
+		ai.home_base_x = base_x
+		ai.homebase_id = homebase_id
+		ai.is_ground_vehicle = true
+		ai.patrol_range = 5000.0
+		ai.takeoff_delay = 0.0
+
+	t.add_to_group("destructible")
+	t.add_to_group("tank")
+	if is_enemy:
+		t.add_to_group("enemy_target")
+	else:
+		t.add_to_group("player")
+	if t.has_method("set_game_active"):
+		t.set_game_active(true)
+	t.is_player_controlled = false
+	add_child(t)
 
 ## Lay out a list of structures on ONE side of the runway, starting just
 ## off `edge` and stepping outward in `dir` (+1 = +x, -1 = -x).
@@ -586,18 +641,6 @@ func _spawn_structures_on_side(hb_id: int, types: PackedStringArray, edge: float
 		cursor += dir * hw
 		_spawn_base_target(hb_id, target_type, cursor, is_enemy)
 		cursor += dir * (hw + 10.0)
-
-## Even-odd split of a structure list into two halves (used to drop
-## half the armed structures on each runway side).
-func _split_half(types: PackedStringArray) -> Array:
-	var a := PackedStringArray()
-	var b := PackedStringArray()
-	for i in range(types.size()):
-		if i % 2 == 0:
-			a.append(types[i])
-		else:
-			b.append(types[i])
-	return [a, b]
 
 func _create_home_base() -> void:
 	# Player runway sits at RUNWAY_START..RUNWAY_END; the structure
@@ -618,20 +661,24 @@ func _create_home_base() -> void:
 	var opp_edge: float = Terrain.RUNWAY_END + 150.0
 	var opp_dir: float = 1.0
 
-	# Core cluster on the building side: hangar + building + ammo
-	# depot + fuel depot + flak cannon.
-	var building_side := PackedStringArray(["hangar", "building", "ammo_depot", "fuel_depot", "flak_cannon"])
+	# All static structures stay together on the building side behind the
+	# runway — hangars, buildings, ammo/fuel depots, plus BOTH armed defences
+	# (the flak cannon and the machine gun nest).  None of these are vehicles.
+	var building_side := PackedStringArray([
+		"hangar", "building", "ammo_depot", "fuel_depot",
+		"flak_cannon", "machine_gun_nest"])
 
-	# Tanks and machine gun nests are split half-and-half across the
-	# TWO sides of the runway (not all clumped by the hangar).
-	var armed := PackedStringArray(["tank", "machine_gun_nest"])
-	var split: Array = _split_half(armed)
-	building_side.append_array(split[0])
 	_spawn_structures_on_side(PLAYER_HOMEBASE_ID, building_side, build_edge, build_dir, false)
-	_spawn_structures_on_side(PLAYER_HOMEBASE_ID, split[1], opp_edge, opp_dir, false)
+
+	# The opposite (second) spawn point is reserved for TANKS — ground
+	# vehicles that crawl out to hunt the enemy (they never respawn).  The
+	# friendly homebase fields a single tank.  Spawned on the far side of the
+	# runway, facing right (toward the foe).
+	for k in range(1):
+		var tx := opp_edge + opp_dir * (40.0 + k * 90.0)
+		_spawn_tank(PLAYER_HOMEBASE_ID, PLAYER_SPAWN_X, tx, false, 1.0)
 
 func _create_enemy_bases() -> void:
-	var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
 	for base_idx in range(enemy_home_positions.size()):
 		var home_x: float = enemy_home_positions[base_idx]
 		if abs(home_x - PLAYER_SPAWN_X) < SAFE_ZONE_RADIUS:
@@ -655,50 +702,31 @@ func _create_enemy_bases() -> void:
 		var opp_dir: float = 1.0 if not faces_left else -1.0
 
 		var hb_id: int = base_idx + 1
-
-		# Core cluster on the building side: a hangar (REQUIRED to
-		# respawn this base's planes), a building, an ammo depot
-		# (reloads), one fuel depot (refuel) and a flak cannon.
-		var core := PackedStringArray(["hangar", "building", "ammo_depot", "fuel_depot", "flak_cannon"])
-
-		# Guaranteed armed AA: one tank per completed game level
-		# (current_level starts at 1, +1 per level cleared) plus one
-		# machine gun nest.  Split half-and-half across the two
-		# sides of the runway so the base is not clumped by the
-		# hangar.
 		var lv: int = GameManager.current_level if GameManager else 1
-		var tanks_per_base: int = maxi(1, lv)
-		var armed := PackedStringArray()
-		for k in range(tanks_per_base):
-			armed.append("tank")
-		armed.append("machine_gun_nest")
-		var split: Array = _split_half(armed)
 
-		var building_side := core.duplicate()
-		building_side.append_array(split[0])
+		# Level 1 is a single clean set of each building type (no duplicates).
+		# Each additional level beyond the first adds ONE more machine gun
+		# nest or flak cannon per enemy home base, alternating so the base's
+		# AA mix grows evenly.  All static structures stay together on the
+		# building side behind the runway.
+		var building_side := PackedStringArray([
+			"hangar", "building", "ammo_depot", "fuel_depot",
+			"flak_cannon", "machine_gun_nest"])
+		for d in range(maxi(0, lv - 1)):
+			building_side.append("flak_cannon" if (d % 2 == 0) else "machine_gun_nest")
 		_spawn_structures_on_side(hb_id, building_side, build_edge, build_dir, true)
-		_spawn_structures_on_side(hb_id, split[1], opp_edge, opp_dir, true)
 
-		# Random extra decoration on the building side.
-		var tanks_setting: String = GameManager.enemy_tanks if GameManager else "Normal"
-		var num_extra: Dictionary = {"None": 0, "Few": 1, "Normal": 3, "Many": 6}
-		var extra_count: int = int(num_extra.get(tanks_setting, 3) * lm)
-		for i in range(extra_count):
-			var target_type: String = ["building", "hangar", "tank"].pick_random()
-			var target_hw: float = _get_target_half_width(target_type)
-			# Place extras on the building side (opposite the runway).
-			# For rightward: left of home_x.  For leftward:  right of home_x.
-			var target_step: float = 160.0
-			var target_x: float = home_x + build_dir * (200.0 + i * target_step)
-			var attempts := 0
-			while attempts < 20:
-				if not _is_position_occupied(target_x, target_hw):
-					break
-				target_x += build_dir * (target_hw * 2.0 + 10.0)
-				attempts += 1
-			if _is_position_occupied(target_x, target_hw):
-				continue
-			_spawn_base_target(hb_id, target_type, target_x, true)
+		# Tanks: crawl out from the OPPOSITE (second) spawn point to hunt the
+		# player.  Hostile homebases field at least two (scaling with level,
+		# like before).  Tanks never respawn.
+		var tanks_per_base: int = maxi(2, lv)
+		for k in range(tanks_per_base):
+			var dir := -1.0 if faces_left else 1.0
+			# Spawn PAST the far (opposite-from-buildings) end of the runway,
+			# not relative to home_x — home_x sits beside the strip, so an
+			# offset from it lands the tank on the runway itself.
+			var tx := opp_edge + opp_dir * (120.0 + k * 90.0)
+			_spawn_tank(hb_id, home_x, tx, true, dir)
 
 func _physics_process(delta: float) -> void:
 	if game_state != "PLAYING" or get_tree().paused:

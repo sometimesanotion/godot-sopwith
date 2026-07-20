@@ -49,7 +49,7 @@ func _physics_process(delta: float) -> void:
 			_try_aa_fire()
 
 func _is_armed() -> bool:
-	return target_type == "tank" or target_type == "flak_cannon" or target_type == "machine_gun_nest"
+	return target_type == "flak_cannon" or target_type == "machine_gun_nest"
 
 ## Pick the plane this structure should engage: enemy-base
 ## defences (is_enemy) fire at the player; the player's own
@@ -107,8 +107,6 @@ func _create_visuals() -> void:
 	_collision_polygon = CollisionPolygon2D.new()
 	if target_type == "hangar":
 		_create_hangar(_collision_polygon)
-	elif target_type == "tank":
-		_create_tank(_collision_polygon)
 	elif target_type == "fuel_depot":
 		_create_fuel_depot(_collision_polygon)
 	elif target_type == "ammo_depot":
@@ -138,27 +136,15 @@ func _create_hangar(polygon: CollisionPolygon2D) -> void:
 	])
 	polygon.polygon = points
 
-func _create_tank(polygon: CollisionPolygon2D) -> void:
-	var points := PackedVector2Array([
-		Vector2(-37.5, 27),
-		Vector2(-37.5, -15),
-		Vector2(-22.5, -15),
-		Vector2(-15, -27),
-		Vector2(15, -27),
-		Vector2(22.5, -15),
-		Vector2(37.5, -15),
-		Vector2(37.5, 27)
-	])
-	polygon.polygon = points
-
 func _create_fuel_depot(polygon: CollisionPolygon2D) -> void:
+	# Doubled in size (collision + drawing) relative to the other structures.
 	var points := PackedVector2Array([
-		Vector2(-22.5, 37.5),
-		Vector2(-22.5, -30),
-		Vector2(-15, -37.5),
-		Vector2(15, -37.5),
-		Vector2(22.5, -30),
-		Vector2(22.5, 37.5)
+		Vector2(-45, 75),
+		Vector2(-45, -60),
+		Vector2(-30, -75),
+		Vector2(30, -75),
+		Vector2(45, -60),
+		Vector2(45, 75)
 	])
 	polygon.polygon = points
 
@@ -218,8 +204,6 @@ func _draw() -> void:
 	var color := Color(0.3, 0.3, 0.35)
 	if target_type == "hangar":
 		color = Color(0.4, 0.2, 0.2)
-	elif target_type == "tank":
-		color = Color(0.2, 0.3, 0.2)
 	elif target_type == "fuel_depot":
 		color = Color(0.2, 0.5, 0.2)
 	elif target_type == "ammo_depot":
@@ -235,8 +219,6 @@ func _draw() -> void:
 
 	if target_type == "hangar":
 		draw_hangar_details()
-	elif target_type == "tank":
-		draw_tank_details()
 	elif target_type == "fuel_depot":
 		draw_fuel_depot_details()
 	elif target_type == "ammo_depot":
@@ -254,16 +236,11 @@ func draw_hangar_details() -> void:
 	draw_line(Vector2(35, -20), Vector2(35, -25), Color(0.2, 0.1, 0.1), 2)
 	draw_rect(Rect2(-5, -5, 10, 5), Color(0.1, 0.1, 0.15))
 
-func draw_tank_details() -> void:
-	draw_circle(Vector2(-5, -12), 3, Color(0.1, 0.2, 0.1))
-	draw_line(Vector2(-20, -15), Vector2(-25, -18), Color(0.15, 0.25, 0.15), 2)
-	draw_line(Vector2(20, -15), Vector2(25, -18), Color(0.15, 0.25, 0.15), 2)
-
 func draw_fuel_depot_details() -> void:
-	draw_line(Vector2(-12, -18), Vector2(-14, -22), Color(0.1, 0.2, 0.1), 2)
-	draw_line(Vector2(12, -18), Vector2(14, -22), Color(0.1, 0.2, 0.1), 2)
-	draw_rect(Rect2(-3, -22, 6, 3), Color(0.3, 0.2, 0.1))
-	draw_line(Vector2(0, -25), Vector2(0, -28), Color(0.8, 0.4, 0.1), 2)
+	draw_line(Vector2(-24, -36), Vector2(-28, -44), Color(0.1, 0.2, 0.1), 2)
+	draw_line(Vector2(24, -36), Vector2(28, -44), Color(0.1, 0.2, 0.1), 2)
+	draw_rect(Rect2(-6, -44, 12, 6), Color(0.3, 0.2, 0.1))
+	draw_line(Vector2(0, -50), Vector2(0, -56), Color(0.8, 0.4, 0.1), 2)
 
 func draw_ammo_depot_details() -> void:
 	draw_rect(Rect2(-42, -42, 30, 12), Color(0.15, 0.18, 0.3))
@@ -409,8 +386,6 @@ func _get_wreck_color() -> Color:
 	var color := Color(0.15, 0.15, 0.18)
 	if target_type == "hangar":
 		color = Color(0.2, 0.1, 0.1)
-	elif target_type == "tank":
-		color = Color(0.1, 0.15, 0.1)
 	elif target_type == "fuel_depot":
 		color = Color(0.1, 0.25, 0.1)
 	elif target_type == "ammo_depot":
@@ -439,8 +414,6 @@ func get_dominant_color() -> Color:
 			return Color(0.35, 0.35, 0.4)
 		"hangar":
 			return Color(0.4, 0.2, 0.2)
-		"tank":
-			return Color(0.2, 0.3, 0.2)
 		"fuel_depot":
 			return Color(0.2, 0.5, 0.2)
 		"ammo_depot":

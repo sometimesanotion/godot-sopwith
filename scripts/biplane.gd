@@ -28,7 +28,7 @@
 ## • German faction: Fokker D.VII (assets/svg/biplane.svg)
 ## • Model-specific physics parameters (mass, power, wing area, etc.)
 ## • Dynamic model switching with visual updates
-## • Ground vehicle support via has_aerodynamics flag
+## • Ground vehicle support via wing_area == 0.0 (no lift)
 ##
 ## DEBUGGING FEATURES
 ##
@@ -419,6 +419,18 @@ class AvatarData:
 	var control_effectiveness: float = 1.0
 	var is_airborne:         bool  = true
 
+	# Ground-vehicle support (tanks).  When the model has wing_area == 0.0,
+	# Aerodynamics skips lift so the body stays earth-bound; the "pitch" control
+	# axis is repurposed to aim a turret and the "roll" axis flips travel
+	# direction.  Aerodynamic capability is derived from wing_area, not a flag.
+	func is_aerodynamic() -> bool:
+		return model_params.get("wing_area", 0.0) > 0.0
+	## World-space turret bearing (rad). Driven by the AI/player "pitch"
+	## channel for ground vehicles; unused by aircraft.
+	var turret_angle:        float = 0.0
+	## Travel heading for ground vehicles: +1.0 = rightward, -1.0 = leftward.
+	var travel_dir:          float = 1.0
+
 	# Throttle & engine
 	var throttle:               float = 0.0
 	var throttle_target:        float = 0.0
@@ -526,6 +538,8 @@ class AvatarData:
 		angular_velocity  = 0.0
 		control_effectiveness = 1.0
 		is_airborne           = true
+		turret_angle       = 0.0
+		travel_dir         = 1.0
 		throttle         = 0.0
 		throttle_target  = 0.0
 		throttle_repeat_timer = 0.0
@@ -1083,8 +1097,11 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 				inp.is_grounded = true
 				out.v_perp = maxf(0.0, -inp.velocity.dot(inp.ground_normal))
 			continue
-		# Building/obstacle: StaticBody2D that isn't terrain
-		if collider is StaticBody2D:
+		# Building/obstacle: StaticBody2D that isn't terrain.  Ground
+		# vehicles (tanks) are blocked physically by the collision, but their
+		# contact damage is handled by the obstacle-collision scan, so skip
+		# the impulse-driven crash path here for them.
+		if collider is StaticBody2D and avatar.is_aerodynamic():
 			var impulse: Vector2 = state.get_contact_impulse(ci)
 			var impulse_mag: float = impulse.length()
 			if impulse_mag <= 0.0:
@@ -1131,7 +1148,7 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 			return
 		if avatar.flight_state == FlightState.DAMAGED:
 			pass
-	if inp.is_grounded and inp.tilt_angle >= deg_to_rad(avatar.max_landing_tilt):
+	if avatar.is_aerodynamic() and inp.is_grounded and inp.tilt_angle >= deg_to_rad(avatar.max_landing_tilt):
 		_on_avatar_crashed(avatar)
 		return
 
@@ -1582,6 +1599,11 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 		if child == self:
 			continue
 		if child.has_method("get_collision_response"):
+			# Ground vehicles (tanks, is_aerodynamic() == false) roll straight
+			# through buildings: no damage to the tank and none to the structure.
+			# They engage hostile buildings with their weapons instead.
+			if not avatar.is_aerodynamic() and "target_type" in child:
+				continue
 			var collision_result = child.get_collision_response(self, avatar, speed, soft_landing, hard_landing)
 			if collision_result.hit:
 				var actual_damage: float = collision_result.damage * 100.0
@@ -1738,6 +1760,10 @@ func _check_fuel_consumption(avatar: AvatarData, delta: float) -> void:
 ###############################################################################
 
 func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
+	# Ground vehicles never refuel/repair at a base (and must not teleport to
+	# the spawn point when they drive over their home strip).
+	if not avatar.is_aerodynamic():
+		return
 	if velocity.length() > 50 or (not is_grounded(avatar)):
 		return
 	var hb := _get_homebase(avatar)
@@ -2531,8 +2557,7 @@ func _debug_check_obstacle_forensics(avatar: AvatarData, speed: float, parent: N
 ##     avatar.faction = faction
 ##     avatar.team = Team.ALLIED if faction == Faction.BRITISH else Team.ENEMY
 ##     avatar.plane_model = "tank_mark_v"  # Would need to add tank model config
-##     avatar.update_model_params()
-##     avatar.has_aerodynamics = false  # Disable aerodynamics for ground vehicles
+##     avatar.update_model_params()  # tank model leaves wing_area == 0.0 (no lift)
 ##     avatar.pitch_angle = 0  # Ground vehicles don't pitch
 ##     global_position = position
 ##     _avatars[avatar.id] = avatar
@@ -2588,4 +2613,4 @@ func get_available_models() -> Array:
 ##
 ## Physics Access:
 ##   All physics now uses model-specific parameters through avatar.model_params
-##   Ground vehicles supported by setting has_aerodynamics = false in AvatarData
+##   Ground vehicles supported by leaving wing_area == 0.0 in AvatarData

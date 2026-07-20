@@ -26,7 +26,6 @@ class FlightInput:
 	var gravity: float         = 9.81
 	var arcade_multiplier: float = 2.4
 	var bungee_time: float     = 0.15
-	var has_aerodynamics: bool = true
 	var is_destroyed: bool     = false
 
 class FlightOutput:
@@ -100,6 +99,9 @@ static func calculate_forces(inp: FlightInput) -> FlightOutput:
 	var aoa_stall: bool = absf(aoa) > stall_aoa and speed_si < inp.stall_speed_ms * STALL_AOA_SPEED_MARGIN
 	out.is_stalled = (not inp.is_grounded) and (speed_stall or aoa_stall)
 
+	# Ground vehicles (wing_area == 0.0, e.g. tanks) generate no
+	# lift — they are held on the terrain entirely by gravity + the ground
+	# clamp, so skipping lift here is what keeps them from flying off.
 	var max_cl: float = inp.model_params.get("max_lift_coeff", 1.4)
 	var cl: float = clampf(aoa * 2.0 * PI, -max_cl, max_cl)
 	if out.is_stalled:
@@ -110,7 +112,7 @@ static func calculate_forces(inp: FlightInput) -> FlightOutput:
 	var rho: float = inp.air_density * density_factor
 	var wing_area: float = inp.model_params.get("wing_area", 21.46)
 
-	if speed_si > 0.5:
+	if wing_area > 0.0 and speed_si > 0.5:
 		var lift_si: float = 0.5 * rho * speed_si * speed_si * wing_area * cl
 		out.lift_force = right * lift_si
 

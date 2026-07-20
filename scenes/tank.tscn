@@ -1,0 +1,38 @@
+[gd_scene load_steps=7 format=3 uid="uid://tank_scene"]
+
+[ext_resource type="Script" path="res://scripts/tank.gd" id="1_tank"]
+[ext_resource type="Script" path="res://scripts/tank_draw.gd" id="2_tank_draw"]
+[ext_resource type="Script" path="res://scripts/enemy_ai.gd" id="3_ai"]
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_tank"]
+radius = 18.0
+height = 24.0
+
+[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_tank"]
+bounce = 0.0
+friction = 1.0
+
+[node name="Tank" type="RigidBody2D"]
+mass = 1200.0
+gravity_scale = 0.0
+contact_monitor = true
+max_contacts_reported = 4
+continuous_cd = 1
+collision_layer = 2
+collision_mask = 3
+physics_material_override = SubResource("PhysicsMaterial_tank")
+script = ExtResource("1_tank")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+rotation = 1.5708
+shape = SubResource("CapsuleShape2D_tank")
+
+[node name="Visual" type="Node2D" parent="."]
+script = ExtResource("2_tank_draw")
+
+[node name="GroundRay" type="RayCast2D" parent="."]
+target_position = Vector2(0, 26)
+collision_mask = 1
+
+[node name="EnemyAI" type="Node" parent="."]
+script = ExtResource("3_ai")
