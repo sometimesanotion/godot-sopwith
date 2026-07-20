@@ -119,7 +119,7 @@ func _create_fragments_with_color(base_color: Color) -> void:
 		# rb.inertia = 0.5
 
 		var random_dir := Vector2(randf_range(-1, 1), randf_range(-1, -0.3)).normalized()
-		var force := random_dir * randf_range(200, 500)
+		var force := random_dir * randf_range(400, 800)
 		rb.linear_velocity = force
 		rb.angular_velocity = randf_range(-5, 5)
 

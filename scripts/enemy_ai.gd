@@ -43,7 +43,7 @@ const PATROL_MAX_ALTITUDE            := 1500.0
 const MIN_ALTITUDE_ABOVE_GROUND      := 100.0
 const DANGER_ALTITUDE_ABOVE_GROUND   := 60.0
 const CRITICAL_ALTITUDE_ABOVE_GROUND := 20.0
-const PULL_UP_ALTITUDE               := 550.0
+const PULL_UP_ALTITUDE               := 580.0
 const MAX_ALTITUDE_FRACTION          := 0.4
 const MAX_ALTITUDE                   := 1600.0
 const ENGINE_CUTOFF_AVOID_FRACTION   := 0.8
@@ -1574,12 +1574,12 @@ func _on_enemy_landed(avatar_id: int) -> void:
 	## so the runway-side respawn timer must not be scheduled for them.
 	if is_ground_vehicle:
 		return
-	## A homebase with no surviving hangar can no longer put planes back in
-	## the air.  A wreck that lands under those conditions is removed from the
-	## map entirely (see _remove_from_map) instead of being left as a
+	## A homebase with no surviving buildings can no longer put planes back
+	## in the air.  A wreck that lands under those conditions is removed from
+	## the map entirely (see _remove_from_map) instead of being left as a
 	## permanent obstacle — the base is permanently grounded once its last
-	## hangar is destroyed.
-	if homebase_id >= 0 and BuildingRegistry and not BuildingRegistry.has_hangar(homebase_id):
+	## building is destroyed.
+	if homebase_id >= 0 and BuildingRegistry and not BuildingRegistry.has_any_building(homebase_id):
 		_remove_from_map()
 		return
 	## The wreck has hit the ground — queue the fixed 2s respawn.
@@ -1729,6 +1729,12 @@ func _ground_control(delta: float) -> void:
 		var tdiff := absf(wrapf(turret_aim - avatar.turret_angle, -PI, PI))
 		var in_range := biplane.global_position.distance_to(target.global_position) < TANK_FIRE_RANGE
 		fire = in_range and tdiff < TANK_FIRE_CONE
+		# Don't fire through terrain or other obstacles — only when the
+		# turret has a clear line of sight to the target.
+		if fire:
+			var turret_dir := Vector2(cos(avatar.turret_angle), sin(avatar.turret_angle))
+			var muzzle := biplane.global_position + turret_dir * 24.0
+			fire = _tank_has_line_of_sight(target, muzzle, turret_dir, biplane.global_position.distance_to(target.global_position))
 	else:
 		_tank_patrol(avatar)
 		turret_aim = 0.0 if avatar.travel_dir > 0.0 else PI
@@ -1749,6 +1755,22 @@ func _ground_control(delta: float) -> void:
 	avatar.throttle = move_toward(avatar.throttle, throttle, 2.5 * delta)
 
 	biplane.set_tank_fire(fire)
+
+## True when nothing blocks the straight line from `muzzle` along `dir`
+## (up to `dist`) before reaching `target`.  A raycast that hits terrain
+## (a StaticBody2D) or another obstacle/vehicle closer than the target
+## blocks fire; a hit on the target itself is a clear shot.  The firing
+## tank's own body is excluded so its muzzle (24px out) doesn't self-block.
+func _tank_has_line_of_sight(target: Node, muzzle: Vector2, dir: Vector2, dist: float) -> bool:
+	var space := biplane.get_world_2d().direct_space_state if biplane else null
+	if not space:
+		return true
+	var query := PhysicsRayQueryParameters2D.create(muzzle, muzzle + dir * dist)
+	query.exclude = [biplane.get_rid()]
+	var hit := space.intersect_ray(query)
+	if hit.is_empty():
+		return true
+	return hit.get("collider") == target
 
 ## Crawl back and forth across the home territory (home_base_x ± patrol_range/2).
 func _tank_patrol(avatar) -> void:

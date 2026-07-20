@@ -9,6 +9,17 @@ var damage: DamageData = DamageData.new()
 @export var is_wreck: bool = false
 @export var is_enemy: bool = false
 
+## AA fire-arc knob.  Flak cannons and machine gun nests will not open
+## fire when the target sits within this many degrees of the ground
+## (the horizontal) in EITHER direction, so they never rake their own
+## friendly buildings at ground level.  Raise/lower to widen/narrow the
+## blind cone.  Easily edited "knob".
+const GROUND_FIRE_EXCLUSION_DEG := 20.0
+
+## Buildings shrug off the first chunk of every hit, mirroring tanks'
+## TANK_DAMAGE_REDUCTION so static structures are tougher than planes.
+const BUILDING_DAMAGE_REDUCTION := 6.0
+
 ## Homebase this structure belongs to (BuildingRegistry key). -1 when the
 ## target is not tied to a homebase (e.g. stray wreck). Set by main.gd when
 ## the structure is spawned for a base; used to tally surviving hangars
@@ -79,6 +90,13 @@ func _try_aa_fire() -> void:
 	# Flak shells out-range the bullet curtain.
 	var effective_range := aa_range * (2.0 if target_type == "flak_cannon" else 1.0)
 	if dist > effective_range:
+		return
+
+	# Firing-arc knob: don't shoot within GROUND_FIRE_EXCLUSION_DEG of the
+	# ground (horizontal) in either direction, or we'd rake our own buildings.
+	# "Up" is -y, so elevation above the horizontal is asin(-to_target.y/dist).
+	var elevation := asin(clampf(-to_target.y / dist, -1.0, 1.0))
+	if absf(elevation) < deg_to_rad(GROUND_FIRE_EXCLUSION_DEG):
 		return
 
 	aa_timer = _aa_cooldown()
@@ -272,6 +290,9 @@ func take_damage(amount: float, attacker: Node) -> void:
 
 	if max_health <= 0:
 		return
+
+	# Buildings resist damage like tanks do.
+	amount = maxf(0.0, amount - BUILDING_DAMAGE_REDUCTION)
 
 	var dmg_pct := amount / max_health
 	damage.take_damage(dmg_pct)

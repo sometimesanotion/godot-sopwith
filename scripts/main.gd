@@ -80,9 +80,9 @@ func _ready() -> void:
 			RespawnManager.respawn_ready.disconnect(_respawn_biplane)
 		RespawnManager.respawn_ready.connect(_respawn_biplane)
 	if BuildingRegistry:
-		if BuildingRegistry.hangar_destroyed.is_connected(_on_hangar_destroyed):
-			BuildingRegistry.hangar_destroyed.disconnect(_on_hangar_destroyed)
-		BuildingRegistry.hangar_destroyed.connect(_on_hangar_destroyed)
+		if BuildingRegistry.buildings_destroyed.is_connected(_on_buildings_destroyed):
+			BuildingRegistry.buildings_destroyed.disconnect(_on_buildings_destroyed)
+		BuildingRegistry.buildings_destroyed.connect(_on_buildings_destroyed)
 	print("Main _ready: showing world with title overlay")
 	_show_startup_world()
 
@@ -662,20 +662,27 @@ func _create_home_base() -> void:
 	var opp_dir: float = 1.0
 
 	# All static structures stay together on the building side behind the
-	# runway — hangars, buildings, ammo/fuel depots, plus BOTH armed defences
-	# (the flak cannon and the machine gun nest).  None of these are vehicles.
+	# runway — hangars, buildings, ammo/fuel depots, plus the flak cannon.
+	# The machine gun nest is NOT here — it sits on the forward (second)
+	# spawn point, behind the tanks (see below).  None of these are vehicles.
+	# The flak cannon sits AHEAD of the hangar at the spawn point (closest
+	# to the runway edge), with the hangar and other buildings behind it.
 	var building_side := PackedStringArray([
-		"hangar", "building", "ammo_depot", "fuel_depot",
-		"flak_cannon", "machine_gun_nest"])
+		"flak_cannon", "hangar", "building", "ammo_depot", "fuel_depot"])
 
 	_spawn_structures_on_side(PLAYER_HOMEBASE_ID, building_side, build_edge, build_dir, false)
 
-	# The opposite (second) spawn point is reserved for TANKS — ground
+	# The machine gun nest goes on the forward (second) spawn point, BEHIND
+	# the tanks — closer to the runway than the tank column so the tanks
+	# screen it.  Spawned on the far side of the runway.
+	_spawn_base_target(PLAYER_HOMEBASE_ID, "machine_gun_nest", opp_edge + opp_dir * 40.0, false)
+
+	# The forward (second) spawn point is reserved for TANKS — ground
 	# vehicles that crawl out to hunt the enemy (they never respawn).  The
 	# friendly homebase fields a single tank.  Spawned on the far side of the
-	# runway, facing right (toward the foe).
+	# runway, in front of the machine gun nest, facing right (toward the foe).
 	for k in range(1):
-		var tx := opp_edge + opp_dir * (40.0 + k * 90.0)
+		var tx := opp_edge + opp_dir * (140.0 + k * 90.0)
 		_spawn_tank(PLAYER_HOMEBASE_ID, PLAYER_SPAWN_X, tx, false, 1.0)
 
 func _create_enemy_bases() -> void:
@@ -707,25 +714,41 @@ func _create_enemy_bases() -> void:
 		# Level 1 is a single clean set of each building type (no duplicates).
 		# Each additional level beyond the first adds ONE more machine gun
 		# nest or flak cannon per enemy home base, alternating so the base's
-		# AA mix grows evenly.  All static structures stay together on the
-		# building side behind the runway.
-		var building_side := PackedStringArray([
-			"hangar", "building", "ammo_depot", "fuel_depot",
-			"flak_cannon", "machine_gun_nest"])
+		# AA mix grows evenly.  Flak cannons stay on the building side behind
+		# the runway; machine gun nests are routed to the forward (second)
+		# spawn point (see below) so all MG nests screen the tanks.
+		var flak_total: int = 1
+		var mg_total: int = 1
 		for d in range(maxi(0, lv - 1)):
-			building_side.append("flak_cannon" if (d % 2 == 0) else "machine_gun_nest")
+			if d % 2 == 0:
+				flak_total += 1
+			else:
+				mg_total += 1
+		var building_side := PackedStringArray([
+			"flak_cannon", "hangar", "building", "ammo_depot", "fuel_depot"])
+		for i in range(flak_total - 1):
+			building_side.append("flak_cannon")
 		_spawn_structures_on_side(hb_id, building_side, build_edge, build_dir, true)
 
-		# Tanks: crawl out from the OPPOSITE (second) spawn point to hunt the
-		# player.  Hostile homebases field at least two (scaling with level,
-		# like before).  Tanks never respawn.
+		# Machine gun nests on the forward (second) spawn point, clustered
+		# just behind the tank column (closer to the runway) so the tanks
+		# screen them.  Hostile bases keep one at level 1 and add more with
+		# level.
+		for i in range(mg_total):
+			var mx := opp_edge + opp_dir * (40.0 + i * 90.0)
+			_spawn_base_target(hb_id, "machine_gun_nest", mx, true)
+
+		# Tanks: crawl out from the OPPOSITE (second) spawn point, IN FRONT
+		# of the machine gun nests, to hunt the player.  Hostile homebases
+		# field at least two (scaling with level).  Tanks never respawn.
 		var tanks_per_base: int = maxi(2, lv)
+		var tank_start: float = 40.0 + mg_total * 90.0 + 60.0
 		for k in range(tanks_per_base):
 			var dir := -1.0 if faces_left else 1.0
-			# Spawn PAST the far (opposite-from-buildings) end of the runway,
-			# not relative to home_x — home_x sits beside the strip, so an
-			# offset from it lands the tank on the runway itself.
-			var tx := opp_edge + opp_dir * (120.0 + k * 90.0)
+			# Spawn PAST the machine gun nests, not relative to home_x —
+			# home_x sits beside the strip, so an offset from it lands the
+			# tank on the runway itself.
+			var tx := opp_edge + opp_dir * (tank_start + k * 90.0)
 			_spawn_tank(hb_id, home_x, tx, true, dir)
 
 func _physics_process(delta: float) -> void:
@@ -745,12 +768,12 @@ func _on_biplane_crashed(is_midair: bool = false) -> void:
 	## respawn bookkeeping flag.
 	_player_crashed_exploded = true
 
-func _on_hangar_destroyed(homebase_id: int) -> void:
-	## The player's homebase shares registry id 0.  When its LAST hangar
+func _on_buildings_destroyed(homebase_id: int) -> void:
+	## The player's homebase shares registry id 0.  When its LAST building
 	## falls, the player can no longer put planes back in the air, so their
 	## remaining lives collapse to 1 — the next death ends the game (no
 	## further respawn).  Enemy bases are handled by the respawn gate in
-	## enemy_ai (a base with no hangar simply stops respawning).
+	## enemy_ai (a base with no buildings simply stops respawning).
 	if homebase_id == PLAYER_HOMEBASE_ID and GameManager:
 		var lives := GameManager.get_lives(0)
 		if lives > 1:

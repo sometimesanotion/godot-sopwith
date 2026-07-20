@@ -8,16 +8,16 @@ const TERRAIN_LENGTH := 16384.0
 # PALETTE CONSTANTS — Final Atmospheric Depth Palette
 # =============================================================================
 ## Layer 1 (Farthest): Monolithic Alps. Deep regal cobalt blues.
-const COBALT_ALPS_CREST := Color(0.06, 0.15, 0.50)
-const COBALT_ALPS_BASE  := Color(0.12, 0.25, 0.55)
+const COBALT_ALPS_CREST := Color(0.06, 0.12, 0.48)
+const COBALT_ALPS_BASE  := Color(0.10, 0.22, 0.55)
 
 ## Layer 2 (Mid): Misty transition hills.
-const MID_MOUNTAIN_CREST := Color(0.10, 0.26, 0.36)
-const MID_MOUNTAIN_BASE  := Color(0.12, 0.28, 0.40)
+const MID_MOUNTAIN_CREST := Color(0.10, 0.25, 0.42)
+const MID_MOUNTAIN_BASE  := Color(0.12, 0.22, 0.34)
 
 ## Layer 3 (Nearest): Foreground backdrop hills.
-const FOREGROUND_HILL_CREST := Color(0.10, 0.32, 0.22)
-const FOREGROUND_HILL_BASE  := Color(0.12, 0.34, 0.24)
+const FOREGROUND_HILL_CREST := Color(0.10, 0.30, 0.25)
+const FOREGROUND_HILL_BASE  := Color(0.12, 0.26, 0.20)
 
 const DEFAULT_SNOW_LINE_Y := 600.0
 
@@ -43,14 +43,14 @@ const DEFAULT_SNOW_LINE_Y := 600.0
 # --- Layer 1: Farthest monolithic Alps (slowest, highest, barely tracks) ---
 const LAYER1_MOTION_SCALE_X := 0.05
 const LAYER1_MOTION_SCALE_Y := 0.25
-const LAYER1_BASELINE_Y     := 820.0
-const LAYER1_FLOOR_Y        := 1600.0
+const LAYER1_BASELINE_Y     := 850.0
+const LAYER1_FLOOR_Y        := 1200.0
 # PERIOD is the repeating width of the silhouette (and the parallax mirror
 # distance).  It is its OWN knob — NOT derived from MOTION_SCALE_X — so widening
 # the pattern does not change how fast the layer pans with the camera.  The old
 # value was TERRAIN_LENGTH*MOTION_SCALE_X = 819 px, which tiled ~14× across the
 # background; the wider value below repeats only ~2× and stays seamless.
-const LAYER1_PERIOD         := 6000.0
+const LAYER1_PERIOD         := 4000.0
 # ZOOM: vertical scale of the range.  Larger amplitude = taller, more imposing
 # (more "zoomed-in") alps.  LAYER1_FREQUENCY is the horizontal detail/zoom knob
 # (smaller = broader, smoother mountains).
@@ -65,10 +65,8 @@ const LAYER1_SNOW_LINE_Y    := 400.0   # Y above which snow caps are drawn
 const LAYER2_MOTION_SCALE_X := 0.15
 const LAYER2_MOTION_SCALE_Y := 0.35
 const LAYER2_BASELINE_Y     := 820.0
-const LAYER2_FLOOR_Y        := 1600.0
-# Dedicated repeating width (decoupled from motion scale), matching the old
-# TERRAIN_LENGTH*MOTION_SCALE_X = 2457.6 so behaviour is unchanged.
-const LAYER2_PERIOD         := 2457.6
+const LAYER2_FLOOR_Y        := 1400.0
+const LAYER2_PERIOD         := 8000.0
 const LAYER2_AMPLITUDE_PX   := 210.0
 const LAYER2_FREQUENCY      := 0.0028
 const LAYER2_SEGMENT_PX     := 56.0
@@ -80,9 +78,7 @@ const LAYER3_MOTION_SCALE_X := 0.3
 const LAYER3_MOTION_SCALE_Y := 0.5
 const LAYER3_BASELINE_Y     := 800.0
 const LAYER3_FLOOR_Y        := 1600.0
-# Dedicated repeating width (decoupled from motion scale), matching the old
-# TERRAIN_LENGTH*MOTION_SCALE_X = 4915.2 so behaviour is unchanged.
-const LAYER3_PERIOD         := 4915.2
+const LAYER3_PERIOD         := 12000.0
 const LAYER3_AMPLITUDE_PX   := 110.0
 const LAYER3_FREQUENCY      := 0.0035
 const LAYER3_SEGMENT_PX     := 64.0

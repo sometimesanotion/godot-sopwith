@@ -13,15 +13,12 @@ class_name Tank
 ##   * The "roll" control axis flips travel direction
 ##     (`AvatarData.travel_dir`: +1 = right, -1 = left) — exactly the control
 ##     mapping the AI uses, so a tank is driven with the same channels as a plane.
-##
-## Tanks slowly grind across the map, hunt enemy units with machine guns, and
-## shrug off 18 points of damage from any weapon or collision.
 
 const TANK_BULLET_SPEED      := 800.0
 const TANK_BULLET_DAMAGE     := 20.0
 const TANK_BULLET_RANGE      := 600.0
 const TANK_GUN_COOLDOWN      := 0.12
-const TANK_DAMAGE_REDUCTION  := 10.0   ## points subtracted from every hit
+const TANK_DAMAGE_REDUCTION  := 8.0   ## points subtracted from every hit
 
 ## Set by the (ground-mode) EnemyAI each frame: does the turret want to fire?
 var ai_fire_request: bool = false

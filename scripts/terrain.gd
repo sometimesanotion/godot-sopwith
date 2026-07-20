@@ -7,6 +7,14 @@ const TERRAIN_LOW_BOUND := 3000.0
 const SEGMENT_WIDTH := 64.0
 const BASE_Y := 650.0
 
+# Vertical gradient crest (used at the highest terrain peaks).  Mirrors the
+# layer-3 foreground-hill gradient in background.gd: the terrain fill blends
+# from ground_crest_color at the highest points down to ground_base_color in the
+# valleys / depths, giving the playfield the same depth cue as the parallax.
+@export var ground_crest_color: Color = Color(0.10, 0.36, 0.22)
+@export var ground_base_color: Color = Color(0.05, 0.17, 0.10)
+@export var runway_color: Color = Color(0.35, 0.35, 0.4)
+
 # --- Runway ---
 const RUNWAY_START := 5300.0
 const RUNWAY_LENGTH := 700.0
@@ -74,14 +82,6 @@ class Runway:
 		height = h
 
 var runways: Array[Runway] = []
-
-@export var ground_color: Color = Color(0.03, 0.20, 0.10)
-# Vertical gradient crest (used at the highest terrain peaks).  Mirrors the
-# layer-3 foreground-hill gradient in background.gd: the terrain fill blends
-# from ground_crest_color at the highest points down to ground_color in the
-# valleys / depths, giving the playfield the same depth cue as the parallax.
-@export var ground_crest_color: Color = Color(0.10, 0.35, 0.21)
-@export var runway_color: Color = Color(0.35, 0.35, 0.4)
 
 func _ready() -> void:
 	runways.append(Runway.new(RUNWAY_START, RUNWAY_END))
@@ -172,7 +172,7 @@ func _update_terrain_geometry() -> void:
 
 	# Per-vertex vertical gradient (mirrors background.gd layer 3's
 	# build_gradient_mountain_polygon): the highest terrain point takes
-	# ground_crest_color, the lowest surface point takes ground_color, and every
+	# ground_crest_color, the lowest surface point takes ground_base_color, and every
 	# other vertex is linearly interpolated by height.  The two floor-closing
 	# points use the base color.  `poly.color` is left white so the vertex
 	# colors render directly.
@@ -190,9 +190,9 @@ func _update_terrain_geometry() -> void:
 	if has_surface:
 		for pt in ground_points:
 			var t := clampf((pt.y - peak_y) / span, 0.0, 1.0)
-			vcols.append(ground_crest_color.lerp(ground_color, t))
-	vcols.append(ground_color)   # floor-closing point (TERRAIN_LENGTH, LOW_BOUND)
-	vcols.append(ground_color)   # floor-closing point (0, LOW_BOUND)
+			vcols.append(ground_crest_color.lerp(ground_base_color, t))
+	vcols.append(ground_base_color)   # floor-closing point (TERRAIN_LENGTH, LOW_BOUND)
+	vcols.append(ground_base_color)   # floor-closing point (0, LOW_BOUND)
 
 	if terrain_body:
 		for child in terrain_body.get_children():

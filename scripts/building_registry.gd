@@ -16,7 +16,7 @@ extends Node
 ## hangar / fuel depot / ammo depot" used by biplane._check_home_refuel
 ## and by the AI respawn gate.
 
-signal hangar_destroyed(homebase_id: int)
+signal buildings_destroyed(homebase_id: int)
 
 var _counts: Dictionary = {}  # homebase_id -> Dictionary[type: String -> int]
 
@@ -40,12 +40,11 @@ func unregister(homebase_id: int, target_type: String) -> void:
 		by_type.erase(target_type)
 		if by_type.is_empty():
 			_counts.erase(homebase_id)
+			# The base has lost its LAST standing building — this is the
+			# moment it can no longer respawn planes.
+			buildings_destroyed.emit(homebase_id)
 	else:
 		by_type[target_type] = n
-	# Notify when the LAST hangar of a homebase falls — that is the
-	# moment the base can no longer respawn planes.
-	if target_type == "hangar" and n <= 0:
-		hangar_destroyed.emit(homebase_id)
 
 func count(homebase_id: int, target_type: String) -> int:
 	if not _counts.has(homebase_id):
@@ -54,6 +53,12 @@ func count(homebase_id: int, target_type: String) -> int:
 
 func has_hangar(homebase_id: int) -> bool:
 	return count(homebase_id, "hangar") > 0
+
+## True when the homebase still has at least one standing building of
+## ANY type.  A base with no buildings left can no longer put planes
+## back in the air.
+func has_any_building(homebase_id: int) -> bool:
+	return _counts.has(homebase_id) and not _counts[homebase_id].is_empty()
 
 func has_fuel_depot(homebase_id: int) -> bool:
 	return count(homebase_id, "fuel_depot") > 0
