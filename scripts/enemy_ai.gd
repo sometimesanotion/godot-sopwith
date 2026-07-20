@@ -648,7 +648,7 @@ func _takeoff_pitch(avatar) -> float:
 	# eases the climb command toward zero as the tilt nears the cap (soft, so
 	# it asymptotes to the limit instead of slamming the airframe into it).
 	if alt < TAKEOFF_TILT_LIMIT_ALT and command < 0.0 and avatar:
-		var max_tilt_rad := deg_to_rad(avatar.max_landing_tilt * 0.7)
+		var max_tilt_rad := deg_to_rad(avatar.max_landing_tilt * 0.9)
 		var climb_tilt := maxf(0.0, -avatar.gravity_pitch())
 		var headroom := max_tilt_rad - climb_tilt
 		if headroom <= 0.0:
