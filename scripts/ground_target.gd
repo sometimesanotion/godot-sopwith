@@ -22,6 +22,7 @@ var _collision_polygon: CollisionPolygon2D = null
 var _svg_sprite_name: String = ""
 
 const AA_PROJECTILE := preload("res://scenes/bullet.tscn")
+const FLAK_SHELL := preload("res://scenes/flak_shell.tscn")
 
 func _ready() -> void:
 	add_to_group("destructible")
@@ -47,29 +48,60 @@ func _physics_process(delta: float) -> void:
 		if aa_timer <= 0:
 			_try_aa_fire()
 
+func _is_armed() -> bool:
+	return target_type == "tank" or target_type == "flak_cannon" or target_type == "machine_gun_nest"
+
+## Pick the plane this structure should engage: enemy-base
+## defences (is_enemy) fire at the player; the player's own
+## homebase defences fire at enemy planes.  Faction-aware so a
+## base never shoots its own side.  Targets the PLANE node
+## ("player" / "enemy_plane" groups), never the EnemyAI
+## controller (also in "enemy"), which has no global_position.
+func _acquire_aa_target() -> Node:
+	var group := "player" if is_enemy else "enemy_plane"
+	return get_tree().get_first_node_in_group(group)
+
+func _aa_cooldown() -> float:
+	match target_type:
+		"machine_gun_nest": return 0.4
+		"flak_cannon": return 1.5
+		_: return 1.0
+
 func _try_aa_fire() -> void:
-	var player := get_tree().get_first_node_in_group("player")
-	if not player:
+	if not _is_armed():
+		return
+	var target := _acquire_aa_target()
+	if not target:
 		return
 
-	var to_player: Vector2 = player.global_position - global_position
-	var dist := to_player.length()
-	if dist > aa_range:
+	var to_target: Vector2 = target.global_position - global_position
+	var dist := to_target.length()
+	# Flak shells out-range the bullet curtain.
+	var effective_range := aa_range * (2.0 if target_type == "flak_cannon" else 1.0)
+	if dist > effective_range:
 		return
 
-	var angle_from_horizontal := atan2(to_player.y, to_player.x)
-	if angle_from_horizontal > deg_to_rad(-10):
-		return
+	aa_timer = _aa_cooldown()
+	var muzzle := global_position + Vector2(0, -45.0)
+	if target_type == "flak_cannon":
+		_fire_flak_shell(target, muzzle, to_target)
+	else:
+		_fire_aa_bullet(target, muzzle, to_target)
 
-	aa_timer = aa_cooldown
-
+func _fire_aa_bullet(target: Node, muzzle: Vector2, to_target: Vector2) -> void:
 	var bullet: CharacterBody2D = AA_PROJECTILE.instantiate()
-	bullet.global_position = global_position + Vector2(15, -45)
-	bullet.rotation = to_player.angle()
-	bullet.speed = 500
+	bullet.global_position = muzzle
+	bullet.rotation = to_target.angle()
+	bullet.speed = 500.0
 	bullet.damage = 60.0
 	bullet.assign_owner(self)
 	get_parent().add_child(bullet)
+
+func _fire_flak_shell(target: Node, muzzle: Vector2, to_target: Vector2) -> void:
+	var shell: CharacterBody2D = FLAK_SHELL.instantiate()
+	var dir := to_target.normalized()
+	shell.fire(self, muzzle, dir, 500.0)
+	get_parent().add_child(shell)
 
 func _create_visuals() -> void:
 	_collision_polygon = CollisionPolygon2D.new()
@@ -81,6 +113,10 @@ func _create_visuals() -> void:
 		_create_fuel_depot(_collision_polygon)
 	elif target_type == "ammo_depot":
 		_create_ammo_depot(_collision_polygon)
+	elif target_type == "flak_cannon":
+		_create_flak_cannon(_collision_polygon)
+	elif target_type == "machine_gun_nest":
+		_create_machine_gun_nest(_collision_polygon)
 	else:
 		_create_building(_collision_polygon)
 	add_child(_collision_polygon)
@@ -93,58 +129,80 @@ func _create_visuals() -> void:
 
 func _create_hangar(polygon: CollisionPolygon2D) -> void:
 	var points := PackedVector2Array([
-		Vector2(-40, 35),
-		Vector2(-40, -25),
-		Vector2(-20, -35),
-		Vector2(20, -35),
-		Vector2(40, -25),
-		Vector2(40, 35)
+		Vector2(-60, 52.5),
+		Vector2(-60, -37.5),
+		Vector2(-30, -52.5),
+		Vector2(30, -52.5),
+		Vector2(60, -37.5),
+		Vector2(60, 52.5)
 	])
 	polygon.polygon = points
 
 func _create_tank(polygon: CollisionPolygon2D) -> void:
 	var points := PackedVector2Array([
-		Vector2(-25, 18),
-		Vector2(-25, -10),
-		Vector2(-15, -10),
-		Vector2(-10, -18),
-		Vector2(10, -18),
-		Vector2(15, -10),
-		Vector2(25, -10),
-		Vector2(25, 18)
+		Vector2(-37.5, 27),
+		Vector2(-37.5, -15),
+		Vector2(-22.5, -15),
+		Vector2(-15, -27),
+		Vector2(15, -27),
+		Vector2(22.5, -15),
+		Vector2(37.5, -15),
+		Vector2(37.5, 27)
 	])
 	polygon.polygon = points
 
 func _create_fuel_depot(polygon: CollisionPolygon2D) -> void:
 	var points := PackedVector2Array([
-		Vector2(-15, 25),
-		Vector2(-15, -20),
-		Vector2(-10, -25),
-		Vector2(10, -25),
-		Vector2(15, -20),
-		Vector2(15, 25)
+		Vector2(-22.5, 37.5),
+		Vector2(-22.5, -30),
+		Vector2(-15, -37.5),
+		Vector2(15, -37.5),
+		Vector2(22.5, -30),
+		Vector2(22.5, 37.5)
 	])
 	polygon.polygon = points
 
 func _create_ammo_depot(polygon: CollisionPolygon2D) -> void:
 	var points := PackedVector2Array([
-		Vector2(-35, 30),
-		Vector2(-35, -20),
-		Vector2(-20, -30),
-		Vector2(20, -30),
-		Vector2(35, -20),
-		Vector2(35, 30)
+		Vector2(-52.5, 45),
+		Vector2(-52.5, -30),
+		Vector2(-30, -45),
+		Vector2(30, -45),
+		Vector2(52.5, -30),
+		Vector2(52.5, 45)
+	])
+	polygon.polygon = points
+
+func _create_flak_cannon(polygon: CollisionPolygon2D) -> void:
+	var points := PackedVector2Array([
+		Vector2(-45, 30),
+		Vector2(-45, -20),
+		Vector2(-25, -30),
+		Vector2(25, -30),
+		Vector2(45, -20),
+		Vector2(45, 30)
+	])
+	polygon.polygon = points
+
+func _create_machine_gun_nest(polygon: CollisionPolygon2D) -> void:
+	var points := PackedVector2Array([
+		Vector2(-35, 25),
+		Vector2(-35, -15),
+		Vector2(-20, -25),
+		Vector2(20, -25),
+		Vector2(35, -15),
+		Vector2(35, 25)
 	])
 	polygon.polygon = points
 
 func _create_building(polygon: CollisionPolygon2D) -> void:
 	var points := PackedVector2Array([
-		Vector2(-30, 40),
-		Vector2(-30, -30),
-		Vector2(-15, -40),
-		Vector2(15, -40),
-		Vector2(30, -30),
-		Vector2(30, 40)
+		Vector2(-45, 60),
+		Vector2(-45, -45),
+		Vector2(-22.5, -60),
+		Vector2(22.5, -60),
+		Vector2(45, -45),
+		Vector2(45, 60)
 	])
 	polygon.polygon = points
 
@@ -166,6 +224,10 @@ func _draw() -> void:
 		color = Color(0.2, 0.5, 0.2)
 	elif target_type == "ammo_depot":
 		color = Color(0.25, 0.3, 0.5)
+	elif target_type == "flak_cannon":
+		color = Color(0.35, 0.25, 0.25)
+	elif target_type == "machine_gun_nest":
+		color = Color(0.3, 0.33, 0.28)
 	elif target_type == "building":
 		color = Color(0.35, 0.35, 0.4)
 
@@ -179,6 +241,10 @@ func _draw() -> void:
 		draw_fuel_depot_details()
 	elif target_type == "ammo_depot":
 		draw_ammo_depot_details()
+	elif target_type == "flak_cannon":
+		draw_flak_cannon_details()
+	elif target_type == "machine_gun_nest":
+		draw_machine_gun_nest_details()
 	elif target_type == "building":
 		draw_building_details()
 
@@ -200,9 +266,21 @@ func draw_fuel_depot_details() -> void:
 	draw_line(Vector2(0, -25), Vector2(0, -28), Color(0.8, 0.4, 0.1), 2)
 
 func draw_ammo_depot_details() -> void:
-	draw_rect(Rect2(-28, -28, 20, 8), Color(0.15, 0.18, 0.3))
-	draw_rect(Rect2(8, -28, 20, 8), Color(0.15, 0.18, 0.3))
-	draw_circle(Vector2(0, -20), 3, Color(0.1, 0.12, 0.25))
+	draw_rect(Rect2(-42, -42, 30, 12), Color(0.15, 0.18, 0.3))
+	draw_rect(Rect2(12, -42, 30, 12), Color(0.15, 0.18, 0.3))
+	draw_circle(Vector2(0, -30), 4, Color(0.1, 0.12, 0.25))
+
+func draw_flak_cannon_details() -> void:
+	# Twin barrels angled skyward.
+	draw_line(Vector2(-12, -20), Vector2(-18, -45), Color(0.1, 0.1, 0.12), 4)
+	draw_line(Vector2(12, -20), Vector2(18, -45), Color(0.1, 0.1, 0.12), 4)
+	draw_rect(Rect2(-20, -22, 40, 8), Color(0.2, 0.15, 0.15))
+
+func draw_machine_gun_nest_details() -> void:
+	# Sandbag rings + a pair of muzzles.
+	draw_rect(Rect2(-28, -18, 56, 10), Color(0.22, 0.2, 0.16))
+	draw_line(Vector2(-10, -22), Vector2(-14, -38), Color(0.12, 0.12, 0.14), 3)
+	draw_line(Vector2(10, -22), Vector2(14, -38), Color(0.12, 0.12, 0.14), 3)
 
 func draw_building_details() -> void:
 	draw_rect(Rect2(-22, -35, 44, 5), Color(0.2, 0.2, 0.25))
@@ -337,6 +415,10 @@ func _get_wreck_color() -> Color:
 		color = Color(0.1, 0.25, 0.1)
 	elif target_type == "ammo_depot":
 		color = Color(0.12, 0.15, 0.25)
+	elif target_type == "flak_cannon":
+		color = Color(0.18, 0.12, 0.12)
+	elif target_type == "machine_gun_nest":
+		color = Color(0.15, 0.16, 0.13)
 	return color
 
 func _get_wreck_draw_script() -> GDScript:
@@ -363,6 +445,10 @@ func get_dominant_color() -> Color:
 			return Color(0.2, 0.5, 0.2)
 		"ammo_depot":
 			return Color(0.25, 0.3, 0.5)
+		"flak_cannon":
+			return Color(0.35, 0.25, 0.25)
+		"machine_gun_nest":
+			return Color(0.3, 0.33, 0.28)
 		_:
 			return Color(0.3, 0.3, 0.35)
 
