@@ -75,7 +75,12 @@ class Runway:
 
 var runways: Array[Runway] = []
 
-@export var ground_color: Color = Color(0.05, 0.30, 0.10)
+@export var ground_color: Color = Color(0.03, 0.20, 0.10)
+# Vertical gradient crest (used at the highest terrain peaks).  Mirrors the
+# layer-3 foreground-hill gradient in background.gd: the terrain fill blends
+# from ground_crest_color at the highest points down to ground_color in the
+# valleys / depths, giving the playfield the same depth cue as the parallax.
+@export var ground_crest_color: Color = Color(0.10, 0.35, 0.21)
 @export var runway_color: Color = Color(0.35, 0.35, 0.4)
 
 func _ready() -> void:
@@ -110,14 +115,16 @@ func _create_terrain() -> void:
 	add_child(terrain_body)
 
 	terrain_polygon = Polygon2D.new()
-	terrain_polygon.color = ground_color
+	# Vertex colors drive the fill (see _update_terrain_geometry), so the flat
+	# color is left white and the gradient is supplied per-vertex.
+	terrain_polygon.color = Color(1.0, 1.0, 1.0, 1.0)
 	add_child(terrain_polygon)
 
 	# Three tiled copies for seamless world wrapping.
 	terrain_polygons = [terrain_polygon]
 	for offset in [-TERRAIN_LENGTH, TERRAIN_LENGTH]:
 		var copy := Polygon2D.new()
-		copy.color = ground_color
+		copy.color = Color(1.0, 1.0, 1.0, 1.0)
 		copy.position.x = offset
 		add_child(copy)
 		terrain_polygons.append(copy)
@@ -162,12 +169,38 @@ func _update_terrain_geometry() -> void:
 	var poly_points := ground_points.duplicate()
 	poly_points.append(Vector2(TERRAIN_LENGTH, TERRAIN_LOW_BOUND))
 	poly_points.append(Vector2(0, TERRAIN_LOW_BOUND))
+
+	# Per-vertex vertical gradient (mirrors background.gd layer 3's
+	# build_gradient_mountain_polygon): the highest terrain point takes
+	# ground_crest_color, the lowest surface point takes ground_color, and every
+	# other vertex is linearly interpolated by height.  The two floor-closing
+	# points use the base color.  `poly.color` is left white so the vertex
+	# colors render directly.
+	var vcols := PackedColorArray()
+	var has_surface := not ground_points.is_empty()
+	var peak_y := INF
+	var base_y := -INF
+	if has_surface:
+		for pt in ground_points:
+			peak_y = minf(peak_y, pt.y)
+			base_y = maxf(base_y, pt.y)
+	var span := base_y - peak_y
+	if span < 1.0:
+		span = 1.0
+	if has_surface:
+		for pt in ground_points:
+			var t := clampf((pt.y - peak_y) / span, 0.0, 1.0)
+			vcols.append(ground_crest_color.lerp(ground_color, t))
+	vcols.append(ground_color)   # floor-closing point (TERRAIN_LENGTH, LOW_BOUND)
+	vcols.append(ground_color)   # floor-closing point (0, LOW_BOUND)
+
 	if terrain_body:
 		for child in terrain_body.get_children():
 			if child is CollisionPolygon2D:
 				child.polygon = poly_points
 	for poly in terrain_polygons:
 		poly.polygon = poly_points
+		poly.vertex_colors = vcols
 
 func _create_runway_visual(start: float, end: float, height: float = BASE_Y) -> void:
 	if SvgManager and SvgManager.has_sprite("runway"):

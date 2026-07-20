@@ -288,17 +288,6 @@ static func make_ridge_polygon(ridge: PackedVector2Array, period: float,
 	poly.color = color
 	return poly
 
-static func make_trim_line(ridge: PackedVector2Array, color: Color,
-		width := 2.5) -> Line2D:
-	var line := Line2D.new()
-	line.points = ridge
-	line.default_color = color.lightened(0.15)
-	line.width = width
-	line.joint_mode = Line2D.LINE_JOINT_ROUND
-	line.begin_cap_mode = Line2D.LINE_CAP_ROUND
-	line.end_cap_mode = Line2D.LINE_CAP_ROUND
-	return line
-
 ## Ridge silhouette with per-vertex vertical gradient. Highest peak takes
 ## `peak_color`, lowest baseline takes `base_color`, all others linearly
 ## interpolated. `polygon.color` left at white so vertex colors render directly.

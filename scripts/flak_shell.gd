@@ -10,7 +10,7 @@ extends CharacterBody2D
 
 var gravity: float = 60.0
 var explosion_radius: float = 100.0
-var explosion_damage: float = 30.0
+var explosion_damage: float = 80.0
 
 var _owner: Node = null
 var _has_exploded: bool = false
