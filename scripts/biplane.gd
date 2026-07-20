@@ -1738,7 +1738,7 @@ func _check_fuel_consumption(avatar: AvatarData, delta: float) -> void:
 ###############################################################################
 
 func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
-	if velocity.length() > 40 or (not is_grounded(avatar)):
+	if velocity.length() > 50 or (not is_grounded(avatar)):
 		return
 	var hb := _get_homebase(avatar)
 	if not hb:
@@ -1757,10 +1757,26 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 	if avatar.ammo == MAX_AMMO and avatar.bombs == max_bombs and avatar.fuel == 100:
 		return
 
-	var randomi := randi() % 10
+	var randomi := randi() % 100
+	## Base percentage chances for a repair/reload (spec).  A homebase
+	## missing the relevant structure halves that chance: no hangar ->
+	## slower repairs, no fuel depot -> slower refuel, no ammo depot
+	## -> slower rearm.  The registry is the single source of truth for
+	## which structures this homebase still has standing.
+	var hb_id := avatar.homebase_id
+	var has_hangar := true
+	var has_fuel_depot := true
+	var has_ammo_depot := true
+	if BuildingRegistry:
+		has_hangar = BuildingRegistry.has_hangar(hb_id)
+		has_fuel_depot = BuildingRegistry.has_fuel_depot(hb_id)
+		has_ammo_depot = BuildingRegistry.has_ammo_depot(hb_id)
+	var hangar_factor := 20 if has_hangar else 10
+	var fuel_factor := 80 if has_fuel_depot else 40
+	var ammo_factor := 40 if has_ammo_depot else 20
 
 	## Repair damage on landing at home.
-	if randomi >= 8 and avatar.damage.damage_state != DamageData.DamageState.INTACT:
+	if randomi <= hangar_factor and avatar.damage.damage_state != DamageData.DamageState.INTACT:
 		avatar.damage.repair(false, 0.01)
 		_refresh_damage_modifiers(avatar)
 		# avatar.set_flight_state(FlightState.FLYING)
@@ -1770,12 +1786,14 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 		var old_ammo  := avatar.ammo
 		var old_bombs := avatar.bombs
 		var old_fuel  := avatar.fuel
-
-		avatar.ammo = minf(MAX_AMMO, avatar.ammo + 12.0 + int(delta * 50.0))
-		avatar.fuel = minf(100.0, avatar.fuel + 6.0 + int(delta * 50.0))
-		if randomi >= 6:
-			avatar.bombs = mini(max_bombs, avatar.bombs + 1)
 		avatar.refuel_timer = 0.0
+
+		if randomi <= ammo_factor / 2:
+			avatar.ammo = minf(MAX_AMMO, avatar.ammo + 12.0 + int(delta * 50.0))
+		if randomi <= fuel_factor:
+			avatar.fuel = minf(100.0, avatar.fuel + 6.0 + int(delta * 50.0))
+		if randomi <= ammo_factor:
+			avatar.bombs = mini(max_bombs, avatar.bombs + 1)
 
 		if GameManager and is_player_controlled:
 			if avatar.ammo  != old_ammo:  GameManager.ammo_changed.emit(avatar.id, avatar.ammo)

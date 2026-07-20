@@ -9,6 +9,12 @@ var damage: DamageData = DamageData.new()
 @export var is_wreck: bool = false
 @export var is_enemy: bool = false
 
+## Homebase this structure belongs to (BuildingRegistry key). -1 when the
+## target is not tied to a homebase (e.g. stray wreck). Set by main.gd when
+## the structure is spawned for a base; used to tally surviving hangars
+## / fuel depots / ammo depots per homebase for refuel-rearm and respawn.
+var homebase_id: int = -1
+
 var is_destroyed: bool = false
 var aa_timer: float = 0.0
 var polygon_points: PackedVector2Array = []
@@ -29,6 +35,11 @@ func _ready() -> void:
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	queue_redraw()
+	# Register with the global per-homebase tally so refuel/rearm and
+	# respawn checks can see whether this structure's base still has a
+	# hangar / fuel depot / ammo depot standing.
+	if homebase_id >= 0 and BuildingRegistry:
+		BuildingRegistry.register(homebase_id, target_type)
 
 func _physics_process(delta: float) -> void:
 	if has_aa and not is_destroyed:
@@ -68,6 +79,8 @@ func _create_visuals() -> void:
 		_create_tank(_collision_polygon)
 	elif target_type == "fuel_depot":
 		_create_fuel_depot(_collision_polygon)
+	elif target_type == "ammo_depot":
+		_create_ammo_depot(_collision_polygon)
 	else:
 		_create_building(_collision_polygon)
 	add_child(_collision_polygon)
@@ -113,6 +126,17 @@ func _create_fuel_depot(polygon: CollisionPolygon2D) -> void:
 	])
 	polygon.polygon = points
 
+func _create_ammo_depot(polygon: CollisionPolygon2D) -> void:
+	var points := PackedVector2Array([
+		Vector2(-35, 30),
+		Vector2(-35, -20),
+		Vector2(-20, -30),
+		Vector2(20, -30),
+		Vector2(35, -20),
+		Vector2(35, 30)
+	])
+	polygon.polygon = points
+
 func _create_building(polygon: CollisionPolygon2D) -> void:
 	var points := PackedVector2Array([
 		Vector2(-30, 40),
@@ -140,6 +164,8 @@ func _draw() -> void:
 		color = Color(0.2, 0.3, 0.2)
 	elif target_type == "fuel_depot":
 		color = Color(0.2, 0.5, 0.2)
+	elif target_type == "ammo_depot":
+		color = Color(0.25, 0.3, 0.5)
 	elif target_type == "building":
 		color = Color(0.35, 0.35, 0.4)
 
@@ -151,6 +177,8 @@ func _draw() -> void:
 		draw_tank_details()
 	elif target_type == "fuel_depot":
 		draw_fuel_depot_details()
+	elif target_type == "ammo_depot":
+		draw_ammo_depot_details()
 	elif target_type == "building":
 		draw_building_details()
 
@@ -170,6 +198,11 @@ func draw_fuel_depot_details() -> void:
 	draw_line(Vector2(12, -18), Vector2(14, -22), Color(0.1, 0.2, 0.1), 2)
 	draw_rect(Rect2(-3, -22, 6, 3), Color(0.3, 0.2, 0.1))
 	draw_line(Vector2(0, -25), Vector2(0, -28), Color(0.8, 0.4, 0.1), 2)
+
+func draw_ammo_depot_details() -> void:
+	draw_rect(Rect2(-28, -28, 20, 8), Color(0.15, 0.18, 0.3))
+	draw_rect(Rect2(8, -28, 20, 8), Color(0.15, 0.18, 0.3))
+	draw_circle(Vector2(0, -20), 3, Color(0.1, 0.12, 0.25))
 
 func draw_building_details() -> void:
 	draw_rect(Rect2(-22, -35, 44, 5), Color(0.2, 0.2, 0.25))
@@ -219,6 +252,10 @@ func _polygon_centroid(points: PackedVector2Array) -> Vector2:
 func _destroy(attacker: Node) -> void:
 	is_destroyed = true
 
+	# Drop this structure from the per-homebase tally (and fire the
+	# last-hangar notification) before the wreck is spawned/queued.
+	if homebase_id >= 0 and BuildingRegistry:
+		BuildingRegistry.unregister(homebase_id, target_type)
 	# Anchor the blast at the building's true center (polygon centroid in world
 	# space), not the node origin — for non-symmetric shapes the origin can sit
 	# well off-center, which made debris appear to rain in from elsewhere.
@@ -298,6 +335,8 @@ func _get_wreck_color() -> Color:
 		color = Color(0.1, 0.15, 0.1)
 	elif target_type == "fuel_depot":
 		color = Color(0.1, 0.25, 0.1)
+	elif target_type == "ammo_depot":
+		color = Color(0.12, 0.15, 0.25)
 	return color
 
 func _get_wreck_draw_script() -> GDScript:
@@ -322,6 +361,8 @@ func get_dominant_color() -> Color:
 			return Color(0.2, 0.3, 0.2)
 		"fuel_depot":
 			return Color(0.2, 0.5, 0.2)
+		"ammo_depot":
+			return Color(0.25, 0.3, 0.5)
 		_:
 			return Color(0.3, 0.3, 0.35)
 

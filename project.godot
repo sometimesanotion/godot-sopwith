@@ -28,6 +28,7 @@ SoundManager="*res://scripts/sound_manager.gd"
 SvgManager="*res://scripts/svg_manager.gd"
 EffectManager="*res://scripts/effect_manager.gd"
 RespawnManager="*res://scripts/respawn_manager.gd"
+BuildingRegistry="*res://scripts/building_registry.gd"
 
 [display]
 

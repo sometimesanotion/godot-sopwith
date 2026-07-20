@@ -71,11 +71,17 @@ func _ready() -> void:
 	add_to_group("main")
 	_load_keybindings()
 	if GameManager:
+		if GameManager.screen_shake_requested.is_connected(_on_screen_shake):
+			GameManager.screen_shake_requested.disconnect(_on_screen_shake)
 		GameManager.screen_shake_requested.connect(_on_screen_shake)
 	if RespawnManager:
 		if RespawnManager.respawn_ready.is_connected(_respawn_biplane):
 			RespawnManager.respawn_ready.disconnect(_respawn_biplane)
 		RespawnManager.respawn_ready.connect(_respawn_biplane)
+	if BuildingRegistry:
+		if BuildingRegistry.hangar_destroyed.is_connected(_on_hangar_destroyed):
+			BuildingRegistry.hangar_destroyed.disconnect(_on_hangar_destroyed)
+		BuildingRegistry.hangar_destroyed.connect(_on_hangar_destroyed)
 	print("Main _ready: showing world with title overlay")
 	_show_startup_world()
 
@@ -350,6 +356,8 @@ func _spawn_enemies_and_targets() -> void:
 	enemies.clear()
 	enemy_home_positions.clear()
 	_occupied_positions.clear()
+	if BuildingRegistry:
+		BuildingRegistry.reset()
 
 	var num_bases: int = GameManager.enemy_homebases if GameManager else 4
 	# D10 base layout: one base west of the player, the rest east.  The east
@@ -413,9 +421,10 @@ func _spawn_enemies_and_targets() -> void:
 			ai.target = biplane
 			ai.biplane = enemy
 			ai.home_base_x = base_x
+			ai.homebase_id = i + 1
 			ai.unlimited_fuel_ammo = is_vs_computer
 		if enemy.has_method("setup_faction_homebase"):
-			enemy.setup_faction_homebase(i, base_x, 200.0, spawn_pos, spawn_rot, enemy_faction_enum)
+			enemy.setup_faction_homebase(i + 1, base_x, 200.0, spawn_pos, spawn_rot, enemy_faction_enum)
 		if enemy.has_method("get_avatar_data"):
 			var enemy_avatar = enemy.get_avatar_data(0)
 			if enemy.has_method("assign_plane_model") and enemy.has_method("get_default_plane_model"):
@@ -431,7 +440,7 @@ func _spawn_enemies_and_targets() -> void:
 			if enemy.has_method("reset_visual_transform"):
 				enemy.reset_visual_transform(enemy_avatar)
 		if enemy.has_method("set_home_base") and enemy.has_method("get_avatar_data"):
-			enemy.set_home_base(enemy.get_avatar_data(0), i)
+			enemy.set_home_base(enemy.get_avatar_data(0), i + 1)
 		if enemy.has_method("set_game_active"):
 			enemy.set_game_active(true)
 		enemy.is_player_controlled = false
@@ -487,6 +496,7 @@ func _get_target_half_width(target_type: String) -> float:
 	match target_type:
 		"building": return 35.0
 		"hangar": return 45.0
+		"ammo_depot": return 35.0
 		"fuel_depot": return 20.0
 		"tank": return 30.0
 		_: return 30.0
@@ -536,34 +546,44 @@ func _validate_base_layout(bases: Array[float]) -> void:
 				push_warning("Base layout: bases at x=%f and x=%f too close (d=%.1f)"
 					% [bases[i], bases[j], d2])
 
+## Registry homebase id for the PLAYER base.  Enemy bases use base_idx+1
+## (see _create_enemy_bases) so every homebase has a globally unique
+## id in BuildingRegistry (the player biplane and each enemy biplane
+## keep their OWN per-instance _homebases dict, but the registry is
+## shared, so ids must not collide).
+const PLAYER_HOMEBASE_ID := 0
+
+## Instantiate one ground target as part of a homebase cluster.  Sets the
+## (shared) homebase id, the enemy flag, and the AA rule: ONLY tanks are
+## armed — hangars, buildings, ammo depots and fuel depots never fire.
+## The target is ground-sampled at its x so it sits flush on the terrain.
+func _spawn_base_target(homebase_id: int, target_type: String, x: float, is_enemy: bool) -> void:
+	var t: Node2D = GROUND_TARGET_SCENE.instantiate()
+	t.target_type = target_type
+	t.homebase_id = homebase_id
+	t.is_enemy = is_enemy
+	t.has_aa = (target_type == "tank")
+	var gy: float = terrain.get_ground_height_at(x) if terrain and terrain.has_method("get_ground_height_at") else 650.0
+	t.position = Vector2(x, gy)
+	if is_enemy:
+		t.add_to_group("enemy_target")
+	add_child(t)
+	var hw := _get_target_half_width(target_type)
+	_mark_position_occupied(x, hw)
+
 func _create_home_base() -> void:
+	# Player runway sits at RUNWAY_START..RUNWAY_END; the structure cluster
+	# is laid out to its LEFT.  Every homebase spawns with at least one
+	# hangar (required to respawn the player's planes) plus an ammo depot
+	# (reloads) and fuel depots (refuel).
 	var runway_left = Terrain.RUNWAY_START - 150.0
-	var building_hw = _get_target_half_width("building")
-
-	for i in range(2):
-		var building_x = runway_left - 10 - building_hw - i * (building_hw * 2 + 10)
-		var building := GROUND_TARGET_SCENE.instantiate()
-		building.target_type = "building"
-		var by: float = terrain.get_ground_height_at(building_x) if terrain and terrain.has_method("get_ground_height_at") else 650.0
-		building.position = Vector2(building_x, by)
-		building.has_aa = false
-		building.is_enemy = false
-		add_child(building)
-		_mark_position_occupied(building_x, building_hw)
-
-	var depot_hw = _get_target_half_width("fuel_depot")
-	var last_building_x = runway_left - 10 - building_hw - 1 * (building_hw * 2 + 10)
-
-	for i in range(2):
-		var depot_x = last_building_x - building_hw - 10 - depot_hw - i * (depot_hw * 2 + 10)
-		var fuel_depot := GROUND_TARGET_SCENE.instantiate()
-		fuel_depot.target_type = "fuel_depot"
-		var dy: float = terrain.get_ground_height_at(depot_x) if terrain and terrain.has_method("get_ground_height_at") else 650.0
-		fuel_depot.position = Vector2(depot_x, dy)
-		fuel_depot.has_aa = false
-		fuel_depot.is_enemy = false
-		add_child(fuel_depot)
-		_mark_position_occupied(depot_x, depot_hw)
+	var layout := PackedStringArray(["hangar", "building", "ammo_depot", "fuel_depot", "fuel_depot"])
+	var cursor: float = runway_left - 10.0
+	for target_type in layout:
+		var hw := _get_target_half_width(target_type)
+		cursor -= hw
+		_spawn_base_target(PLAYER_HOMEBASE_ID, target_type, cursor, false)
+		cursor -= hw + 10.0
 
 func _create_enemy_bases() -> void:
 	var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
@@ -573,56 +593,30 @@ func _create_enemy_bases() -> void:
 			continue
 
 		# Mirror the runway-side decision from _spawn_enemies_and_targets:
-		# rightward bases have their runway on the right ([home_x+50,
-		# home_x+50+LEN]); leftward bases on the left ([home_x-50-LEN,
-		# home_x-50]).  Buildings go on the OPPOSITE side from the takeoff
-		# direction (so the plane rolls AWAY from its own homebase on takeoff).
+		# rightward bases have their runway on the right; leftward bases on
+		# the left (D10).  Buildings go on the OPPOSITE side from the
+		# takeoff direction (so the plane rolls AWAY from its own homebase
+		# on takeoff).
 		var faces_left: bool = enemy_base_faces_left[base_idx] if base_idx < enemy_base_faces_left.size() else (home_x > PLAYER_SPAWN_X)
 		var runway_left: float = (home_x - (Terrain.RUNWAY_LENGTH + 50.0)) if faces_left else (home_x + 50.0)
 		var runway_right: float = runway_left + Terrain.RUNWAY_LENGTH
 
-		var building_hw = _get_target_half_width("building")
-
-		# `build_dir` is +1 for buildings placed toward +x, -1 for -x.
-		# For rightward bases (runway on the right of home_x), buildings go
-		# LEFT of the runway: building_x = runway_left - 10 - hw - i*step.
-		# For leftward  bases (runway on the left  of home_x), buildings go
-		# RIGHT of the runway: building_x = runway_right + 10 + hw + i*step.
 		var build_dir: float = -1.0 if not faces_left else 1.0
-		var building_step: float = building_hw * 2.0 + 10.0
-		var first_building_x: float = runway_left - 10.0 - building_hw if not faces_left \
-									  else runway_right + 10.0 + building_hw
-		for i in range(2):
-			var building_x: float = first_building_x + build_dir * i * building_step
-			var building := GROUND_TARGET_SCENE.instantiate()
-			building.target_type = "building"
-			# Per-building terrain sampling (D5 blend zone can already be
-			# visibly off BASE_Y beyond ~80 px from the runway edge; tanks
-			# further out, on grass, need it most).
-			var by: float = terrain.get_ground_height_at(building_x) if terrain and terrain.has_method("get_ground_height_at") else 650.0
-			building.position = Vector2(building_x, by)
-			building.has_aa = true
-			building.is_enemy = true
-			building.add_to_group("enemy_target")
-			add_child(building)
-			_mark_position_occupied(building_x, building_hw)
+		var anchor: float = (runway_left - 10.0) if not faces_left else (runway_right + 10.0)
 
-		var depot_hw = _get_target_half_width("fuel_depot")
-		var last_building_x: float = first_building_x + build_dir * 1 * building_step
-		var first_depot_x: float = last_building_x + build_dir * (building_hw + 10.0 + depot_hw)
-		var depot_step: float = depot_hw * 2.0 + 10.0
-
-		for i in range(2):
-			var depot_x: float = first_depot_x + build_dir * i * depot_step
-			var fuel_depot := GROUND_TARGET_SCENE.instantiate()
-			fuel_depot.target_type = "fuel_depot"
-			var dy: float = terrain.get_ground_height_at(depot_x) if terrain and terrain.has_method("get_ground_height_at") else 650.0
-			fuel_depot.position = Vector2(depot_x, dy)
-			fuel_depot.has_aa = false
-			fuel_depot.is_enemy = true
-			fuel_depot.add_to_group("enemy_target")
-			add_child(fuel_depot)
-			_mark_position_occupied(depot_x, depot_hw)
+		# Core cluster: a hangar (REQUIRED to respawn this base's
+		# planes), a building, an ammo depot (reloads) and fuel depots
+		# (refuel).  The homebase's registry id is base_idx+1 so it
+		# never collides with the player base (id 0).
+		var core_layout := PackedStringArray(["hangar", "building", "ammo_depot", "fuel_depot", "fuel_depot"])
+		var hb_id: int = base_idx + 1
+		var cursor: float = anchor
+		for target_type in core_layout:
+			var hw := _get_target_half_width(target_type)
+			cursor += build_dir * hw
+			var bx: float = cursor
+			_spawn_base_target(hb_id, target_type, bx, true)
+			cursor += build_dir * (hw + 10.0)
 
 		var tanks_setting: String = GameManager.enemy_tanks if GameManager else "Normal"
 		var num_extra: Dictionary = {"None": 0, "Few": 1, "Normal": 3, "Many": 6}
@@ -630,9 +624,8 @@ func _create_enemy_bases() -> void:
 		for i in range(extra_count):
 			var target_type: String = ["building", "hangar", "tank"].pick_random()
 			var target_hw: float = _get_target_half_width(target_type)
-			# Place extras on the building side (opposite the runway), so they
-			# don't pile up on the runway.  For rightward: left of home_x.
-			# For leftward:  right of home_x.
+			# Place extras on the building side (opposite the runway).
+			# For rightward: left of home_x.  For leftward:  right of home_x.
 			var target_step: float = 160.0
 			var target_x: float = home_x + build_dir * (200.0 + i * target_step)
 			var attempts := 0
@@ -645,12 +638,12 @@ func _create_enemy_bases() -> void:
 				continue
 			var target: Node2D = GROUND_TARGET_SCENE.instantiate()
 			target.target_type = target_type
+			target.homebase_id = hb_id
 			var target_ground_y: float = terrain.get_ground_height_at(target_x) if terrain and terrain.has_method("get_ground_height_at") else 650.0
 			target.position = Vector2(target_x, target_ground_y)
-			if target_type == "building":
-				target.has_aa = false
-			else:
-				target.has_aa = randf() > 0.5
+			# AA rule: ONLY tanks fire at enemy planes.  Hangars, buildings,
+			# ammo depots and fuel depots are never armed.
+			target.has_aa = (target_type == "tank")
 			target.is_enemy = true
 			target.add_to_group("enemy_target")
 			add_child(target)
@@ -672,6 +665,17 @@ func _on_biplane_crashed(is_midair: bool = false) -> void:
 	## identical for player and AI planes.  This handler is kept only for the
 	## respawn bookkeeping flag.
 	_player_crashed_exploded = true
+
+func _on_hangar_destroyed(homebase_id: int) -> void:
+	## The player's homebase shares registry id 0.  When its LAST hangar
+	## falls, the player can no longer put planes back in the air, so their
+	## remaining lives collapse to 1 — the next death ends the game (no
+	## further respawn).  Enemy bases are handled by the respawn gate in
+	## enemy_ai (a base with no hangar simply stops respawning).
+	if homebase_id == PLAYER_HOMEBASE_ID and GameManager:
+		var lives := GameManager.get_lives(0)
+		if lives > 1:
+			GameManager.set_lives(0, 1)
 
 func _on_biplane_landed(avatar_id: int) -> void:
 	## The wreck has hit the ground — schedule the fixed 2s respawn.

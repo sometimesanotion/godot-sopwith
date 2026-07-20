@@ -271,6 +271,12 @@ class AIData:
 
 # Configuration (set by spawner before _ready)
 @export var home_base_x: float  = 1400.0
+## Registry homebase id (BuildingRegistry key) this AI flies for.  Set
+## by main.gd to `base_idx + 1` so it is globally unique and
+## matches the id its homebase's structures were registered with.
+## Used by the respawn gate: a base with no surviving hangar
+## can no longer put planes back in the air.
+var homebase_id: int = -1
 @export var patrol_range: float = 5000.0
 @export var takeoff_delay: float = 0.0
 @export var unlimited_fuel_ammo: bool = false
@@ -616,7 +622,7 @@ func _takeoff_pitch(avatar) -> float:
 	# eases the climb command toward zero as the tilt nears the cap (soft, so
 	# it asymptotes to the limit instead of slamming the airframe into it).
 	if alt < TAKEOFF_TILT_LIMIT_ALT and command < 0.0 and avatar:
-		var max_tilt_rad := deg_to_rad(avatar.max_landing_tilt * 0.8)
+		var max_tilt_rad := deg_to_rad(avatar.max_landing_tilt * 0.7)
 		var climb_tilt := maxf(0.0, -avatar.gravity_pitch())
 		var headroom := max_tilt_rad - climb_tilt
 		if headroom <= 0.0:
@@ -1512,6 +1518,11 @@ func _on_enemy_crashed(is_midair: bool = false) -> void:
 	_crashed_exploded = true
 
 func _on_enemy_landed(avatar_id: int) -> void:
+	## A homebase with no surviving hangar can no longer put planes
+	## back in the air: skip the respawn entirely so the base is
+	## permanently grounded once its last hangar is destroyed.
+	if homebase_id >= 0 and BuildingRegistry and not BuildingRegistry.has_hangar(homebase_id):
+		return
 	## The wreck has hit the ground — queue the fixed 2s respawn.
 	if RespawnManager:
 		RespawnManager.queue_respawn(_respawn_id, RespawnManager.RESPAWN_DELAY)
