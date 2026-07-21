@@ -9,8 +9,8 @@ extends CharacterBody2D
 ## its blast radius rather than relying on a direct hit.
 
 var gravity: float = 60.0
-var explosion_radius: float = 50.0
-var explosion_damage: float = 30.0
+var explosion_radius: float = 60.0
+var explosion_damage: float = 60.0
 
 var _owner: Node = null
 var _has_exploded: bool = false

@@ -1229,7 +1229,14 @@ func _update_flight_state(avatar: AvatarData, gc: GroundContact, stalled: bool, 
 			return
 
 		if avatar.flight_state == FlightState.FALLING:
-			if avatar.damage.damage_state != DamageData.DamageState.DESTROYED:
+			if avatar.damage.damage_state == DamageData.DamageState.DESTROYED:
+				# Destroyed wreck that has nearly stopped (resting on a
+				# building, wreck, etc.) but not touching ground — crash it
+				# so the respawn timer triggers.  Without this the wreck
+				# stays FALLING forever and the plane never respawns.
+				if velocity.length() < 5.0:
+					_on_avatar_crashed(avatar)
+			else:
 				if stalled:
 					avatar.set_flight_state(FlightState.STALLED)
 				else:

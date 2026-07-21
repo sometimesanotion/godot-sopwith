@@ -43,7 +43,7 @@ const PATROL_MAX_ALTITUDE            := 1500.0
 const MIN_ALTITUDE_ABOVE_GROUND      := 100.0
 const DANGER_ALTITUDE_ABOVE_GROUND   := 60.0
 const CRITICAL_ALTITUDE_ABOVE_GROUND := 20.0
-const PULL_UP_ALTITUDE               := 580.0
+const PULL_UP_DISTANCE               := 60.0   # px of terrain clearance along the nose trajectory that triggers the pull-up reflex
 const MAX_ALTITUDE_FRACTION          := 0.4
 const MAX_ALTITUDE                   := 1600.0
 const ENGINE_CUTOFF_AVOID_FRACTION   := 0.8
@@ -66,6 +66,11 @@ const MAX_FIRE_RANGE        := 700.0
 const MIN_FIRE_RANGE        := 30.0
 const FIRE_CONE_ANGLE       := 0.36
 const ADVANTAGE_THRESHOLD   := 50.0
+# Below this target ground speed (px/s) the AI flies pure pursuit (aims where
+# the target IS) instead of leading — a parked/taxiing plane still reports a
+# small forward-pointing velocity from idle thrust / ground jitter, and leading
+# that pushes the aim ahead of the airframe so dive attacks miss the nose.
+const MIN_LEAD_TARGET_SPEED := 25.0
 const RETURN_REENGAGE_RANGE := 400.0
 const HOME_PROXIMITY        := 100.0
 
@@ -1290,16 +1295,52 @@ func _energy_stall_reflex(pitch: float, throttle: float) -> Array:
 
 	return [pitch, throttle]
 
+## Terrain clearance (px) along the AI's FORWARD (nose) trajectory — NOT the
+## velocity vector.  Marches the nose direction stepwise and returns the path
+## length at which the trajectory meets the terrain (sampled at ground minus
+## IMPACT_ALT_MARGIN); INF when clear within the march horizon.  Unlike
+## _terrain_impact_time(), which follows the velocity vector, this catches a
+## plane whose NOSE is aimed at the dirt even while its vertical altitude (and
+## instantaneous velocity) is still high — so the pull-up fires on the
+## trajectory, not on a lagging altitude reading.
+func _forward_ground_distance() -> float:
+	if not biplane:
+		return INF
+	var avatar = _get_avatar()
+	if not avatar:
+		return INF
+	var pos := biplane.global_position
+	# Level forward direction in world space, derived purely from the nose
+	# attitude (level_rotation + travel_sign) so a barrel-rolled plane reads
+	# the same forward as an upright one — independent of velocity.
+	var fwd := Vector2(cos(avatar.world_angle(0.0)), sin(avatar.world_angle(0.0)))
+	# Coarse forward march (20px steps, 1000px horizon) bounds the cost while
+	# still catching a shallow nose-down aimed at distant terrain.
+	var step := 20.0
+	var max_steps := 50
+	for i in range(1, max_steps + 1):
+		var d := step * i
+		var p := pos + fwd * d
+		if p.y >= _get_ground_height(p.x) - IMPACT_ALT_MARGIN:
+			return d
+	return INF
+
 func _pull_up_reflex() -> float:
-	if not biplane or _get_altitude_above_ground() > PULL_UP_ALTITUDE:
+	if not biplane:
+		return 0.0
+	var avatar = _get_avatar()
+	if not avatar:
+		return 0.0
+	# Pull up when the terrain is close along the nose trajectory (not the
+	# velocity vector) — a plane diving at the dirt triggers this even while
+	# its vertical altitude is still high.  Level / climbing flight stays
+	# clear (the forward march never meets the ground), so it is left alone.
+	if _forward_ground_distance() > PULL_UP_DISTANCE:
 		return 0.0
 	# Nose below the horizon → pull up.  gravity_pitch() reads identically
 	# in either travel direction (the old raw `rotation > 0.1` check was
 	# always true for an inverted plane, firing even when it was already
 	# climbing).
-	var avatar = _get_avatar()
-	if not avatar:
-		return 0.0
 	return -0.5 if avatar.gravity_pitch() > 0.1 else 0.0
 
 func _altitude_reflex() -> float:
@@ -1362,8 +1403,23 @@ func _lead_pursuit_point(target_pos: Vector2, lead_factor: float) -> Vector2:
 	var dx         = wrapf(target_pos.x - biplane.global_position.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
 	var dy         = target_pos.y - biplane.global_position.y
 	var dist       = sqrt(dx * dx + dy * dy)
+	var my_speed   = biplane.velocity.length()
 	var target_vel = target.velocity if "velocity" in target else Vector2.ZERO
-	var my_speed   = maxf(biplane.velocity.length(), 1.0)
+	var target_speed = target_vel.length()
+	# Pure pursuit against a target that isn't actually translating.  A plane
+	# parked on the runway reports a small forward-pointing velocity (idle
+	# thrust, ground-contact jitter, spawn settle), and leading that nose-
+	# aligned vector pushes the aim ahead of the airframe — so an enemy
+	# dive-bombing a motionless player sails past the nose instead of
+	# connecting.  When the target is grounded or barely moving, aim where it
+	# IS, not where its nose points.  (The firing solution in
+	# _try_fire_weapon already scales lead by target speed for the same
+	# reason.)
+	var target_grounded := false
+	if target.has_method("is_grounded") and target.has_method("get_avatar_data"):
+		target_grounded = target.is_grounded(target.get_avatar_data(0))
+	if target_grounded or target_speed < MIN_LEAD_TARGET_SPEED:
+		return target_pos
 	var lead_time  = clampf(dist / my_speed * lead_factor, 0.2, 1.5)
 	var predicted  = target_pos + target_vel * lead_time
 	var my_alt     = _get_altitude_above_ground()

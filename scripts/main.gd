@@ -740,8 +740,11 @@ func _create_enemy_bases() -> void:
 
 		# Tanks: crawl out from the OPPOSITE (second) spawn point, IN FRONT
 		# of the machine gun nests, to hunt the player.  Hostile homebases
-		# field at least two (scaling with level).  Tanks never respawn.
-		var tanks_per_base: int = maxi(2, lv)
+		# field a count driven by the `enemy_tanks` preference (Few=1,
+		# Normal=2, Many=3 at level 1) and scale up by one per level beyond
+		# the first.  Tanks never respawn.
+		var tank_base_map: Dictionary = {"None": 0, "Few": 1, "Normal": 2, "Many": 3}
+		var tanks_per_base: int = tank_base_map.get(GameManager.enemy_tanks if GameManager else "Normal", 2) + maxi(0, lv - 1)
 		var tank_start: float = 40.0 + mg_total * 90.0 + 60.0
 		for k in range(tanks_per_base):
 			var dir := -1.0 if faces_left else 1.0
