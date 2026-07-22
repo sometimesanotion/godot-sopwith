@@ -426,7 +426,7 @@ func _spawn_enemies_and_targets() -> void:
 			ai.homebase_id = i + 1
 			ai.unlimited_fuel_ammo = is_vs_computer
 		if enemy.has_method("setup_faction_homebase"):
-			enemy.setup_faction_homebase(i + 1, base_x, 200.0, spawn_pos, spawn_rot, enemy_faction_enum)
+			enemy.setup_faction_homebase(i + 1, base_x, Terrain.RUNWAY_LENGTH, spawn_pos, spawn_rot, enemy_faction_enum)
 		if enemy.has_method("get_avatar_data"):
 			var enemy_avatar = enemy.get_avatar_data(0)
 			if enemy.has_method("assign_plane_model") and enemy.has_method("get_default_plane_model"):

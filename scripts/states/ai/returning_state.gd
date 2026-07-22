@@ -31,10 +31,10 @@ func update(_delta: float) -> void:
 		return
 	var damage = avatar.damage.damage_percent
 	var dist_to_tgt  = ai._get_wrapped_distance(ai.biplane.global_position.x, ai.target.global_position.x)
-	var my_dist_home = ai._get_wrapped_distance(ai.biplane.global_position.x, ai.home_base_x)
+	var my_dist_runway = ai._dist_to_runway() if ai.has_method("_dist_to_runway") else ai._get_wrapped_distance(ai.biplane.global_position.x, ai.home_base_x)
 
 	# Re-engage a healthy target that came back into range.
 	if dist_to_tgt < ai.RETURN_REENGAGE_RANGE and damage < 0.5 and ai._is_target_alive():
 		finished.emit(&"engaging")
-	elif my_dist_home < ai.HOME_PROXIMITY * 3.0 and ai._is_grounded():
+	elif my_dist_runway < ai.HOME_PROXIMITY * 3.0 and ai._is_grounded():
 		finished.emit(&"grounded")

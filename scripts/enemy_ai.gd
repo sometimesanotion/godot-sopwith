@@ -55,6 +55,12 @@ const IMPACT_SAMPLE_TIMES: Array[float] = [0.25, 0.5, 0.8, 1.2, 1.7, 2.2, 2.8]
 # Clearance margin (px) kept above the terrain when sampling the trajectory.
 const IMPACT_ALT_MARGIN              := 30.0
 
+# Target collision avoidance: when the AI is closing on its target
+# (building, vehicle, or plane) with less than this many seconds until
+# impact, it pulls away to avoid crashing into the target.
+const TARGET_IMPACT_PULL_UP          := 1.0   # seconds to impact
+const TARGET_IMPACT_MIN_CLOSE_SPEED  := 20.0  # px/s minimum closing speed to care
+
 # Detection / engagement geometry.  ENGAGEMENT_RANGE is the distance (wrapped, so
 # it spans the whole torus) at which PATROL commits to ENGAGE.  It must be large
 # enough that an enemy will fly out to strike a player who is on the ground at
@@ -733,40 +739,93 @@ func _evade_aim_point() -> Vector2:
 
 	return Vector2(my_pos.x + away * 500.0, my_pos.y + dy)
 
-## Return-to-base aim + throttle pair.  Three regimes: en-route glide,
-## committed final, and flare.  Throttle drops with each regime so the
-## plane arrives at the runway at a controllable speed.
+## Derive the runway direction from the homebase spawn rotation.
+## +1.0 = runway extends to the right of home_base_x,
+## -1.0 = runway extends to the left.
+func _get_runway_direction() -> float:
+	if not biplane:
+		return 1.0
+	var avatar = _get_avatar()
+	if not avatar:
+		return 1.0
+	var spawn_rot = biplane.get_homebase_spawn_rotation(avatar)
+	return -1.0 if Biplane.AvatarData.rotation_is_leftward(spawn_rot) else 1.0
+
+## Shortest wrapped horizontal distance from the plane to any point on the
+## runway strip.  Used to suppress ground-avoidance reflexes when the plane
+## is committed to land.
+func _dist_to_runway() -> float:
+	if not biplane:
+		return INF
+	var rdir := _get_runway_direction()
+	const RWAY_OFFSET := 50.0
+	const RWAY_LEN := 700.0
+	var near_edge := home_base_x + rdir * RWAY_OFFSET
+	var far_edge := home_base_x + rdir * (RWAY_OFFSET + RWAY_LEN)
+	var my_x := biplane.global_position.x
+	var d_near := absf(wrapf(near_edge - my_x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5))
+	var d_far := absf(wrapf(far_edge - my_x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5))
+	if my_x >= minf(near_edge, far_edge) and my_x <= maxf(near_edge, far_edge):
+		return 0.0
+	return minf(d_near, d_far)
+
+## Return-to-base aim + throttle pair.  Three regimes: en-route glide toward
+## the near runway edge, committed final descent to the touchdown point, and
+## flare with zero throttle for a soft touchdown.  The plane always aims for
+## the runway edge nearest to its approach direction so it rolls out along the
+## full runway length regardless of which side it arrives from.
 func _return_aim_and_throttle() -> Array:
 	if not biplane:
 		return [Vector2.INF, 1.0]
 
-	var dx         = wrapf(home_base_x - biplane.global_position.x,
+	var dx := wrapf(home_base_x - biplane.global_position.x,
 		-Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
-	var dist_x     = absf(dx)
-	var alt        = _get_altitude_above_ground()
-	var ground_y   = _get_ground_height(home_base_x)
-	# Direction we are travelling toward the base (used to place the flare aim).
 	var approach_dir = sign(dx) if absf(dx) > 1.0 else sign(biplane.velocity.x)
 
-	# Committed final approach — descend the rest of the way and flare.
-	if dist_x < RETURN_FINAL_DIST:
-		if alt < RETURN_FLARE_ALT:
-			# Flare: aim a point well ahead at our CURRENT altitude so the
-			# nose levels out and the sink rate is bled off instead of
-			# being driven into the runway.  Gentle, level-ish attitude =
-			# soft touchdown.
-			var aim := Vector2(biplane.global_position.x + approach_dir * 300.0,
-				biplane.global_position.y)
-			return [aim, RETURN_FLARE_THROTTLE]
-		# Follow the glide slope down to the numbers at the home base.
-		var glide_alt = maxf(0.0, dist_x * RETURN_GLIDE_SLOPE)
-		return [Vector2(home_base_x, ground_y - glide_alt), RETURN_FINAL_THROTTLE]
+	# --- Runway geometry ---
+	# The runway is offset 50 px from home_base_x and extends RUNWAY_LENGTH
+	# in the spawn direction.  near_edge is closest to home_base_x; far_edge
+	# is at the opposite end.
+	var rdir := _get_runway_direction()
+	# Use terrain-length-safe constants that match what main.gd passes to
+	# Terrain.add_runway.
+	const RWAY_OFFSET := 50.0
+	const RWAY_LEN := 700.0   # mirrors Terrain.RUNWAY_LENGTH
+	var near_edge := home_base_x + rdir * RWAY_OFFSET
+	var far_edge := home_base_x + rdir * (RWAY_OFFSET + RWAY_LEN)
 
-	# En-route: ride the glide slope from cruise altitude down toward the
-	# base.  (No lead-pursuit here — the base is stationary, so steering
-	# straight at it is correct.)
-	var desired_alt = minf(PATROL_ALTITUDE, dist_x * RETURN_GLIDE_SLOPE)
-	return [Vector2(home_base_x, ground_y - desired_alt), RETURN_CRUISE_THROTTLE]
+	# Touchdown point: the runway edge the plane reaches FIRST on approach.
+	# When approaching from the same side the runway extends, the near edge
+	# is closer; when approaching from the opposite side the far edge is.
+	var touchdown_x: float
+	if approach_dir * rdir > 0.0:
+		touchdown_x = near_edge
+	else:
+		touchdown_x = far_edge
+
+	var td_dx := wrapf(touchdown_x - biplane.global_position.x,
+		-Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
+	var td_dist_x := absf(td_dx)
+	var alt := _get_altitude_above_ground()
+	# Ground height at the touchdown point (on the runway mesa, so it
+	# should match the mesa elevation).
+	var ground_y := _get_ground_height(touchdown_x)
+
+	var flare_aim := Vector2(biplane.global_position.x + approach_dir * 300.0,
+		biplane.global_position.y)
+
+	# --- Committed final approach ---
+	if td_dist_x < RETURN_FINAL_DIST:
+		# Flare: close to the touchdown edge AND low enough to settle.
+		if td_dist_x < 30.0 and alt < RETURN_FLARE_ALT:
+			return [flare_aim, RETURN_FLARE_THROTTLE]
+		# Descend toward the touchdown point on the glide slope.
+		var glide_alt := maxf(0.0, td_dist_x * RETURN_GLIDE_SLOPE)
+		return [Vector2(touchdown_x, ground_y - glide_alt), RETURN_FINAL_THROTTLE]
+
+	# --- En-route glide toward the touchdown point ---
+	var desired_alt := minf(PATROL_ALTITUDE, td_dist_x * RETURN_GLIDE_SLOPE)
+	return [Vector2(touchdown_x, ground_y - desired_alt), RETURN_CRUISE_THROTTLE]
 
 ## Engaging aim + throttle pair.  Dispatches to the right sub-aim based on
 ## the target type (air / ground / bomb) and the recovery sub-mode.
@@ -1155,8 +1214,7 @@ func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true, 
 	# down.
 	var ground_avoid := allow_ground_avoid
 	if ai_fsm.current_key == &"returning":
-		var dx = wrapf(home_base_x - biplane.global_position.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
-		if absf(dx) < RETURN_FINAL_DIST:
+		if _dist_to_runway() < RETURN_FINAL_DIST:
 			ground_avoid = false
 
 	# While still on the runway doing the takeoff roll, the plane is
@@ -1220,6 +1278,14 @@ func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true, 
 		if _speed_ratio() < STALL_AVOID_SPEED_RATIO:
 			pull = maxf(pull, -0.45)
 		pitch = minf(pitch, pull)
+
+	# Target collision avoidance — overrides the heading when the AI is
+	# about to crash into its target (building, vehicle, or enemy plane).
+	# Computed from relative velocity so a 200 px/s dive on a building
+	# triggers with the same urgency as a 400 px/s head-on merge.
+	var tgt_pull := _target_collision_reflex()
+	if tgt_pull != 0.0:
+		pitch = tgt_pull
 
 	return [pitch, throttle]
 
@@ -1341,6 +1407,41 @@ func _pull_up_reflex() -> float:
 	# always true for an inverted plane, firing even when it was already
 	# climbing).
 	return -0.5 if avatar.gravity_pitch() > 0.1 else 0.0
+
+## Target collision avoidance: pull away when the closing speed toward the
+## target (building, vehicle, or plane) predicts impact within ~1 second.
+## Computes relative velocity so a head-on merge and a steep dive on a
+## stationary structure both trigger a pull-up with proportional urgency.
+func _target_collision_reflex() -> float:
+	if not biplane or not target:
+		return 0.0
+	if not _is_target_alive():
+		return 0.0
+
+	var my_pos := biplane.global_position
+	var tgt_pos := target.global_position
+	var dx := wrapf(tgt_pos.x - my_pos.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
+	var dy := tgt_pos.y - my_pos.y
+	var dist := sqrt(dx * dx + dy * dy)
+	if dist < 30.0:
+		return 0.0
+
+	var my_vel = biplane.velocity
+	var tgt_vel = target.velocity if "velocity" in target else Vector2.ZERO
+	var rel_vel = my_vel - tgt_vel
+	var to_tgt := Vector2(dx, dy) / dist
+	var closing_speed := maxf(0.0, -rel_vel.dot(to_tgt))
+	if closing_speed < TARGET_IMPACT_MIN_CLOSE_SPEED:
+		return 0.0
+
+	var time_to_impact := dist / closing_speed
+	if time_to_impact > TARGET_IMPACT_PULL_UP:
+		return 0.0
+
+	var urgency := 1.0 - clampf(time_to_impact / TARGET_IMPACT_PULL_UP, 0.0, 1.0)
+	if dy < -50.0:
+		return lerpf(0.3, 0.8, urgency)  # target above — dive away
+	return lerpf(-0.5, -1.0, urgency)    # target at/below — pull up
 
 func _altitude_reflex() -> float:
 	if not biplane:
