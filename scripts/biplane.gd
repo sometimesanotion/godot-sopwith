@@ -253,21 +253,21 @@ const GROUND_SURFACE_OFFSET := 0.0
 ## Grounded detection tolerance (px). Absorbs one-frame integration overshoot.
 const GROUND_TOLERANCE := 2.0
 
-## World-space ground proximity (px) used to decide a wreck is "on the ground"
-## for respawn.  Generous enough to cover any resting orientation (upright,
-## tilted, or tumbled upside-down), since it ignores the plane's rotation
-## entirely — unlike the GroundRay, which points along the body's local axis.
-const GROUND_REST_MARGIN := 50.0
+## Generous terrain-proximity margin (px) used to decide a wreck is "near the
+## ground" for respawn — covers upright, tilted, tumbled, and building-top rests.
+## Set to ~2× the tallest building height (fuel depot ≈ 150 px) so a wreck
+## resting on any structure registers as near-enough to the terrain surface.
+const GROUND_REST_MARGIN := 300.0
 
 ## A destroyed plane's wreck must be at rest (speed below this, px/s) on the
 ## ground before its 2s respawn timer starts — avoids scheduling the respawn
 ## while the wreck is still skidding/rolling.
-const RESPAWN_GROUND_SPEED := 30.0
+const RESPAWN_GROUND_SPEED := 20.0
 
 ## A destroyed plane's wreck must also have stopped spinning (rad/s) before its
 ## 2s respawn timer starts — a wreck still tumbling on the ground is not "at
 ## rest", so it should keep tumbling until it settles.
-const RESPAWN_ANGULAR_REST_SPEED := 0.5
+const RESPAWN_ANGULAR_REST_SPEED := 0.6
 
 const THROTTLE_REPEAT_DELAY := 0.1
 const THROTTLE_RAMP_SPEED   := 5.0
@@ -1301,31 +1301,18 @@ func _integrate_crash_forces(state: PhysicsDirectBodyState2D, avatar: AvatarData
 	var gc := _get_ground_contact(avatar)
 
 	# Respawn scheduling — runs every crash frame, BEFORE the at-rest early
-	# return below.  The moment the destroyed wreck is on the ground (terrain OR
-	# obstacle, via the downward GroundRay masked to layer 1) AND at rest (speed
-	# < RESPAWN_GROUND_SPEED), queue a single 2s respawn timer.  Mid-air
-	# destruction never schedules a respawn, and a wreck still skidding waits
-	# until it stops.  This must run before the early return so a fully-stopped
-	# wreck is still scheduled (otherwise it returns at the top and never fires).
-	# A wreck counts as "on the ground" in world space: its body center is within
-	# GROUND_REST_MARGIN of the terrain surface (covers any resting orientation —
-	# upright, tilted, or tumbled upside-down — since this ignores the plane's
-	# rotation entirely), OR it latched has_hit_ground on first contact.  This is
-	# deliberately orientation-independent: the GroundRay points along the body's
-	# local axis and is unreliable once the wreck tumbles, and is_barrel_rolled only
-	# tracks the 180° barrel-roll state, not physical orientation vs gravity.
+	# return below.  A generous terrain-proximity margin (GROUND_REST_MARGIN =
+	# 300 px, ~2× the tallest building height) catches wrecks resting on
+	# buildings and obstacles as well as terrain — no contact scanning needed
+	# because every structure sits on terrain.  Combined with the at-rest
+	# velocity gate (<30 px/s) and angular-rest gate (<0.5 rad/s), this
+	# ensures only wrecks that have truly settled trigger respawn: a falling
+	# wreck can't be both near terrain AND stopped.
 	var terrain_y := gc.ground_y - GROUND_SURFACE_OFFSET
 	var near_terrain := global_position.y >= terrain_y - GROUND_REST_MARGIN
-	# The wreck must have actually struck the ground (latched on first terrain
-	# contact) before any respawn is scheduled — a plane still falling toward
-	# the surface never counts as "on the ground" no matter how close its center
-	# gets.  near_terrain is only a fallback for a wreck that tumbled so the
-	# downward GroundRay misses; it is then accepted only once the wreck is at
-	# rest (so it can't fire while still descending).
-	var on_ground := avatar.has_hit_ground or (near_terrain and current_vel.length() < RESPAWN_GROUND_SPEED)
 	var at_rest := current_vel.length() < RESPAWN_GROUND_SPEED
 	var angular_rest := absf(state.get_angular_velocity()) < RESPAWN_ANGULAR_REST_SPEED
-	if not _respawn_queued.has(avatar.id) and on_ground and at_rest and angular_rest:
+	if not _respawn_queued.has(avatar.id) and near_terrain and at_rest and angular_rest:
 		_respawn_queued[avatar.id] = true
 		crashed_landed.emit(avatar.id)
 
@@ -1339,7 +1326,7 @@ func _integrate_crash_forces(state: PhysicsDirectBodyState2D, avatar: AvatarData
 	state.set_linear_velocity(current_vel)
 	state.set_angular_velocity(ang_vel)
 
-	if ground_ray and ground_ray.is_colliding():
+	if ground_ray and ground_ray.is_colliding() and not avatar.has_hit_ground:
 		state.set_linear_velocity(Vector2.ZERO)
 		state.set_angular_velocity(0.0)
 		avatar.has_hit_ground = true
@@ -1806,7 +1793,7 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 		has_ammo_depot = BuildingRegistry.has_ammo_depot(hb_id)
 	var hangar_factor := 20 if has_hangar else 10
 	var fuel_factor := 80 if has_fuel_depot else 40
-	var ammo_factor := 40 if has_ammo_depot else 20
+	var ammo_factor := 60 if has_ammo_depot else 30
 
 	## Repair damage on landing at home.
 	if randomi <= hangar_factor and avatar.damage.damage_state != DamageData.DamageState.INTACT:

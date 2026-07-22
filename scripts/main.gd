@@ -289,7 +289,7 @@ func _start_playing() -> void:
 				player_faction_enum = Biplane.Faction.FRENCH
 			elif GameManager.player_faction == "German":
 				player_faction_enum = Biplane.Faction.GERMAN
-			biplane.setup_faction_homebase(0, PLAYER_SPAWN_X, 200.0, Vector2(PLAYER_SPAWN_X, ground_y - Biplane.GROUND_SURFACE_OFFSET), 0.0, player_faction_enum)
+			biplane.setup_faction_homebase(0, PLAYER_SPAWN_X, Terrain.RUNWAY_LENGTH, Vector2(PLAYER_SPAWN_X, ground_y - Biplane.GROUND_SURFACE_OFFSET), 0.0, player_faction_enum)
 		if biplane.has_method("set_home_base"):
 			biplane.set_home_base(avatar, 0)
 

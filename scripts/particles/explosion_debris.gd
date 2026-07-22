@@ -3,7 +3,7 @@ extends Node2D
 ## Spawns on crash/destroy events. Debris fragments collide and can damage other objects.
 
 @export var fragment_count: int = 6
-@export var debris_damage: float = 10.0
+@export var debris_damage: float = 5.0
 @export var debris_lifetime: float = 4.0
 ## Mass (kg) of each debris fragment. Lighter fragments impart less kinetic force
 ## when they strike planes, reducing dramatic bouncing. Lower = gentler impacts.

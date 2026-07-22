@@ -48,21 +48,24 @@ class FlightOutput:
 ## ── Friction coefficient constants (forward-declared for clarity) ──────────
 
 const FRICTION_RUNWAY_ROLLING: float  = 0.03
-const FRICTION_RUNWAY_BRAKING: float  = 0.70
+const FRICTION_RUNWAY_BRAKING: float  = 2.00
 const FRICTION_TERRAIN_ROLLING: float  = 0.07
-const FRICTION_TERRAIN_BRAKING: float = 0.40
+const FRICTION_TERRAIN_BRAKING: float = 0.80
 const THROTTLE_STEP: float            = 0.15
 
 const ENGINE_EFFICIENCY_START_ALTITUDE: float = 1800.0
 const ENGINE_CUTOFF_ALTITUDE: float            = 2000.0
 
 ## ── Stall-detection tuning ──────────────────────────────────────────────────
-## The game's actual flight envelope tops out around ~2.4× the model stall
-## speed (top speed ≈ 810 px/s, stall ≈ 342 px/s for the Camel), so the raw
-## model stall speed triggers far too eagerly: the HUD flashes and the flight
-## state flips to STALLED during ordinary flight, and a transient high AoA while
-## turning at speed wrongly drops lift.  These margins make stall detection
-## match the playable envelope instead of the unrealistic nominal value.
+## The arcade_multiplier (2.3×) scales both thrust and air density, cancelling
+## out for parasitic-drag top-speed equilibrium (the Camel still tops out at
+## ~50.4 m/s ≈ 655 px/s, matching its historical 185 km/h).  Lift, however,
+## enjoys the full 2.3× boost, so the physics can sustain flight down to ~10 m/s
+## — well below the model's nominal 21.4 m/s stall.  The raw model stall speed
+## therefore triggers far too eagerly: the HUD flashes and the flight state flips
+## to STALLED during ordinary flight, and a transient high AoA while turning at
+## speed wrongly drops lift.  These margins adapt stall detection to the
+## playable envelope instead of the unrealistic physics-only value.
 const STALL_SPEED_MARGIN       := 0.8   # speed-stall fires below stall × 0.8
 const STALL_AOA_SPEED_MARGIN   := 1.2   # AoA stall only counts near/below stall speed
 
