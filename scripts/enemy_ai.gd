@@ -40,10 +40,9 @@ const PATROL_ALTITUDE                := 250.0
 const PATROL_CRUISE_MIN              := 800.0
 const PATROL_ALTITUDE_ADVANTAGE      := 300.0
 const PATROL_MAX_ALTITUDE            := 1500.0
-const MIN_ALTITUDE_ABOVE_GROUND      := 100.0
+const MIN_ALTITUDE_ABOVE_GROUND      := 80.0
 const DANGER_ALTITUDE_ABOVE_GROUND   := 60.0
-const CRITICAL_ALTITUDE_ABOVE_GROUND := 20.0
-const PULL_UP_DISTANCE               := 50.0   # px of terrain clearance along the nose trajectory that triggers the pull-up reflex
+const CRITICAL_ALTITUDE_ABOVE_GROUND := 40.0
 const MAX_ALTITUDE_FRACTION          := 0.4
 const MAX_ALTITUDE                   := 1600.0
 const ENGINE_CUTOFF_AVOID_FRACTION   := 0.8
@@ -60,7 +59,7 @@ const IMPACT_ALT_MARGIN              := 30.0
 # it spans the whole torus) at which PATROL commits to ENGAGE.  It must be large
 # enough that an enemy will fly out to strike a player who is on the ground at
 # the far end of the map, not just orbit its own base.
-const DETECTION_RANGE       := 8000.0
+const DETECTION_RANGE       := 7000.0
 const ENGAGEMENT_RANGE      := 5000.0
 const MAX_FIRE_RANGE        := 700.0
 const MIN_FIRE_RANGE        := 30.0
@@ -1335,7 +1334,7 @@ func _pull_up_reflex() -> float:
 	# velocity vector) — a plane diving at the dirt triggers this even while
 	# its vertical altitude is still high.  Level / climbing flight stays
 	# clear (the forward march never meets the ground), so it is left alone.
-	if _forward_ground_distance() > PULL_UP_DISTANCE:
+	if _forward_ground_distance() > CRITICAL_ALTITUDE_ABOVE_GROUND:
 		return 0.0
 	# Nose below the horizon → pull up.  gravity_pitch() reads identically
 	# in either travel direction (the old raw `rotation > 0.1` check was
@@ -1348,9 +1347,9 @@ func _altitude_reflex() -> float:
 		return 0.0
 	var alt = _get_altitude_above_ground()
 	if alt < CRITICAL_ALTITUDE_ABOVE_GROUND:
-		return -1.0
+		return -0.9
 	elif alt < DANGER_ALTITUDE_ABOVE_GROUND:
-		return -0.7
+		return -0.6
 	elif alt < MIN_ALTITUDE_ABOVE_GROUND:
 		return -0.3
 	return 0.0

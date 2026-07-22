@@ -262,7 +262,7 @@ const GROUND_REST_MARGIN := 50.0
 ## A destroyed plane's wreck must be at rest (speed below this, px/s) on the
 ## ground before its 2s respawn timer starts — avoids scheduling the respawn
 ## while the wreck is still skidding/rolling.
-const RESPAWN_GROUND_SPEED := 5.0
+const RESPAWN_GROUND_SPEED := 30.0
 
 ## A destroyed plane's wreck must also have stopped spinning (rad/s) before its
 ## 2s respawn timer starts — a wreck still tumbling on the ground is not "at

@@ -4,8 +4,8 @@ var damage: DamageData = DamageData.new()
 @export var max_health: float = 50.0
 @export var target_type: String = "building"
 @export var has_aa: bool = false
-@export var aa_range: float = 400.0
-@export var aa_cooldown: float = 1.0
+@export var aa_range: float = 500.0
+@export var aa_cooldown: float = 2.0
 @export var is_wreck: bool = false
 @export var is_enemy: bool = false
 
