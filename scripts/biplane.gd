@@ -63,7 +63,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_speed": 5.0,            # Baseline: notoriously fast pitch response
 		"negative_rotation_speed": 3.2,   # Rotary engine gyroscope strongly biases against pitch-down
 		"rotation_inertia": 4.0,
-		"bullet_spawn_offset": Vector2(34, -15),
+		"bullet_spawn_offset": Vector2(34, -10),
 		"bomb_spawn_offset": Vector2(0, 32),
 		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
@@ -88,7 +88,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_speed": 3.8,           # Agile but not twitchy; designed for stability over dogfighting
 		"negative_rotation_speed": 2.6,  # No rotary gyroscope bias; conventional inline V8
 		"rotation_inertia": 4.0,
-		"bullet_spawn_offset": Vector2(34, -15),
+		"bullet_spawn_offset": Vector2(34, -10),
 		"bomb_spawn_offset": Vector2(0, 32),
 		"max_bombs": 4,
 		"visual_scale": Vector2.ONE,
@@ -113,7 +113,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_speed": 3.5,            # Heavy two-seater, notably less agile than Camel
 		"negative_rotation_speed": 2.3,   # Heavier tail, slow pitch-down response
 		"rotation_inertia": 8.0,
-		"bullet_spawn_offset": Vector2(34, -15),
+		"bullet_spawn_offset": Vector2(34, -10),
 		"bomb_spawn_offset": Vector2(0, 32),
 		"max_bombs": 3,
 		"visual_scale": Vector2.ONE,
@@ -138,7 +138,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_speed": 3.2,            # Heavy fighter, good but not twitchy; roll-rate limited at speed
 		"negative_rotation_speed": 2.2,   # Conventional design, slower pitch-down vs pitch-up
 		"rotation_inertia": 4.0,
-		"bullet_spawn_offset": Vector2(34, -15),
+		"bullet_spawn_offset": Vector2(34, -10),
 		"bomb_spawn_offset": Vector2(0, 32),
 		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
@@ -163,7 +163,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_speed": 3.8,            # Stiffer controls than Camel; less agile in pitch
 		"negative_rotation_speed": 2.6,   # Standard non-rotary inline engine behavior
 		"rotation_inertia": 4.0,
-		"bullet_spawn_offset": Vector2(34, -15),
+		"bullet_spawn_offset": Vector2(34, -10),
 		"bomb_spawn_offset": Vector2(0, 32),
 		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
@@ -188,7 +188,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_speed": 4.2,            # Agile, but not as hair-trigger as the Camel
 		"negative_rotation_speed": 2.8,   # Good but asymmetric pitch authority, as typical
 		"rotation_inertia": 5.0,
-		"bullet_spawn_offset": Vector2(32, -14),
+		"bullet_spawn_offset": Vector2(34, -10),
 		"bomb_spawn_offset": Vector2(0, 32),
 		"max_bombs": 0,
 		"visual_scale": Vector2(1.1, 1.1),
@@ -523,7 +523,7 @@ class AvatarData:
 
 	var last_flight_output: Aerodynamics.FlightOutput = null
 
-	var bullet_spawn_offset: Vector2 = model_params.get("bullet_spawn_offset", Vector2(48, -12))
+	var bullet_spawn_offset: Vector2 = model_params.get("bullet_spawn_offset", Vector2(48, -9))
 	var bomb_spawn_offset: Vector2 = model_params.get("bomb_spawn_offset", Vector2(0, 32))
 
 	func reset() -> void:
@@ -1128,7 +1128,53 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 				damage_pct = clampf(damage_pct, 0.0, 1.0)
 				take_damage(avatar, damage_pct * 100.0, collider)
 				if collider.has_method("take_damage"):
-					collider.take_damage(damage_pct * 200.0, self)
+					collider.take_damage(damage_pct * 300.0, self)
+			continue
+		# Biplane-vs-biplane: RigidBody2D with a primary avatar (another plane).
+		# Each body's _integrate_forces sees the same contact independently,
+		# so damage is applied only to self (the other body damages itself
+		# from its own callback) to avoid double-counting.
+		#
+		# Mid-air collisions have no shock absorption (unlike landing gear
+		# cushioned by oleos and tyres), so thresholds are far lower than
+		# the per-model soft_landing_vperp / hard_landing_vperp.
+		#
+		# Impulse correction: get_contact_impulse returns the same scalar
+		# J for both bodies (Newton III).  Δv_self = J/m1, Δv_other = J/m2,
+		# so the full closing speed = J·(m1+m2)/(m1·m2).  Dividing only by
+		# m1 understates the collision by up to 2× for equal masses.
+		if collider is RigidBody2D \
+				and collider.has_method("get_primary_entity") \
+				and avatar.is_aerodynamic():
+			var impulse: Vector2 = state.get_contact_impulse(ci)
+			var impulse_mag: float = impulse.length()
+			if impulse_mag <= 0.0:
+				continue
+			var self_mass: float = avatar.model_params.get("mass_kg", 447.0)
+			var other_av: AvatarData = collider.get_primary_entity()
+			var other_mass: float = 447.0
+			if other_av:
+				other_mass = other_av.model_params.get("mass_kg", 447.0)
+			var impact_vel: float = impulse_mag / self_mass * (self_mass + other_mass) / other_mass
+			var midair_soft: float = 30.0
+			var midair_hard: float = 150.0
+			_debug_forensic_log(avatar, "midair_contact", {
+				"frame": _debug_frame_count,
+				"collider": collider.name,
+				"impulse": snapped(impulse_mag, 1.0),
+				"impact_vel": snapped(impact_vel, 1.0),
+				"soft": midair_soft,
+				"hard": midair_hard,
+				"self_mass": snapped(self_mass, 1.0),
+				"other_mass": snapped(other_mass, 1.0),
+			})
+			if impact_vel >= midair_hard:
+				_on_avatar_crashed(avatar)
+				return
+			elif impact_vel > midair_soft:
+				var damage_pct: float = (impact_vel - midair_soft) / (midair_hard - midair_soft)
+				damage_pct = clampf(damage_pct, 0.0, 1.0)
+				take_damage(avatar, damage_pct * 300.0, collider)
 			continue
 
 	if out.should_crash:

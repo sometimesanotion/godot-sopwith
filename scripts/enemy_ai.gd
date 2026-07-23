@@ -67,9 +67,9 @@ const TARGET_IMPACT_MIN_CLOSE_SPEED  := 20.0  # px/s minimum closing speed to ca
 # the far end of the map, not just orbit its own base.
 const DETECTION_RANGE       := 7000.0
 const ENGAGEMENT_RANGE      := 5000.0
-const MAX_FIRE_RANGE        := 700.0
-const MIN_FIRE_RANGE        := 30.0
-const FIRE_CONE_ANGLE       := 0.36
+const MAX_FIRE_RANGE        := 1000.0
+const MIN_FIRE_RANGE        := 40.0
+const FIRE_CONE_ANGLE       := 0.24
 const ADVANTAGE_THRESHOLD   := 50.0
 # Below this target ground speed (px/s) the AI flies pure pursuit (aims where
 # the target IS) instead of leading — a parked/taxiing plane still reports a
@@ -141,7 +141,7 @@ const RECOVER_CLIMB_DY          := 300.0   # px — nose-up target offset (y dow
 const RECOVER_MIN_CLEARANCE     := 200.0   # px — recovery waypoint never aims below this
 const RECOVER_EXIT_SPEED_RATIO  := 1.5     # speed/stall above which RECOVER exits to PURSUE
 const RECOVER_MIN_TIME          := 0.6     # s — hysteresis floor, prevents mode flapping
-const RECOVER_MAX_TIME          := 2.0     # s — never recover forever, force a re-attempt
+const RECOVER_MAX_TIME          := 1.0     # s — never recover forever, force a re-attempt
 # Turn-rate scaling.  The base HEADING_LERP_FACTOR (cruise) is the default
 # lerp factor.  ENGAGE scales it from ENGAGE_TURN_LO (low-energy) up to
 # ENGAGE_TURN_HI (high-energy), so a healthy fast/high plane snaps harder
@@ -1448,9 +1448,9 @@ func _altitude_reflex() -> float:
 		return 0.0
 	var alt = _get_altitude_above_ground()
 	if alt < CRITICAL_ALTITUDE_ABOVE_GROUND:
-		return -0.9
+		return -0.8
 	elif alt < DANGER_ALTITUDE_ABOVE_GROUND:
-		return -0.6
+		return -0.5
 	elif alt < MIN_ALTITUDE_ABOVE_GROUND:
 		return -0.3
 	return 0.0
@@ -1460,9 +1460,9 @@ func _altitude_ceiling_reflex() -> float:
 		return 0.0
 	var alt = _get_altitude_above_ground()
 	if alt > MAX_ALTITUDE:
-		return 0.7
+		return 0.6
 	elif alt > MAX_ALTITUDE - 150.0:
-		return 0.35
+		return 0.3
 	return 0.0
 
 ## Hard safety against the engine-cutoff altitude.  Biplane.ENGINE_CUTOFF_ALTITUDE
@@ -1479,7 +1479,7 @@ func _engine_cutoff_avoid_reflex() -> float:
 	if alt < threshold:
 		return 0.0
 	var urgency := clampf((alt - threshold) / maxf(cutoff - threshold, 1.0), 0.0, 1.0)
-	return lerpf(0.3, 0.7, urgency)   # positive = nose down
+	return lerpf(0.2, 0.6, urgency)   # positive = nose down
 
 func _terrain_projection_reflex() -> float:
 	if not biplane:
@@ -1553,7 +1553,7 @@ func _try_fire_weapon() -> void:
 	# own speed: a near-stationary target is led barely at all, a fast one
 	# is led hard — so the solution is sensitive to target speed (and a
 	# parked plane is no longer led ahead of its nose).
-	var lead_time    = dist / 1600.0
+	var lead_time    = dist / 3200.0
 	var lead         = tgt_vel * lead_time
 	# Random scatter so the AI never holds a perfect firing solution; the
 	# scatter grows with target speed (a jinking target is harder to hold),
