@@ -1,12 +1,13 @@
 extends CharacterBody2D
 
 var gravity: float = 147.15
-var explosion_radius: float = 90.0
+var explosion_radius: float = 80.0
 var explosion_damage: float = 200.0
 
 var _bomb_owner: Node = null
 var has_exploded: bool = false
 var whistle_start_time: float = -1.0
+var hit_points: float = 14.0
 
 var _svg_sprite_name: String = "bomb"
 var _svg_size: Vector2 = Vector2(20, 25)
@@ -29,7 +30,9 @@ func _hide_visual_nodes() -> void:
 		visual.visible = false
 
 func take_damage(amount: float, attacker: Node) -> void:
-	explode()
+	hit_points -= amount
+	if hit_points <= 0.0:
+		explode()
 
 func initialize(owner: Node, inherit_velocity: Vector2) -> void:
 	_bomb_owner = owner
