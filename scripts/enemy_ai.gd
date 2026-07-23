@@ -103,7 +103,7 @@ const ENERGY_SPEED_RATIO_GOOD   := 1.5     # speed / stall_speed for healthy ene
 
 # Engagement energy threshold — below this speed/stall ratio the AI cannot
 # safely press an attack (it would mush into a stall).
-const EXTEND_ENTER_SPEED_RATIO  := 1.35
+const EXTEND_ENTER_SPEED_RATIO  := 1.2
 
 # High-energy turnaround — when the AI is genuinely flying *away* from its
 # target (velocity points broadly opposite the line to target) yet has altitude
@@ -141,7 +141,7 @@ const RECOVER_CLIMB_DY          := 300.0   # px — nose-up target offset (y dow
 const RECOVER_MIN_CLEARANCE     := 200.0   # px — recovery waypoint never aims below this
 const RECOVER_EXIT_SPEED_RATIO  := 1.5     # speed/stall above which RECOVER exits to PURSUE
 const RECOVER_MIN_TIME          := 0.6     # s — hysteresis floor, prevents mode flapping
-const RECOVER_MAX_TIME          := 4.0     # s — never recover forever, force a re-attempt
+const RECOVER_MAX_TIME          := 2.0     # s — never recover forever, force a re-attempt
 # Turn-rate scaling.  The base HEADING_LERP_FACTOR (cruise) is the default
 # lerp factor.  ENGAGE scales it from ENGAGE_TURN_LO (low-energy) up to
 # ENGAGE_TURN_HI (high-energy), so a healthy fast/high plane snaps harder

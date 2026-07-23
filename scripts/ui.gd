@@ -96,18 +96,18 @@ func _create_ui_elements() -> void:
 
 func _create_enemy_debug_panel() -> void:
 	var vs := _get_vp_size()
-	var base_x: float = vs.x - _scale_x(220)
+	var base_x: float = vs.x - _scale_x(240)
 	var line_h := _scale_y(14)
-	var block_h := _scale_y(56)
+	var block_h := _scale_y(64)
 
 	for i in range(8):
 		var base_y: float = _scale_y(20.0) + i * block_h
-		for j in range(3):
+		for j in range(4):
 			var label := Label.new()
 			label.name = "EnemyDebug_%d_%d" % [i, j]
 			label.text = ""
 			label.position = Vector2(base_x, base_y + j * line_h)
-			label.add_theme_font_size_override("font_size", _scale_font(14))
+			label.add_theme_font_size_override("font_size", _scale_font(13))
 			label.add_theme_color_override("font_color", Color(0.8, 0.9, 0.8))
 			label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 			label.add_theme_constant_override("outline_size", 2)
@@ -142,7 +142,12 @@ func _process(_delta: float) -> void:
 			else:
 				speed_label.modulate = Color(1, 1, 1)
 
+			var main_node := get_parent()
 			var ground_y := 650.0
+			if main_node.has_method("terrain") and main_node.terrain:
+				var terrain_node = main_node.terrain
+				if terrain_node.has_method("get_ground_height_at"):
+					ground_y = terrain_node.get_ground_height_at(avatar.global_position.x)
 			var alt := int(ground_y - avatar.position.y)
 			alt = maxi(0, alt)
 			altitude_label.text = "ALT: %d" % alt
@@ -245,9 +250,9 @@ func _update_enemy_debug_panel(main_node: Node) -> void:
 	for enemy in enemies:
 		if idx >= 8:
 			break
-		var label_idx := idx * 3
+		var label_idx := idx * 4
 
-		for j in range(3):
+		for j in range(4):
 			if label_idx + j < enemy_labels.size():
 				enemy_labels[label_idx + j].text = ""
 
@@ -268,9 +273,9 @@ func _update_enemy_debug_panel(main_node: Node) -> void:
 		idx += 1
 
 func _update_debug_entry(idx: int, entity: Node, base_ground_y: float, is_player: bool, avatar = null) -> void:
-	var label_idx := idx * 3
+	var label_idx := idx * 4
 
-	for j in range(3):
+	for j in range(4):
 		if label_idx + j < enemy_labels.size():
 			enemy_labels[label_idx + j].text = ""
 
@@ -280,13 +285,9 @@ func _update_debug_entry(idx: int, entity: Node, base_ground_y: float, is_player
 		return
 
 	var entity_id: String = "P0" if is_player else "E%d" % idx
-	var ai_state_text := "---"
-	var recovery_mode_text := "---"
+
 	var flight_state_text := "---"
 	var damage_state_text := "---"
-	var alt_text := "---"
-	var speed_text := "---"
-	var fuel_text := "---"
 
 	var entity_ground_y := base_ground_y
 	if entity.has_method("_ground_y"):
@@ -294,34 +295,54 @@ func _update_debug_entry(idx: int, entity: Node, base_ground_y: float, is_player
 
 	var alt := int(entity_ground_y - entity.global_position.y)
 	alt = maxi(0, alt)
-	alt_text = "%d" % alt
 
+	var speed_text := "---"
 	if entity.has_method("get_avatar_speed") and avatar:
-		var speed := int(entity.get_avatar_speed(avatar))
-		speed_text = "%d" % speed
+		speed_text = "%d" % int(entity.get_avatar_speed(avatar))
 	else:
 		var vel: Vector2 = entity.get("velocity") if entity.get("velocity") != null else Vector2.ZERO
 		speed_text = "%d" % int(vel.length())
 
-	if not is_player:
-		var ai_node: Node = entity.get_node_or_null("EnemyAI") if entity.has_node("EnemyAI") else null
-		if ai_node and ai_node.ai_fsm:
-			var state_val: int = ai_node.ai_fsm.get_ai_state_enum()
-			ai_state_text = AI_STATE_NAMES.get(state_val, "UNKNOWN")
-			if ai_node.pilots.size() > 0:
-				var rm: int = ai_node.pilots[0].recovery_mode
-				recovery_mode_text = RECOVERY_MODE_NAMES.get(rm, "UNKNOWN")
-
 	if "flight_state" in avatar:
-		var state_val: int = int(avatar.flight_state)
-		flight_state_text = FLIGHT_STATE_NAMES.get(state_val, "UNKNOWN")
+		flight_state_text = FLIGHT_STATE_NAMES.get(int(avatar.flight_state), "UNKNOWN")
 
 	if "damage" in avatar and avatar.damage:
-		var state_val: int = int(avatar.damage.damage_state)
-		damage_state_text = DAMAGE_STATE_NAMES.get(state_val, "UNKNOWN")
+		damage_state_text = DAMAGE_STATE_NAMES.get(int(avatar.damage.damage_state), "UNKNOWN")
 
-	enemy_labels[label_idx].text = "%s: AI=%s FST=%s" % [entity_id, ai_state_text, flight_state_text]
-	if not is_player:
-		enemy_labels[label_idx + 1].text = " RCV=%s" % recovery_mode_text
-	enemy_labels[label_idx + 2].text = "    DST=%s ALT=%s" % [damage_state_text, alt_text]
-	enemy_labels[label_idx + 3].text = "    SPD=%s FUEL=%d" % [speed_text, avatar.fuel]
+	# --- Player line: one compact header ---
+	if is_player:
+		enemy_labels[label_idx].text = "%s: FLT=%s DMG=%s ALT=%d SPD=%s" % [
+			entity_id, flight_state_text, damage_state_text, alt, speed_text]
+		for j in range(1, 4):
+			enemy_labels[label_idx + j].text = ""
+		return
+
+	# --- Enemy: 4-line block with AI state, recovery, stats, target ---
+	var ai_state_text := "---"
+	var recovery_mode_text := ""
+	var fuel_text := "---"
+	var sr_text := "---"
+	var target_name := "---"
+
+	var ai_node: Node = entity.get_node_or_null("EnemyAI") if entity.has_node("EnemyAI") else null
+	if ai_node and ai_node.ai_fsm:
+		ai_state_text = AI_STATE_NAMES.get(ai_node.ai_fsm.get_ai_state_enum(), "UNKNOWN")
+		if ai_node.pilots.size() > 0:
+			var rm: int = ai_node.pilots[0].recovery_mode
+			if rm != 0:
+				recovery_mode_text = RECOVERY_MODE_NAMES.get(rm, "?")
+		if ai_node.target:
+			target_name = ai_node.target.name
+
+	if "fuel" in avatar:
+		fuel_text = "%.0f" % avatar.fuel
+
+	var vel: Vector2 = entity.get("velocity") if entity.get("velocity") != null else Vector2.ZERO
+	if vel.length() > 0.0 and "stall_speed_ms" in avatar:
+		var ppm: float = entity.pixels_per_meter if "pixels_per_meter" in entity else 13.0
+		sr_text = "%.2f" % (vel.length() / ppm / maxf(avatar.stall_speed_ms, 1.0))
+
+	enemy_labels[label_idx].text = "%s: %s %s" % [entity_id, ai_state_text, recovery_mode_text]
+	enemy_labels[label_idx + 1].text = "  FLT=%s DMG=%s" % [flight_state_text, damage_state_text]
+	enemy_labels[label_idx + 2].text = "  ALT=%d SPD=%s FUEL=%s" % [alt, speed_text, fuel_text]
+	enemy_labels[label_idx + 3].text = "  SR=%s TGT=%s" % [sr_text, target_name]

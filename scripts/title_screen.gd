@@ -339,7 +339,7 @@ func _handle_configure_input(ke: InputEventKey) -> void:
 			GameManager.huge_explosions = not GameManager.huge_explosions
 			_update_config_text()
 		KEY_5:
-			var opts := [2, 3, 4, 5, 6]
+			var opts := [1, 2, 3, 4, 5, 6]
 			var idx := opts.find(GameManager.enemy_homebases)
 			GameManager.enemy_homebases = opts[(idx + 1) % opts.size()]
 			_update_config_text()
