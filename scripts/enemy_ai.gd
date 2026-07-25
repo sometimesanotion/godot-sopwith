@@ -1450,9 +1450,9 @@ func _altitude_reflex() -> float:
 	if alt < CRITICAL_ALTITUDE_ABOVE_GROUND:
 		return -0.8
 	elif alt < DANGER_ALTITUDE_ABOVE_GROUND:
-		return -0.5
+		return -0.65
 	elif alt < MIN_ALTITUDE_ABOVE_GROUND:
-		return -0.3
+		return -0.4
 	return 0.0
 
 func _altitude_ceiling_reflex() -> float:

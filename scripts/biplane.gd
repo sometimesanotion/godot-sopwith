@@ -1156,14 +1156,12 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 			if other_av:
 				other_mass = other_av.model_params.get("mass_kg", 447.0)
 			var impact_vel: float = impulse_mag / self_mass * (self_mass + other_mass) / other_mass
-			var midair_soft: float = 30.0
-			var midair_hard: float = 150.0
+			var midair_hard: float = 5.0
 			_debug_forensic_log(avatar, "midair_contact", {
 				"frame": _debug_frame_count,
 				"collider": collider.name,
 				"impulse": snapped(impulse_mag, 1.0),
 				"impact_vel": snapped(impact_vel, 1.0),
-				"soft": midair_soft,
 				"hard": midair_hard,
 				"self_mass": snapped(self_mass, 1.0),
 				"other_mass": snapped(other_mass, 1.0),
@@ -1171,9 +1169,9 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 			if impact_vel >= midair_hard:
 				_on_avatar_crashed(avatar)
 				return
-			elif impact_vel > midair_soft:
-				var damage_pct: float = (impact_vel - midair_soft) / (midair_hard - midair_soft)
-				damage_pct = clampf(damage_pct, 0.0, 1.0)
+			elif impact_vel > midair_hard:
+				var damage_pct: float = impact_vel / midair_hard
+				damage_pct = clampf(damage_pct, 0.2, 2.0)
 				take_damage(avatar, damage_pct * 300.0, collider)
 			continue
 
