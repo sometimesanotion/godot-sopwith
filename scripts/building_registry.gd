@@ -51,6 +51,15 @@ func count(homebase_id: int, target_type: String) -> int:
 		return 0
 	return _counts[homebase_id].get(target_type, 0)
 
+## Total surviving buildings of ANY type for this homebase.
+func get_total_count(homebase_id: int) -> int:
+	if not _counts.has(homebase_id):
+		return 0
+	var total := 0
+	for type in _counts[homebase_id]:
+		total += _counts[homebase_id][type]
+	return total
+
 func has_hangar(homebase_id: int) -> bool:
 	return count(homebase_id, "hangar") > 0
 

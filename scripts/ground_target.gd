@@ -5,7 +5,7 @@ var damage: DamageData = DamageData.new()
 @export var target_type: String = "building"
 @export var has_aa: bool = false
 @export var aa_range: float = 500.0
-@export var aa_cooldown: float = 1.0
+@export var aa_cooldown: float = 0.8
 @export var is_wreck: bool = false
 @export var is_enemy: bool = false
 
@@ -110,15 +110,15 @@ func _fire_aa_bullet(target: Node, muzzle: Vector2, to_target: Vector2) -> void:
 	var bullet: CharacterBody2D = AA_PROJECTILE.instantiate()
 	bullet.global_position = muzzle
 	bullet.rotation = to_target.angle()
-	bullet.speed = 500.0
-	bullet.damage = 60.0
+	bullet.speed = 600.0
+	bullet.damage = 40.0
 	bullet.assign_owner(self)
 	get_parent().add_child(bullet)
 
 func _fire_flak_shell(target: Node, muzzle: Vector2, to_target: Vector2) -> void:
 	var shell: CharacterBody2D = FLAK_SHELL.instantiate()
 	var dir := to_target.normalized()
-	shell.fire(self, muzzle, dir, 500.0)
+	shell.fire(self, muzzle, dir, 600.0)
 	get_parent().add_child(shell)
 
 func _create_visuals() -> void:

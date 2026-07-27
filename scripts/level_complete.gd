@@ -2,11 +2,15 @@ extends CanvasLayer
 
 signal next_level
 
+## Set by main.gd before add_child; text describing bonuses earned this level.
+var bonus_info: String = ""
+
 var _header_bg: ColorRect
 var _cp_bg: ColorRect
 var _title_label: Label
 var _level_label: Label
 var _score_label: Label
+var _bonus_label: Label
 var _info_label: Label
 var _bip_sprite: Node2D
 var _sop_sprite: Node2D
@@ -134,6 +138,19 @@ func _update_layout_from_scratch() -> void:
 	_score_label.size = Vector2(vs.x, cp_height * 0.15)
 	add_child(_score_label)
 
+	_bonus_label = Label.new()
+	_bonus_label.name = "BonusLabel"
+	_bonus_label.text = bonus_info
+	_bonus_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_bonus_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_bonus_label.autowrap_mode = TextServer.AUTOWRAP_WORD
+	_bonus_label.add_theme_font_size_override("font_size", maxi(11, int(cp_height * 0.05)))
+	_bonus_label.add_theme_color_override("font_color", Color(0.6, 1.0, 0.6))
+	_bonus_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_bonus_label.position = Vector2(vs.x * 0.06, cp_y + cp_height * 0.45)
+	_bonus_label.size = Vector2(vs.x * 0.88, cp_height * 0.18)
+	add_child(_bonus_label)
+
 	_info_label = Label.new()
 	_info_label.name = "InfoLabel"
 	_info_label.text = "Press ENTER or FIRE for Next Level"
@@ -143,7 +160,7 @@ func _update_layout_from_scratch() -> void:
 	_info_label.add_theme_font_size_override("font_size", maxi(10, int(cp_height * 0.04)))
 	_info_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8))
 	_info_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	_info_label.position = Vector2(vs.x * 0.06, cp_y + cp_height * 0.55)
+	_info_label.position = Vector2(vs.x * 0.06, cp_y + cp_height * 0.65)
 	_info_label.size = Vector2(vs.x * 0.88, cp_height * 0.25)
 	add_child(_info_label)
 
@@ -155,6 +172,7 @@ func _clear_all() -> void:
 	_title_label = null
 	_level_label = null
 	_score_label = null
+	_bonus_label = null
 	_info_label = null
 	_bip_sprite = null
 	_sop_sprite = null

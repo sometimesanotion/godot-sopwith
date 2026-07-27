@@ -3,7 +3,7 @@ extends CanvasLayer
 var fuel_label: Label
 var ammo_label: Label
 var bombs_label: Label
-var lives_label: Label
+var spare_planes_label: Label
 var score_label: Label
 var speed_label: Label
 var altitude_label: Label
@@ -75,7 +75,7 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_rebuild_ui)
 	if GameManager:
 		GameManager.fuel_changed.connect(_on_fuel_changed)
-		GameManager.lives_changed.connect(_on_lives_changed)
+		GameManager.spare_planes_changed.connect(_on_spare_planes_changed)
 		GameManager.score_changed.connect(_on_score_changed)
 		GameManager.ammo_changed.connect(_on_ammo_changed)
 		GameManager.bombs_changed.connect(_on_bombs_changed)
@@ -87,8 +87,8 @@ func _create_ui_elements() -> void:
 	var line_h := _scale_y(30)
 	fuel_label = _create_label("FUEL: 100%", Vector2(x_margin, y_start))
 	ammo_label = _create_label("AMMO: 100", Vector2(x_margin, y_start + line_h))
-	bombs_label = _create_label("BOMBS: 5", Vector2(x_margin, y_start + line_h * 2))
-	lives_label = _create_label("LIVES: 5", Vector2(x_margin, y_start + line_h * 3))
+	bombs_label = _create_label("BOMBS: 6", Vector2(x_margin, y_start + line_h * 2))
+	spare_planes_label = _create_label("PLANES: 3", Vector2(x_margin, y_start + line_h * 3))
 	score_label = _create_label("SCORE: 0", Vector2(x_margin, y_start + line_h * 4))
 	speed_label = _create_label("SPEED: 0", Vector2(x_margin, y_start + line_h * 5))
 	altitude_label = _create_label("ALT: 0", Vector2(x_margin, y_start + line_h * 6))
@@ -169,7 +169,7 @@ func _rebuild_ui() -> void:
 	fuel_label = null
 	ammo_label = null
 	bombs_label = null
-	lives_label = null
+	spare_planes_label = null
 	score_label = null
 	speed_label = null
 	altitude_label = null
@@ -188,10 +188,10 @@ func _on_fuel_changed(player_id: int, new_fuel: float) -> void:
 	else:
 		fuel_label.modulate = Color(1, 1, 1)
 
-func _on_lives_changed(player_id: int, new_lives: int) -> void:
+func _on_spare_planes_changed(player_id: int, new_spare_planes: int) -> void:
 	if player_id != display_player_id:
 		return
-	lives_label.text = "LIVES: %d" % new_lives
+	spare_planes_label.text = "PLANES: %d" % new_spare_planes
 
 func _on_score_changed(new_score: int) -> void:
 	score_label.text = "SCORE: %d" % new_score
@@ -223,7 +223,7 @@ func _update_display() -> void:
 			ammo_label.text = "AMMO: %d" % avatar.ammo
 			bombs_label.text = "BOMBS: %d" % avatar.bombs
 		if player_data:
-			lives_label.text = "LIVES: %d" % player_data.lives
+			spare_planes_label.text = "PLANES: %d" % player_data.spare_planes
 		score_label.text = "SCORE: %d" % GameManager.get_player_data(display_player_id).score
 
 func set_display_player(player_id: int) -> void:

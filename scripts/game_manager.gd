@@ -1,6 +1,6 @@
 extends Node
 
-signal lives_changed(player_id: int, new_lives: int)
+signal spare_planes_changed(player_id: int, new_spare_planes: int)
 signal fuel_changed(player_id: int, new_fuel: float)
 signal ammo_changed(player_id: int, new_ammo: int)
 signal bombs_changed(player_id: int, new_bombs: int)
@@ -9,8 +9,6 @@ signal screen_shake_requested(player_id: int, intensity: float)
 signal player_destroyed(player_id: int)
 signal model_changed(player_id: int, model_name: String)
 
-const MAX_LIVES := 5
-
 var game_fsm = null
 var game_state: String = "PLAYING"
 
@@ -18,7 +16,7 @@ var terrain_seed: int = 0
 
 var enemy_planes: bool = true
 var enemy_bombs: bool = true
-var enemy_homebases: int = 3
+var enemy_homebases: int = 2
 var enemy_tanks: String = "Normal"
 var huge_explosions: bool = true
 var bird_count: String = "Normal"
@@ -29,6 +27,10 @@ var debug_hud: bool = false
 var player_faction: String = "British"
 
 var current_level: int = 1
+
+## Tanks awarded to the player for completing a level with both their tank and
+## ammo_depot intact.  Resets to 0 at game start.
+var player_extra_tanks: int = 0
 
 func get_level_multiplier() -> float:
 	return 1.0 + 0.1 * (current_level - 1)
@@ -87,20 +89,20 @@ func get_or_create_player(player_id: int) -> PlayerData:
 
 func has_active_players() -> bool:
 	for pid in _players:
-		if _players[pid].is_active and _players[pid].lives > 0:
+		if _players[pid].is_active and _players[pid].spare_planes > 0:
 			return true
 	return false
 
 func get_total_active_players() -> int:
 	var count := 0
 	for pid in _players:
-		if _players[pid].is_active and _players[pid].lives > 0:
+		if _players[pid].is_active and _players[pid].spare_planes > 0:
 			count += 1
 	return count
 
 func get_first_active_player_id() -> int:
 	for pid in _players:
-		if _players[pid].is_active and _players[pid].lives > 0:
+		if _players[pid].is_active and _players[pid].spare_planes > 0:
 			return pid
 	return 0
 
@@ -118,6 +120,7 @@ func reset_game() -> void:
 	_players.clear()
 	game_state = "PLAYING"
 	current_level = 1
+	player_extra_tanks = 0
 	for pid in _players:
 		_players[pid] = 0
 	emit_signal("score_changed", 0)
@@ -138,7 +141,7 @@ func unregister_player(player_id: int) -> void:
 
 func emit_signals_for_player(player_id: int) -> void:
 	var data = get_player_data(player_id)
-	lives_changed.emit(player_id, data.lives)
+	spare_planes_changed.emit(player_id, data.spare_planes)
 
 	var BiplaneClass = load("res://scripts/biplane.gd")
 	var avatar = BiplaneClass.get_avatar(player_id)
@@ -147,13 +150,13 @@ func emit_signals_for_player(player_id: int) -> void:
 		ammo_changed.emit(player_id, avatar.ammo)
 		bombs_changed.emit(player_id, avatar.bombs)
 
-func get_lives(player_id: int) -> int:
-	return get_player_data(player_id).lives
+func get_spare_planes(player_id: int) -> int:
+	return get_player_data(player_id).spare_planes
 
-func set_lives(player_id: int, value: int) -> void:
+func set_spare_planes(player_id: int, value: int) -> void:
 	var data = get_player_data(player_id)
-	data.lives = value
-	lives_changed.emit(player_id, data.lives)
+	data.spare_planes = value
+	spare_planes_changed.emit(player_id, data.spare_planes)
 
 func add_score(player_id: int, points: int) -> void:
 	var data = get_player_data(player_id)
@@ -162,8 +165,8 @@ func add_score(player_id: int, points: int) -> void:
 
 func destroy_player(player_id: int) -> void:
 	var data = get_player_data(player_id)
-	data.lives -= 1
-	lives_changed.emit(player_id, data.lives)
+	data.spare_planes -= 1
+	spare_planes_changed.emit(player_id, data.spare_planes)
 	player_destroyed.emit(player_id)
 	if not has_active_players():
 		game_over()

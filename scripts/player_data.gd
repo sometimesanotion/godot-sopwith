@@ -3,12 +3,12 @@ extends RefCounted
 
 var avatar_id: int = 0
 var score: int = 0
-var lives: int = 3
+var spare_planes: int = 3
 var is_player: bool = true
 var is_active: bool = false
 
 func reset() -> void:
-	lives = 5
+	spare_planes = 3
 	is_active = false
 	is_player = false
 	score = 0

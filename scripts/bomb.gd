@@ -1,13 +1,13 @@
 extends CharacterBody2D
 
 var gravity: float = 147.15
-var explosion_radius: float = 120.0
-var explosion_damage: float = 170.0
+var explosion_radius: float = 140.0
+var explosion_damage: float = 140.0
 
 var _bomb_owner: Node = null
 var has_exploded: bool = false
 var whistle_start_time: float = -1.0
-var hit_points: float = 45.0
+var hit_points: float = 55.0
 
 var _svg_sprite_name: String = "bomb"
 var _svg_size: Vector2 = Vector2(20, 25)

@@ -1779,7 +1779,7 @@ func _do_respawn() -> void:
 	if not biplane:
 		return
 
-	# Reset all per-pilot mutable state so nothing leaks across lives.
+	# Reset all per-pilot mutable state so nothing leaks across spare_planes.
 	pilots[0] = AIData.new()
 	_crashed_exploded = false
 

@@ -356,6 +356,7 @@ var enemy_base_faces_left: Array[bool] = []
 func _spawn_enemies_and_targets() -> void:
 	enemies.clear()
 	enemy_home_positions.clear()
+	enemy_base_faces_left.clear()
 	_occupied_positions.clear()
 	if BuildingRegistry:
 		BuildingRegistry.reset()
@@ -679,9 +680,13 @@ func _create_home_base() -> void:
 
 	# The forward (second) spawn point is reserved for TANKS — ground
 	# vehicles that crawl out to hunt the enemy (they never respawn).  The
-	# friendly homebase fields a single tank.  Spawned on the far side of the
-	# runway, in front of the machine gun nest, facing right (toward the foe).
-	for k in range(1):
+	# friendly homebase fields 1 + any extra tanks earned from previous
+	# level completions.  Spawned on the far side of the runway, in front
+	# of the machine gun nest, facing right (toward the foe).
+	var player_tank_count := 1
+	if GameManager:
+		player_tank_count += GameManager.player_extra_tanks
+	for k in range(player_tank_count):
 		var tx := opp_edge + opp_dir * (140.0 + k * 90.0)
 		_spawn_tank(PLAYER_HOMEBASE_ID, PLAYER_SPAWN_X, tx, false, 1.0)
 
@@ -711,19 +716,10 @@ func _create_enemy_bases() -> void:
 		var hb_id: int = base_idx + 1
 		var lv: int = GameManager.current_level if GameManager else 1
 
-		# Level 1 is a single clean set of each building type (no duplicates).
-		# Each additional level beyond the first adds ONE more machine gun
-		# nest or flak cannon per enemy home base, alternating so the base's
-		# AA mix grows evenly.  Flak cannons stay on the building side behind
-		# the runway; machine gun nests are routed to the forward (second)
-		# spawn point (see below) so all MG nests screen the tanks.
-		var flak_total: int = 1
+		# Every 3rd level: +1 flak battery per base.
+		# Machine gun nests stay at a base of 1 (no level scaling).
+		var flak_total: int = 1 + int(lv / 3)
 		var mg_total: int = 1
-		for d in range(maxi(0, lv - 1)):
-			if d % 2 == 0:
-				flak_total += 1
-			else:
-				mg_total += 1
 		var building_side := PackedStringArray([
 			"flak_cannon", "hangar", "building", "ammo_depot", "fuel_depot"])
 		for i in range(flak_total - 1):
@@ -740,11 +736,11 @@ func _create_enemy_bases() -> void:
 
 		# Tanks: crawl out from the OPPOSITE (second) spawn point, IN FRONT
 		# of the machine gun nests, to hunt the player.  Hostile homebases
-		# field a count driven by the `enemy_tanks` preference (Few=1,
-		# Normal=2, Many=3 at level 1) and scale up by one per level beyond
-		# the first.  Tanks never respawn.
+		# field a count driven by the `enemy_tanks` preference (None=0,
+		# Few=1, Normal=2, Many=3 at level 1) and add +1 every 2nd level.
+		# Tanks never respawn.
 		var tank_base_map: Dictionary = {"None": 0, "Few": 1, "Normal": 2, "Many": 3}
-		var tanks_per_base: int = tank_base_map.get(GameManager.enemy_tanks if GameManager else "Normal", 2) + maxi(0, lv - 1)
+		var tanks_per_base: int = tank_base_map.get(GameManager.enemy_tanks if GameManager else "Normal", 2) + int(lv / 2)
 		var tank_start: float = 40.0 + mg_total * 90.0 + 60.0
 		for k in range(tanks_per_base):
 			var dir := -1.0 if faces_left else 1.0
@@ -774,13 +770,13 @@ func _on_biplane_crashed(is_midair: bool = false) -> void:
 func _on_buildings_destroyed(homebase_id: int) -> void:
 	## The player's homebase shares registry id 0.  When its LAST building
 	## falls, the player can no longer put planes back in the air, so their
-	## remaining lives collapse to 1 — the next death ends the game (no
+	## remaining spare planes collapse to 1 — the next death ends the game (no
 	## further respawn).  Enemy bases are handled by the respawn gate in
 	## enemy_ai (a base with no buildings simply stops respawning).
 	if homebase_id == PLAYER_HOMEBASE_ID and GameManager:
-		var lives := GameManager.get_lives(0)
-		if lives > 1:
-			GameManager.set_lives(0, 1)
+		var spare_planes := GameManager.get_spare_planes(0)
+		if spare_planes > 1:
+			GameManager.set_spare_planes(0, 1)
 
 func _on_biplane_landed(avatar_id: int) -> void:
 	## The wreck has hit the ground — schedule the fixed 2s respawn.
@@ -795,7 +791,7 @@ func _respawn_biplane(avatar_id: int = 0) -> void:
 	if not biplane or not biplane.has_method("respawn"):
 		return
 
-	if avatar_id == 0 and GameManager and GameManager.get_lives(0) <= 0:
+	if avatar_id == 0 and GameManager and GameManager.get_spare_planes(0) <= 0:
 		_show_game_over()
 		return
 
@@ -810,31 +806,124 @@ func _respawn_biplane(avatar_id: int = 0) -> void:
 	if not success and avatar_id == 0:
 		_show_game_over()
 
+## Compute level-completion bonuses without applying them (pure query).
+## Returns { bonus_planes: int, surviving_tanks: int, bonus_text: String }.
+func _compute_level_bonuses() -> Dictionary:
+	var result := {
+		"bonus_planes": 0,
+		"surviving_tanks": 0,
+		"bonus_text": "",
+	}
+	if not BuildingRegistry:
+		return result
+	# Player homebase (id=0) always spawns these 6 building types:
+	var player_types := PackedStringArray([
+		"flak_cannon", "hangar", "building",
+		"ammo_depot", "fuel_depot", "machine_gun_nest"])
+	var survived := 0
+	for t in player_types:
+		survived += BuildingRegistry.count(PLAYER_HOMEBASE_ID, t)
+	var hangar_survived := BuildingRegistry.count(PLAYER_HOMEBASE_ID, "hangar") > 0
+	var half_survived := survived >= player_types.size() / 2
+	if half_survived:
+		result["bonus_planes"] += 1
+	if hangar_survived:
+		result["bonus_planes"] += 1
+	# Count surviving player tanks
+	var player_tanks := get_tree().get_nodes_in_group("tank")
+	for t in player_tanks:
+		if t.is_in_group("player"):
+			var av = t.get_avatar_data(0) if t.has_method("get_avatar_data") else null
+			if av and av.damage.damage_state != DamageData.DamageState.DESTROYED:
+				result["surviving_tanks"] += 1
+	# Build display text
+	var lines: PackedStringArray = []
+	if half_survived:
+		lines.append("Friendly buildings survived: +1 Plane")
+	if hangar_survived:
+		lines.append("Friendly hangar survived: +1 Plane")
+	if result["bonus_planes"] > 0:
+		lines.append("Total Bonus Lives: +%d" % result["bonus_planes"])
+	if result["surviving_tanks"] > 0:
+		lines.append("Friendly Tanks for Next Level: %d + 1 = %d" % [result["surviving_tanks"], (result["surviving_tanks"] + 1)])
+	result["bonus_text"] = "\n".join(lines)
+	return result
+
 func _win_game() -> void:
 	game_state = "LEVEL_COMPLETE"
 	if GameManager:
 		GameManager.game_win()
 	var level_complete := LEVEL_COMPLETE_SCENE.instantiate()
 	level_complete.next_level.connect(_on_next_level)
+	level_complete.bonus_info = _compute_level_bonuses()["bonus_text"]
 	add_child(level_complete)
 
+func _award_level_completion_bonuses() -> void:
+	var bonuses := _compute_level_bonuses()
+	if not GameManager:
+		return
+	if bonuses["bonus_planes"] > 0:
+		GameManager.set_spare_planes(0, GameManager.get_spare_planes(0) + bonuses["bonus_planes"])
+	# Next level gets surviving_tanks + 1 on the player side
+	GameManager.player_extra_tanks = bonuses["surviving_tanks"]
+
 func _on_next_level() -> void:
+	# --- 1. Award level-completion bonuses (check BEFORE clearing) ---
+	_award_level_completion_bonuses()
+	# --- 2. Advance level ---
 	game_state = "PLAYING"
 	if GameManager:
 		GameManager.current_level += 1
+	# --- 3. Compute enemy base count for the NEW level ---
+	# Every 4th level adds a base, up to maximum of 6.
+	var lv := GameManager.current_level if GameManager else 1
+	var num_bases := mini(6, 2 + int(lv / 4))
+	if GameManager:
+		GameManager.enemy_homebases = num_bases
 	if RespawnManager:
 		RespawnManager.clear_all()
 	_clear_game_objects()
+	# --- 4. Regenerate terrain and background so every level is unique ---
+	if GameManager:
+		GameManager.terrain_seed = randi()
+	if terrain and terrain.has_method("generate"):
+		terrain.generate()
+		terrain.visible = true
+	if background and background.has_method("generate"):
+		var seed_val: int = terrain.resolved_seed if terrain else 0
+		background.generate(seed_val)
+	# --- 5. Spawn fresh enemies, buildings, and tanks for the new level ---
 	if biplane:
 		biplane.set_game_active(false)
 		biplane.visible = false
 	_spawn_enemies_and_targets()
 	_create_home_base()
 	_create_enemy_bases()
+	# --- 6. Rebuild minimap ---
 	if minimap_instance and terrain and terrain.has_method("get_ground_points"):
 		minimap_instance.update_terrain(terrain.get_ground_points())
 	if minimap_instance and minimap_instance.has_method("clear"):
 		minimap_instance.clear()
+	# --- 7. Refresh player homebase to match the new terrain ---
+	if biplane and biplane.has_method("setup_faction_homebase"):
+		var ground_y := 650.0
+		if terrain and terrain.has_method("get_ground_height_at"):
+			ground_y = terrain.get_ground_height_at(PLAYER_SPAWN_X)
+		var player_faction_enum = Biplane.Faction.BRITISH
+		if GameManager:
+			match GameManager.player_faction:
+				"French":
+					player_faction_enum = Biplane.Faction.FRENCH
+				"German":
+					player_faction_enum = Biplane.Faction.GERMAN
+		biplane.setup_faction_homebase(
+			0,
+			PLAYER_SPAWN_X,
+			Terrain.RUNWAY_LENGTH,
+			Vector2(PLAYER_SPAWN_X, ground_y - Biplane.GROUND_SURFACE_OFFSET),
+			0.0,
+			player_faction_enum)
+	# --- 8. Respawn the player ---
 	if biplane:
 		biplane.visible = true
 		biplane.set_game_active(true)

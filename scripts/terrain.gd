@@ -89,9 +89,23 @@ func _ready() -> void:
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 
 func generate() -> void:
+	_clear_terrain()
 	_initialize_noise()
 	_generate_terrain()
 	_create_terrain()
+
+## Remove all generated scenery, collision, and runways so generate() can
+## produce a completely fresh terrain from scratch.  Re-adds the player
+## runway (RUNWAY_START) as the sole remaining runway.
+func _clear_terrain() -> void:
+	for child in get_children():
+		child.queue_free()
+	runways.clear()
+	runways.append(Runway.new(RUNWAY_START, RUNWAY_END))
+	terrain_body = null
+	terrain_polygon = null
+	terrain_polygons.clear()
+	ground_points.clear()
 
 func add_runway(x: float) -> void:
 	var runway_start := x
