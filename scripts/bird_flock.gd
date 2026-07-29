@@ -33,7 +33,7 @@ func _ready() -> void:
 
 func _preferred_y() -> float:
 	var g = _ground_y(global_position.x)
-	return g - (400.0 + randf() * MAX_HEIGHT)
+	return g - (800.0 + randf() * MAX_HEIGHT)
 
 func _ground_y(x: float) -> float:
 	var t = get_parent().get_node_or_null("Terrain")
@@ -94,7 +94,7 @@ func _physics_process(delta: float) -> void:
 		target_y = _preferred_y()
 		altitude_interval = 3.0 + randf() * 4.0
 	var cur_ground = _ground_y(global_position.x)
-	var clamped = minf(target_y, cur_ground - 200.0)
+	var clamped = minf(target_y, cur_ground - 600.0)
 	global_position.y = move_toward(global_position.y, clamped, 40.0 * delta)
 	for i in range(birds.size()):
 		var b = birds[i]

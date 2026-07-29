@@ -146,15 +146,43 @@ func take_damage(avatar_or_amount, amount_or_attacker = null, _attacker = null) 
 
 ## Drop the tank from the targeting/minimap bookkeeping the instant it is
 ## destroyed, so a wreck no longer counts as a live enemy target (which would
-## otherwise block the win check).
+## otherwise block the win check).  Leaves a burned-out hull with smoke.
 func _on_avatar_crashed(avatar: AvatarData) -> void:
 	super._on_avatar_crashed(avatar)
 	if is_in_group("enemy_target"):
 		remove_from_group("enemy_target")
 	if is_in_group("tank"):
 		remove_from_group("tank")
-	# Tanks never respawn — remove the wreck from the game entirely once it
-	# is destroyed (the crash explosion/debris are world-space and persist).
+	_create_tank_wreck()
+
+## Create a persistent smoking wreck at the tank's position.
+func _create_tank_wreck() -> void:
+	var wreck := StaticBody2D.new()
+	wreck.position = global_position
+	wreck.add_to_group("wreck")
+
+	var hull := get_plane_polygon()
+	var wrecked_points := PackedVector2Array()
+	for pt in hull:
+		wrecked_points.append(pt + Vector2(randf_range(-2, 2), randf_range(-2, 2)))
+	var collision_poly := CollisionPolygon2D.new()
+	collision_poly.polygon = wrecked_points
+	wreck.add_child(collision_poly)
+
+	var hull_color := Color(0.12, 0.20, 0.10)
+	var av := get_avatar_data(0)
+	if av and av.team == Biplane.Team.ENEMY:
+		hull_color = Color(0.20, 0.13, 0.09)
+	var wreck_draw := Node2D.new()
+	wreck_draw.set_script(preload("res://scripts/wreck_draw.gd"))
+	wreck_draw.set_meta("wreck_color", hull_color)
+	wreck_draw.set_meta("wreck_points", wrecked_points)
+	wreck.add_child(wreck_draw)
+
+	if EffectManager:
+		EffectManager.spawn_open_fire_with_smoke(wreck.position, 8.0, 15, 25)
+
+	get_parent().call_deferred("add_child", wreck)
 	queue_free()
 
 ## AI entry point: ground-mode EnemyAI calls this instead of set_ai_input.

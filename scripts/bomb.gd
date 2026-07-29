@@ -108,12 +108,16 @@ func explode() -> void:
 	queue_free()
 
 func _spawn_explosion_effect() -> void:
+	var energy := explosion_damage * 0.8
 	if EffectManager:
-		EffectManager.spawn_explosion(global_position, 100.0)
-		EffectManager.spawn_bomb_explosion_ring(global_position, explosion_radius, 0.1)
-		EffectManager.spawn_explosion_debris(global_position, 100.0, 8, Color(0.03, 0.03, 0.02))
+		var scale_factor := clampf(explosion_radius / 100.0, 0.5, 3.0)
+		var puff_radius := explosion_radius * 1.2 * scale_factor
+		EffectManager.spawn_explosion(global_position, energy)
+		EffectManager.spawn_fire_puff(global_position, puff_radius, 0.3)
+		var debris_count := int(clampf(8.0 * scale_factor, 4, 24))
+		EffectManager.spawn_explosion_debris(global_position, energy, debris_count, Color(0.03, 0.03, 0.02))
 	if GameManager:
-		GameManager.request_screen_shake(20.0)
+		GameManager.request_screen_shake(energy * 0.15)
 
 func get_bomb_owner() -> Node:
 	return _bomb_owner

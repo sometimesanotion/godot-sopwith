@@ -346,8 +346,11 @@ func stop_effect(effect: Node2D) -> void:
 			effect.queue_free()
 		_active_effects.erase(effect)
 
-## Create continuous 3-layer fire attached to a parent node (for planes, etc.).
-## Returns {"core": GPUParticles2D, "glow": GPUParticles2D, "smoke": GPUParticles2D}.
+## Create continuous 2-layer fire attached to a parent node (for planes, etc.).
+## Returns {"core": GPUParticles2D, "glow": GPUParticles2D}.
+## Smoke is NOT part of this effect — attach_continuous_smoke supplies it
+## separately so severely-damaged planes show fire + black smoke without any
+## unintended gray/white smoke from a third particle layer.
 func attach_continuous_fire(parent: Node, offset: Vector2 = Vector2(15, -5), amount: int = 30, preset: FireColorPreset = FireColorPreset.STANDARD) -> Dictionary:
 	var colors := _get_fire_colors(preset)
 	var handles := {}
@@ -412,30 +415,6 @@ func attach_continuous_fire(parent: Node, offset: Vector2 = Vector2(15, -5), amo
 	parent.add_child(glow)
 	handles["glow"] = glow
 
-	# Layer 3: Large, slow, translucent black smoke
-	var smoke := GPUParticles2D.new()
-	smoke.name = "ContinuousFireSmoke"
-	smoke.emitting = true
-	smoke.one_shot = false
-	smoke.amount = max(1, amount / 3)
-	smoke.lifetime = 1.5
-	smoke.explosiveness = 0.0
-	smoke.position = offset
-	smoke.local_coords = false
-	var smoke_mat := ParticleProcessMaterial.new()
-	smoke_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	smoke_mat.emission_sphere_radius = 8.0
-	smoke_mat.gravity = Vector3(0, -15, 0)
-	smoke_mat.spread = 30.0
-	smoke_mat.initial_velocity_min = 15.0
-	smoke_mat.initial_velocity_max = 35.0
-	smoke_mat.scale_min = 6.0
-	smoke_mat.scale_max = 12.0
-	smoke_mat.color = Color(0.05, 0.05, 0.05, 0.35)
-	smoke.process_material = smoke_mat
-	parent.add_child(smoke)
-	handles["smoke"] = smoke
-
 	return handles
 
 ## Update amount on all layers of a continuous fire effect.
@@ -446,13 +425,10 @@ func update_continuous_fire(handles: Dictionary, amount: int) -> void:
 	if handles.has("glow") and handles["glow"] and is_instance_valid(handles["glow"]):
 		handles["glow"].amount = max(1, amount / 2)
 		handles["glow"].emitting = true
-	if handles.has("smoke") and handles["smoke"] and is_instance_valid(handles["smoke"]):
-		handles["smoke"].amount = max(1, amount / 3)
-		handles["smoke"].emitting = true
 
 ## Stop and free all layers of a continuous fire effect.
 func detach_continuous_fire(handles: Dictionary) -> void:
-	for key in ["core", "glow", "smoke"]:
+	for key in ["core", "glow"]:
 		if handles.has(key) and handles[key] and is_instance_valid(handles[key]):
 			handles[key].emitting = false
 			handles[key].queue_free()
@@ -495,41 +471,45 @@ func detach_continuous_smoke(particle_node: GPUParticles2D) -> void:
 		particle_node.emitting = false
 		particle_node.queue_free()
 
-## Spawn a rapidly expanding translucent white ring (bomb explosion) that
-## grows to `radius` pixels over `duration` seconds.
-func spawn_bomb_explosion_ring(pos: Vector2, radius: float = 200.0, duration: float = 0.1) -> GPUParticles2D:
+## Spawn a fire-toned puffy circle (bomb/flak explosion) that fades from
+## yellow-white to transparent orange-red within `duration` seconds.
+## Replaces the old white shock ring with a natural fire-toned puff that
+## scales with `radius` and uses the same color palette as fire effects.
+func spawn_fire_puff(pos: Vector2, radius: float = 200.0, duration: float = 0.3) -> GPUParticles2D:
 	if _effect_count >= max_concurrent_effects:
 		return null
-	var ring := GPUParticles2D.new()
-	ring.name = "BombExplosionRing"
-	ring.global_position = pos
-	ring.emitting = true
-	ring.one_shot = true
-	ring.amount = 80
-	ring.lifetime = duration
-	ring.explosiveness = 1.0
-	ring.local_coords = false
+	var puff := GPUParticles2D.new()
+	puff.name = "FirePuff"
+	puff.global_position = pos
+	puff.emitting = true
+	puff.one_shot = true
+	puff.amount = maxi(20, int(radius * 0.3))
+	puff.lifetime = duration
+	puff.explosiveness = 0.6
+	puff.local_coords = false
 	var mat := ParticleProcessMaterial.new()
 	mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	mat.emission_sphere_radius = 0.0
-	mat.gravity = Vector3.ZERO
-	mat.spread = 0.0
-	mat.initial_velocity_min = radius / duration * 0.8
-	mat.initial_velocity_max = radius / duration * 1.2
-	mat.scale_min = 2.0
-	mat.scale_max = 5.0
+	mat.emission_sphere_radius = radius * 0.15
+	mat.gravity = Vector3(0, -10, 0)
+	mat.spread = 180.0
+	mat.initial_velocity_min = radius / duration * 0.3
+	mat.initial_velocity_max = radius / duration * 0.8
+	mat.scale_min = 4.0
+	mat.scale_max = 12.0
 	var grad := Gradient.new()
-	grad.add_point(0.0, Color(1, 1, 1, 0.5))
-	grad.add_point(0.3, Color(1, 1, 1, 0.3))
-	grad.add_point(1.0, Color(1, 1, 1, 0.0))
+	grad.add_point(0.0, Color(1.0, 0.95, 0.6, 0.9))
+	grad.add_point(0.2, Color(1.0, 0.6, 0.1, 0.7))
+	grad.add_point(0.5, Color(0.9, 0.3, 0.05, 0.4))
+	grad.add_point(1.0, Color(0.6, 0.1, 0.02, 0.0))
 	var tex := GradientTexture1D.new()
 	tex.gradient = grad
 	mat.color_ramp = tex
-	ring.process_material = mat
-	_get_world().add_child(ring)
-	_active_effects.append(ring)
-	effect_spawned.emit("bomb_explosion_ring", pos)
-	return ring
+	puff.process_material = mat
+	_get_world().add_child(puff)
+	_active_effects.append(puff)
+	effect_spawned.emit("fire_puff", pos)
+	_free_after(puff, duration + 0.1)
+	return puff
 
 func _get_world() -> Node:
 	var tree := get_tree()

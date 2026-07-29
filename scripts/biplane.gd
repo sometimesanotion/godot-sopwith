@@ -511,9 +511,10 @@ class AvatarData:
 	var last_shot_range:  float = 0.0
 
 	# View-layer particle handles (managed via EffectManager)
-	var continuous_fire_handles: Dictionary = {}  ## keys "core","glow","smoke" or empty
+	var continuous_fire_handles: Dictionary = {}  ## keys "core","glow" or empty
 	var continuous_smoke:       GPUParticles2D = null
-	var current_smoke_type:     int = 0         ## 0=none, 1=white, 2=black
+	var _extra_smoke:           GPUParticles2D = null
+	var current_smoke_type:     int = 0         ## 0=none, 1=white, 2=black, 3=both
 
 	var max_landing_tilt: float = model_params.get("max_landing_tilt_deg", 34.0)
 	var soft_landing: float = model_params.get("soft_landing_vperp", 80.0)
@@ -565,6 +566,10 @@ class AvatarData:
 			if EffectManager:
 				EffectManager.detach_continuous_smoke(continuous_smoke)
 			continuous_smoke = null
+		if _extra_smoke:
+			if EffectManager:
+				EffectManager.detach_continuous_smoke(_extra_smoke)
+			_extra_smoke = null
 		current_smoke_type = 0
 
 		# Initialize plane model parameters
@@ -1638,9 +1643,9 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 			continue
 		if child.has_method("get_collision_response"):
 			# Ground vehicles (tanks, is_aerodynamic() == false) roll straight
-			# through buildings: no damage to the tank and none to the structure.
-			# They engage hostile buildings with their weapons instead.
-			if not avatar.is_aerodynamic() and "target_type" in child:
+			# through buildings and wrecks: no damage to the tank and none to
+			# the structure.  They engage hostile buildings with their weapons.
+			if not avatar.is_aerodynamic() and ("target_type" in child or child.is_in_group("wreck") or child.is_in_group("obstacle")):
 				continue
 			var collision_result = child.get_collision_response(self, avatar, speed, soft_landing, hard_landing)
 			if collision_result.hit:
@@ -1917,6 +1922,8 @@ func take_damage(avatar_or_amount, amount_or_attacker = null, _attacker = null) 
 ###############################################################################
 
 func _on_avatar_damage_state_changed(_from: DamageData.DamageState, _to: DamageData.DamageState, avatar: AvatarData) -> void:
+	if _to == DamageData.DamageState.DESTROYED:
+		SoundManager.set_engine_rpm(randf() * 0.2)
 	_sync_damage_particles(avatar)
 
 ## Sync particle effects to current damage state using EffectManager continuous effects.
@@ -1933,10 +1940,13 @@ func _sync_damage_particles(avatar: AvatarData) -> void:
 
 			if not avatar.continuous_smoke or avatar.current_smoke_type != 2:
 				_detach_smoke(avatar)
-				avatar.continuous_smoke = EffectManager.attach_continuous_smoke(self, Vector2(-15, 5), 2, int(30.0 * avatar.damage.damage_percent))
+				var black_amount := int(30.0 * avatar.damage.damage_percent)
+				avatar.continuous_smoke = EffectManager.attach_continuous_smoke(self, Vector2(-10, 8), 2, black_amount)
+				avatar._extra_smoke = null
 				avatar.current_smoke_type = 2
 			else:
-				EffectManager.update_continuous_smoke(avatar.continuous_smoke, int(30.0 * avatar.damage.damage_percent))
+				if avatar.continuous_smoke:
+					EffectManager.update_continuous_smoke(avatar.continuous_smoke, int(30.0 * avatar.damage.damage_percent))
 
 		DamageData.DamageState.MODERATE:
 			_detach_fire(avatar)
@@ -1973,6 +1983,10 @@ func _detach_smoke(avatar: AvatarData) -> void:
 		if EffectManager:
 			EffectManager.detach_continuous_smoke(avatar.continuous_smoke)
 		avatar.continuous_smoke = null
+	if avatar._extra_smoke:
+		if EffectManager:
+			EffectManager.detach_continuous_smoke(avatar._extra_smoke)
+		avatar._extra_smoke = null
 	avatar.current_smoke_type = 0
 
 ###############################################################################

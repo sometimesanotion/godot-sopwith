@@ -37,6 +37,7 @@ enum SoundEvent {
 	YELL,         ## Random yells
 	BOING,        ## Silly bounce
 	BUMP,         ## Soft collision
+	SPUTTER,      ## Engine sputter (0 fuel, destroyed, crashed)
 }
 
 # ---------------------------------------------------------------------------
@@ -64,6 +65,7 @@ const EVENT_STEMS: Dictionary = {
 	SoundEvent.YELL:         "yell",
 	SoundEvent.BOING:        "boing",
 	SoundEvent.BUMP:         "bump",
+	SoundEvent.SPUTTER:      "engine_sputter",
 }
 
 ## Per-event tuning.  All fields are optional; omit to use defaults.
@@ -103,6 +105,10 @@ const EVENT_CONFIG: Dictionary = {
 	},
 	SoundEvent.BUMP: {
 		"volume_db_min": -8.0, "volume_db_max": -4.0,
+		"pitch_min": 0.9, "pitch_max": 1.1,
+	},
+	SoundEvent.SPUTTER: {
+		"volume_db_min": -4.0, "volume_db_max": 0.0,
 		"pitch_min": 0.9, "pitch_max": 1.1,
 	},
 }

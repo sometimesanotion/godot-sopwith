@@ -185,7 +185,6 @@ func _update_config_text() -> void:
 	control_content.text += "6 - Bird Flocks:  " + birds_str + "\n"
 	control_content.text += "7 - Cows:  " + cows_str + "\n"
 	control_content.text += "8 - Enemy Tanks:  " + tanks_str + "\n"
-	control_content.text += "D - Debug HUD:  " + ("ON" if GameManager.debug_hud else "OFF") + "\n"
 	control_content.text += "S - Sound FX Volume:  " + sfx_str + "\n"
 	control_content.text += "M - Music Volume:  " + music_str + "\n\n"
 	control_content.text += "Q - Back to Menu"
@@ -357,9 +356,6 @@ func _handle_configure_input(ke: InputEventKey) -> void:
 			var opts := ["None", "Few", "Normal", "Many"]
 			var idx := opts.find(GameManager.enemy_tanks)
 			GameManager.enemy_tanks = opts[(idx + 1) % opts.size()]
-			_update_config_text()
-		KEY_D:
-			GameManager.debug_hud = not GameManager.debug_hud
 			_update_config_text()
 		KEY_S:
 			var opts := [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]

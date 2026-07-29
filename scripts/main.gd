@@ -130,6 +130,17 @@ func _input(event: InputEvent) -> void:
 		if game_state == "PLAYING":
 			_abort_game()
 
+	var ke := event as InputEventKey
+	if ke.keycode == KEY_F9 and not ke.pressed and not ke.is_echo():
+		if game_state == "PLAYING" and GameManager:
+			GameManager.debug_hud = not GameManager.debug_hud
+			biplane.queue_redraw()
+			for e in enemies:
+				if e and is_instance_valid(e) and e.has_method("queue_redraw"):
+					e.queue_redraw()
+			for t in get_tree().get_nodes_in_group("tank"):
+				if t and is_instance_valid(t):
+					t.queue_redraw()
 
 func _abort_game() -> void:
 	if game_state != "PLAYING":
@@ -333,6 +344,7 @@ func _start_playing() -> void:
 	_spawn_enemies_and_targets()
 	_create_home_base()
 	_create_enemy_bases()
+	_spawn_cows()
 	# Built last so the minimap samples terrain only after every runway
 	# (player + all enemy bases via add_runway) has been placed and the
 	# ground points fully regenerated — otherwise it shows a stale snapshot.
@@ -470,6 +482,18 @@ func _spawn_enemies_and_targets() -> void:
 		enemies.append(enemy)
 
 	var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
+	var bird_count_map: Dictionary = {"None": 0, "Few": 3, "Normal": 5, "Many": 8}
+	var num_birds: int = int(bird_count_map.get(GameManager.bird_count if GameManager else "Normal", 6) * lm)
+	for i in range(num_birds):
+		var flock: Node2D = BIRD_FLOCK_SCENE.instantiate()
+		flock.position = Vector2(200 + randf() * 16000, -300 - randf() * 1200)
+		add_child(flock)
+
+## Spawn cows across the terrain, excluding homebase zones (player + enemy)
+## and runways. Called after all bases, tanks, and structures are placed so
+## cows never clip through buildings or block vehicle paths.
+func _spawn_cows() -> void:
+	var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
 	var cow_count_map: Dictionary = {"None": 0, "Few": 6, "Normal": 12, "Many": 24}
 	var num_cows: int = int(cow_count_map.get(GameManager.cow_count if GameManager else "Normal", 6) * lm)
 	for i in range(num_cows):
@@ -480,20 +504,24 @@ func _spawn_enemies_and_targets() -> void:
 			var on_runway := false
 			if terrain and terrain.has_method("is_on_runway"):
 				on_runway = terrain.is_on_runway(cow_x)
-			if not on_runway:
+			if on_runway:
+				attempts += 1
+				continue
+			var near_homebase := false
+			if absf(cow_x - PLAYER_SPAWN_X) < 500.0:
+				near_homebase = true
+			else:
+				for hx in enemy_home_positions:
+					if absf(cow_x - hx) < 500.0:
+						near_homebase = true
+						break
+			if not near_homebase:
 				break
 			attempts += 1
 		var cow: Node2D = COW_SCENE.instantiate()
 		var cow_y: float = terrain.get_ground_height_at(cow_x) if terrain and terrain.has_method("get_ground_height_at") else 650.0
 		cow.position = Vector2(cow_x, cow_y)
 		add_child(cow)
-
-	var bird_count_map: Dictionary = {"None": 0, "Few": 3, "Normal": 5, "Many": 8}
-	var num_birds: int = int(bird_count_map.get(GameManager.bird_count if GameManager else "Normal", 6) * lm)
-	for i in range(num_birds):
-		var flock: Node2D = BIRD_FLOCK_SCENE.instantiate()
-		flock.position = Vector2(200 + randf() * 16000, 100 - randf() * 1200)
-		add_child(flock)
 
 func _get_target_half_width(target_type: String) -> float:
 	match target_type:

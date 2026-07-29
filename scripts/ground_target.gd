@@ -32,6 +32,10 @@ var polygon_points: PackedVector2Array = []
 var _collision_polygon: CollisionPolygon2D = null
 var _svg_sprite_name: String = ""
 
+## Cached AA target — re-scanned at 1 Hz to pick the nearest enemy plane.
+var _aa_target: Node = null
+var _aa_scan_timer: float = 0.0
+
 const AA_PROJECTILE := preload("res://scenes/bullet.tscn")
 const FLAK_SHELL := preload("res://scenes/flak_shell.tscn")
 
@@ -56,6 +60,7 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if has_aa and not is_destroyed:
 		aa_timer -= delta
+		_aa_scan_timer -= delta
 		if aa_timer <= 0:
 			_try_aa_fire()
 
@@ -68,9 +73,24 @@ func _is_armed() -> bool:
 ## base never shoots its own side.  Targets the PLANE node
 ## ("player" / "enemy_plane" groups), never the EnemyAI
 ## controller (also in "enemy"), which has no global_position.
+## Re-scans the full group at 1 Hz and caches the nearest plane.
 func _acquire_aa_target() -> Node:
 	var group := "player" if is_enemy else "enemy_plane"
-	return get_tree().get_first_node_in_group(group)
+	if _aa_scan_timer > 0.0 and is_instance_valid(_aa_target):
+		return _aa_target
+	_aa_scan_timer = 1.0
+	var candidates := get_tree().get_nodes_in_group(group)
+	var best: Node = null
+	var best_dist := INF
+	for c in candidates:
+		if not is_instance_valid(c):
+			continue
+		var d := global_position.distance_squared_to(c.global_position)
+		if d < best_dist:
+			best_dist = d
+			best = c
+	_aa_target = best
+	return _aa_target
 
 func _aa_cooldown() -> float:
 	match target_type:

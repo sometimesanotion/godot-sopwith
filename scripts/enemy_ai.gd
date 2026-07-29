@@ -237,6 +237,17 @@ const TANK_TURRET_TURN := 4.0   # rad/s turret slew
 const TANK_PATROL_MARGIN := 200.0
 
 # ---------------------------------------------------------------------------
+# AWARENESS / SKILL
+# ---------------------------------------------------------------------------
+
+## Range at which the player's forward cone and distance counts as "in scope".
+const SCOPE_RANGE := 700.0
+## Forward-cone half-angle (rad) for the player's scope.
+const SCOPE_ANGLE := 0.52   # ~30°
+## How often (seconds) the AI checks its six / scans for threats.
+const AWARENESS_INTERVAL := 1.0
+
+# ---------------------------------------------------------------------------
 # PILOT STATE  (all mutable runtime data for one AI pilot)
 # ---------------------------------------------------------------------------
 
@@ -263,6 +274,10 @@ class AIData:
 	var flip_cooldown: float         = 0.0
 	var bomb_cooldown_timer: float   = 0.0
 	var takeoff_timer: float         = 0.0
+
+	# Skill & awareness
+	var skill: int = 1
+	var awareness_timer: float = 0.0
 
 	# Air-combat sub-mode (PURSUE / RECOVER_DIVE / RECOVER_CLIMB) — see
 	# RECOVERY_* constants.  Lives on the pilot, not on the FSM, so a state
@@ -328,6 +343,10 @@ var _respawn_id: int = -1
 ## timer shortening) does not spawn a second explosion.		
 var _crashed_exploded: bool = false
 
+## True while a tank turn tween is running — gates the body-heading snap in
+## _ground_control so the reversal animates smoothly.
+var _tank_is_turning: bool = false
+
 # ---------------------------------------------------------------------------
 # LIFECYCLE
 # ---------------------------------------------------------------------------
@@ -348,6 +367,8 @@ func _ready() -> void:
 		RespawnManager.respawn_ready.connect(_on_enemy_respawn_ready)
 	_setup_territory()
 	_init_ai_fsm()
+	# Set skill based on current game level (1–10 scale, level 1 → skill 1)
+	pilots[0].skill = clampi(int(GameManager.current_level) if GameManager else 1, 0, 10)
 
 func _setup_territory() -> void:
 	var half := patrol_range * 0.5
@@ -470,6 +491,14 @@ func _physics_process(delta: float) -> void:
 		decision_accum = 0.0
 		if ai_fsm and ai_fsm.is_active():
 			ai_fsm.tick(step)
+
+	# Skill-based awareness: periodically scan for the player on our six or a
+	# head-on pass.  Higher-skill pilots check their six more often.
+	if ai_fsm and ai_fsm.current_key != &"destroyed" and ai_fsm.current_key != &"grounded":
+		pilots[0].awareness_timer += delta
+		if pilots[0].awareness_timer >= AWARENESS_INTERVAL:
+			pilots[0].awareness_timer = 0.0
+			_process_awareness()
 
 # ---------------------------------------------------------------------------
 # STATE OUTPUT → PITCH/THROTTLE
@@ -632,8 +661,10 @@ func _takeoff_pitch(avatar) -> float:
 	var ppm: float = biplane.pixels_per_meter if biplane else 16.0
 	var stall_speed: float = avatar.stall_speed_ms if avatar else 21.4
 
-	# On the ground: hold level until rotate speed, then a tiny nose-up
-	# bias to lift the tail.
+	# Gravity-frame pitch: negative = climb.  For an inverted (leftward)
+	# plane the sign is flipped by pitch_command_to_rotation_input inside
+	# set_ai_input, so the same negative value commands nose-up for both
+	# travel directions.
 	if _is_grounded():
 		return 0.0 if speed < TAKEOFF_ROTATE_SPEED else TAKEOFF_PITCH
 
@@ -811,7 +842,7 @@ func _return_aim_and_throttle() -> Array:
 	# should match the mesa elevation).
 	var ground_y := _get_ground_height(touchdown_x)
 
-	var flare_aim := Vector2(biplane.global_position.x + approach_dir * 300.0,
+	var flare_aim := Vector2(biplane.global_position.x + rdir * 300.0,
 		biplane.global_position.y)
 
 	# --- Committed final approach ---
@@ -1124,6 +1155,94 @@ func _should_evade_defensively() -> bool:
 	# ...and with its nose pointed near us (tracking, not merely passing).
 	var tgt_fwd := Vector2(cos(target.rotation), sin(target.rotation))
 	return absf(tgt_fwd.angle_to(-to_tgt.normalized())) <= DEFENSIVE_TRACK_ANGLE
+
+# ---------------------------------------------------------------------------
+# AWARENESS / SKILL-BASED SIX-CHECK
+# ---------------------------------------------------------------------------
+
+## True when the player's forward cone points at this enemy within SCOPE_ANGLE
+## and the enemy is within SCOPE_RANGE of the player.
+func _player_has_enemy_in_scope() -> bool:
+	if not biplane or not target or not _is_target_alive():
+		return false
+	var to_enemy := biplane.global_position - target.global_position
+	to_enemy.x = wrapf(to_enemy.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
+	var dist := to_enemy.length()
+	if dist > SCOPE_RANGE:
+		return false
+	var player_fwd := Vector2(cos(target.rotation), sin(target.rotation))
+	return absf(player_fwd.angle_to(to_enemy.normalized())) <= SCOPE_ANGLE
+
+## True when the enemy's back is to the player (player is behind the enemy).
+func _enemy_facing_away_from_player() -> bool:
+	if not biplane or not target:
+		return false
+	var to_player := target.global_position - biplane.global_position
+	to_player.x = wrapf(to_player.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
+	var my_fwd := Vector2(cos(biplane.rotation), sin(biplane.rotation))
+	var angle := absf(my_fwd.angle_to(to_player.normalized()))
+	return angle > PI * 0.5
+
+## True when both planes have each other in their forward cones (head-on).
+func _is_head_on() -> bool:
+	if not biplane or not target:
+		return false
+	var to_enemy := biplane.global_position - target.global_position
+	to_enemy.x = wrapf(to_enemy.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
+	var to_player := -to_enemy
+	var my_fwd := Vector2(cos(biplane.rotation), sin(biplane.rotation))
+	var player_fwd := Vector2(cos(target.rotation), sin(target.rotation))
+	var enemy_sees_player := absf(my_fwd.angle_to(to_player.normalized())) <= SCOPE_ANGLE
+	var player_sees_enemy := absf(player_fwd.angle_to(to_enemy.normalized())) <= SCOPE_ANGLE
+	return enemy_sees_player and player_sees_enemy
+
+## Scan for player bullets within EVADE_DURATION_MAX distance of this enemy.
+## Used by the head-on awareness check to detect incoming fire before it hits.
+func _has_player_bullets_nearby() -> bool:
+	if not biplane:
+		return false
+	var pos := biplane.global_position
+	var parent := biplane.get_parent()
+	if not parent:
+		return false
+	var sq_range := 400.0 * 400.0
+	for child in parent.get_children():
+		if child == biplane:
+			continue
+		if child.has_meta("bullet"):
+			if pos.distance_squared_to(child.global_position) < sq_range:
+				return true
+	return false
+
+## Run the awareness check once per AWARENESS_INTERVAL.
+##
+## Case A — Player on our six:
+##   If the player has us in their scope (forward cone + range) AND we are
+##   facing away (player behind us), roll a random integer 0–10.  If the
+##   result ≤ skill, we check our six and trigger an evasive break.
+##   Higher-skill pilots spot the threat more reliably.
+##
+## Case B — Head-on pass:
+##   If both planes have each other in their forward cones AND player bullets
+##   are nearby, set incoming_bullet_timer so the evade-aim biases harder and
+##   the engaging state breaks off.
+func _process_awareness() -> void:
+	if not biplane or not target or not _is_target_alive():
+		return
+	var avatar = _get_avatar()
+	if not avatar or avatar.flight_state == biplane.FlightState.CRASHED:
+		return
+	if not _player_has_enemy_in_scope():
+		return
+	if _enemy_facing_away_from_player():
+		if randi() % 11 <= pilots[0].skill:
+			notify_incoming_fire()
+			if ai_fsm and ai_fsm.current_key == &"engaging":
+				ai_fsm.transition_to(&"evading")
+	elif _is_head_on() and _has_player_bullets_nearby():
+		notify_incoming_fire()
+		if ai_fsm and ai_fsm.current_key == &"engaging":
+			ai_fsm.transition_to(&"evading")
 
 # ---------------------------------------------------------------------------
 # STALL REFLEX  (AoA-aware hard override)
@@ -1781,6 +1900,7 @@ func _do_respawn() -> void:
 
 	# Reset all per-pilot mutable state so nothing leaks across spare_planes.
 	pilots[0] = AIData.new()
+	pilots[0].skill = clampi(int(GameManager.current_level) if GameManager else 1, 0, 10)
 	_crashed_exploded = false
 
 	if biplane.has_method("respawn"):
@@ -1907,8 +2027,18 @@ func _ground_control(delta: float) -> void:
 		turret_aim = 0.0 if avatar.travel_dir > 0.0 else PI
 
 	# Body heading follows travel direction (roll axis).
-	avatar.pitch_angle = 0.0 if avatar.travel_dir > 0.0 else PI
-	avatar.is_barrel_rolled = avatar.travel_dir < 0.0
+	# When travel_dir changes, animate the 180° reversal via a tween instead
+	# of snapping instantly.
+	if not _tank_is_turning:
+		var target_angle := 0.0 if avatar.travel_dir > 0.0 else PI
+		if not is_equal_approx(avatar.pitch_angle, target_angle):
+			_tank_is_turning = true
+			avatar.is_barrel_rolled = avatar.travel_dir < 0.0
+			var tween := biplane.create_tween()
+			tween.tween_property(avatar, "pitch_angle", target_angle, 0.35).set_ease(Tween.EASE_IN_OUT)
+			tween.tween_callback(func(): _tank_is_turning = false)
+		else:
+			avatar.pitch_angle = target_angle
 	biplane.rotation = avatar.pitch_angle
 
 	# Smoothly slew the turret (pitch axis) toward the aim.

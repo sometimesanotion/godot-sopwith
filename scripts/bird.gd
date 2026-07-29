@@ -50,7 +50,7 @@ var _target: Vector2 = Vector2.ZERO
 
 func _pick_target() -> Vector2:
 	var g = _ground_y(global_position.x)
-	return Vector2(global_position.x + randf() * 500 - 250, g - (20.0 + randf() * MAX_HEIGHT))
+	return Vector2(global_position.x + randf() * 500 - 250, g - (420.0 + randf() * MAX_HEIGHT))
 
 func _physics_process(delta: float) -> void:
 	if not is_scattered:
@@ -73,7 +73,7 @@ func _physics_process(delta: float) -> void:
 		scatter_vel.x *= -0.5
 		_target = Vector2.ZERO
 	var g = _ground_y(global_position.x)
-	var too_low = g - 20.0
+	var too_low = g - 420.0
 	if global_position.y > too_low:
 		global_position.y = too_low
 		scatter_vel.y = -absf(scatter_vel.y)
