@@ -921,6 +921,9 @@ func get_collision_response(other: Node, other_avatar: AvatarData, other_speed: 
 	result.impact_speed = other_speed
 
 	if other is RigidBody2D and other.has_method("get_primary_entity"):
+		var self_av := get_primary_entity()
+		if self_av and other_avatar and not self_av.is_hostile_to(other_avatar):
+			return result
 		var relative_speed := velocity.length() + other_speed
 		var stall_speed: float = other_avatar.stall_speed_ms if other_avatar else 21.4
 		var damage_ratio: float = clampf(relative_speed / stall_speed, 0.0, 2.0)
@@ -2096,7 +2099,10 @@ func _update_ground_ray(avatar: AvatarData) -> void:
 	var ground_ray: RayCast2D = $GroundRay if has_node("GroundRay") else null
 	if ground_ray:
 		var base_offset: float = 26.0
-		ground_ray.target_position = Vector2(0, base_offset * avatar.travel_sign())
+		var dir_sign := avatar.travel_sign()
+		if not avatar.is_aerodynamic():
+			dir_sign = 1.0
+		ground_ray.target_position = Vector2(0, base_offset * dir_sign)
 
 ## Derive a normalised impact intensity + effect energy from the plane's speed
 ## at the moment of destruction.  Force scales linearly with impact speed

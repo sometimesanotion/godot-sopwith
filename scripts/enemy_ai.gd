@@ -2033,13 +2033,13 @@ func _ground_control(delta: float) -> void:
 		var target_angle := 0.0 if avatar.travel_dir > 0.0 else PI
 		if not is_equal_approx(avatar.pitch_angle, target_angle):
 			_tank_is_turning = true
-			avatar.is_barrel_rolled = avatar.travel_dir < 0.0
 			var tween := biplane.create_tween()
 			tween.tween_property(avatar, "pitch_angle", target_angle, 0.35).set_ease(Tween.EASE_IN_OUT)
 			tween.tween_callback(func(): _tank_is_turning = false)
 		else:
 			avatar.pitch_angle = target_angle
 	biplane.rotation = avatar.pitch_angle
+	avatar.is_barrel_rolled = Biplane.AvatarData.rotation_is_leftward(avatar.pitch_angle)
 
 	# Smoothly slew the turret (pitch axis) toward the aim.
 	if turret_aim != INF:

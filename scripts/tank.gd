@@ -55,7 +55,7 @@ func _ready() -> void:
 		"max_bombs": 0,
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
-		"max_landing_tilt_deg": 80.0,
+		"max_landing_tilt_deg": 150.0,
 		"soft_landing_vperp": 180.0,
 		"hard_landing_vperp": 300.0,
 		"svg_sprite_name": "",
