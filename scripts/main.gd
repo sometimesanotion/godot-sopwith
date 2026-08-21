@@ -8,8 +8,17 @@ extends Node2D
 
 const TERRAIN_LENGTH := 16384.0
 const VIEWPORT_MIN_X := 0.0
-const VIEWPORT_MAX_X := 1280.0
 const HOME_BASE := Vector2(5300, 650)
+
+## Design resolution used for scaling all camera parameters.
+const DESIGN_WIDTH := 3440
+const DESIGN_HEIGHT := 1440
+
+func _scale_x(v: float) -> float:
+	return v * get_viewport_rect().size.x / DESIGN_WIDTH
+
+func _scale_y(v: float) -> float:
+	return v * get_viewport_rect().size.y / DESIGN_HEIGHT
 
 # Enemy runways span [base_x + 50, base_x + 50 + LEN] (rightward) or
 # [base_x - 50 - LEN, base_x - 50] (leftward), LEN = Terrain.RUNWAY_LENGTH.
@@ -83,6 +92,9 @@ func _ready() -> void:
 		if BuildingRegistry.buildings_destroyed.is_connected(_on_buildings_destroyed):
 			BuildingRegistry.buildings_destroyed.disconnect(_on_buildings_destroyed)
 		BuildingRegistry.buildings_destroyed.connect(_on_buildings_destroyed)
+	if GraphicsSettings:
+		if not GraphicsSettings.settings_changed.is_connected(_on_graphics_settings_changed):
+			GraphicsSettings.settings_changed.connect(_on_graphics_settings_changed)
 	print("Main _ready: showing world with title overlay")
 	_show_startup_world()
 
@@ -177,8 +189,10 @@ func _abort_game() -> void:
 	if ui:
 		ui.visible = false
 	if camera:
-		camera.position = Vector2(TERRAIN_LENGTH * 0.5, 400)
-		camera.zoom = Vector2(0.3, 0.3)
+		var vp := get_viewport_rect().size
+		var title_zoom := 0.3 * vp.x / DESIGN_WIDTH
+		camera.position = Vector2(TERRAIN_LENGTH * 0.5, 400.0 * vp.y / DESIGN_HEIGHT / title_zoom)
+		camera.zoom = Vector2(title_zoom, title_zoom)
 		camera.reset_smoothing()
 	_show_title_screen()
 
@@ -227,9 +241,11 @@ func _show_startup_world() -> void:
 	if background and background.has_method("generate"):
 		background.generate(terrain.resolved_seed)
 	if camera:
+		var vp := get_viewport_rect().size
+		var title_zoom := 0.3 * vp.x / DESIGN_WIDTH
 		camera.enabled = true
-		camera.position = Vector2(TERRAIN_LENGTH * 0.5, 400)
-		camera.zoom = Vector2(0.3, 0.3)
+		camera.position = Vector2(TERRAIN_LENGTH * 0.5, 400.0 * vp.y / DESIGN_HEIGHT / title_zoom)
+		camera.zoom = Vector2(title_zoom, title_zoom)
 		camera.reset_smoothing()
 	if ui:
 		ui.visible = false
@@ -250,6 +266,15 @@ func _show_title_screen() -> void:
 	title_screen.start_network_game.connect(_on_start_network_game)
 	title_screen.back_to_menu.connect(_on_back_to_menu)
 	add_child(title_screen)
+
+func _on_graphics_settings_changed() -> void:
+	if game_state == "TITLE":
+		if camera:
+			var vp := get_viewport_rect().size
+			var title_zoom := 0.3 * vp.x / DESIGN_WIDTH
+			camera.position = Vector2(TERRAIN_LENGTH * 0.5, 400.0 * vp.y / DESIGN_HEIGHT / title_zoom)
+			camera.zoom = Vector2(title_zoom, title_zoom)
+			camera.reset_smoothing()
 
 func _on_back_to_menu() -> void:
 	_showing_title_screen = false
@@ -319,7 +344,7 @@ func _start_playing() -> void:
 	if camera:
 		camera.enabled = true
 		camera.zoom = Vector2(1, 1)
-		camera.position = Vector2(PLAYER_SPAWN_X, 400)
+		camera.position = Vector2(PLAYER_SPAWN_X, _scale_y(400.0))
 	if ui:
 		ui.visible = true
 
@@ -340,7 +365,7 @@ func _start_playing() -> void:
 		biplane.damaged.connect(_on_biplane_damaged)
 
 	if camera:
-		camera.position = Vector2(PLAYER_SPAWN_X, 400)
+		camera.position = Vector2(PLAYER_SPAWN_X, _scale_y(400.0))
 	_spawn_enemies_and_targets()
 	_create_home_base()
 	_create_enemy_bases()
@@ -1005,7 +1030,7 @@ func _update_camera(delta: float) -> void:
 			if speed_si > stall_speed_ms:
 				speed_coeff = clampf(speed_si / stall_speed_ms, 1.0, 4.0)
 
-		var look_ahead_dist: float = 200.0 * speed_coeff
+		var look_ahead_dist: float = _scale_x(200.0) * speed_coeff
 		var look_ahead := Vector2(look_ahead_dist, 0)
 		if biplane.velocity.x < 0:
 			look_ahead.x = -look_ahead_dist
@@ -1054,8 +1079,8 @@ func _handle_wrap_around() -> void:
 func _create_minimap() -> void:
 	minimap_instance = MINIMAP_SCENE.instantiate()
 	ui.add_child(minimap_instance)
-	var design_w: float = ProjectSettings.get_setting("display/window/size/viewport_width", 1920)
-	minimap_instance.position = Vector2((design_w - 574) / 2, 20)
+	var vp_w := get_viewport_rect().size.x
+	minimap_instance.position = Vector2((vp_w - 574) * 0.5, 20)
 	minimap_instance.update_home(HOME_BASE.x)
 	if terrain and terrain.has_method("get_ground_points"):
 		minimap_instance.update_terrain(terrain.get_ground_points())

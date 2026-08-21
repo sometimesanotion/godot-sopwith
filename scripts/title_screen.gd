@@ -4,7 +4,7 @@ signal start_single_player
 signal start_network_game
 signal back_to_menu
 
-enum Mode { MAIN, CONFIGURE, KEYS }
+enum Mode { MAIN, CONFIGURE, KEYS, GRAPHICS }
 
 var current_mode: int = Mode.MAIN
 
@@ -139,6 +139,7 @@ func _update_layout_from_scratch() -> void:
 		Mode.MAIN: _show_main_menu()
 		Mode.CONFIGURE: _show_configure_menu()
 		Mode.KEYS: _show_keys_menu()
+		Mode.GRAPHICS: _show_graphics_menu()
 
 func _clear_all() -> void:
 	for c in get_children():
@@ -161,7 +162,7 @@ func _show_main_menu() -> void:
 	if control_title:
 		control_title.text = ""
 	if control_content:
-		control_content.text = "S  - Start Single Player\nN  - Start Network Game\nC  - Configure Gameplay\nK  - Key Layouts\nEsc  - Quit"
+		control_content.text = "S  - Start Single Player\nN  - Start Network Game\nC  - Configure Gameplay\nG  - Graphics Options\nK  - Key Layouts\nEsc  - Quit"
 
 func _show_configure_menu() -> void:
 	current_mode = Mode.CONFIGURE
@@ -187,6 +188,24 @@ func _update_config_text() -> void:
 	control_content.text += "8 - Enemy Tanks:  " + tanks_str + "\n"
 	control_content.text += "S - Sound FX Volume:  " + sfx_str + "\n"
 	control_content.text += "M - Music Volume:  " + music_str + "\n\n"
+	control_content.text += "Q - Back to Menu"
+
+func _show_graphics_menu() -> void:
+	current_mode = Mode.GRAPHICS
+	if control_title:
+		control_title.text = "GRAPHICS OPTIONS"
+	_update_graphics_text()
+
+func _update_graphics_text() -> void:
+	if not control_content or not control_title:
+		return
+	if not GraphicsSettings:
+		return
+	var mode_name: String = GraphicsSettings.get_window_mode_name()
+	control_content.text = "1 - Window Mode:  " + mode_name + "\n"
+	control_content.text += "2 - Resolution Width:  " + str(GraphicsSettings.resolution_x) + "\n"
+	control_content.text += "3 - Resolution Height:  " + str(GraphicsSettings.resolution_y) + "\n\n"
+	control_content.text += "F - Fit to Screen\n\n"
 	control_content.text += "Q - Back to Menu"
 
 func _show_keys_menu() -> void:
@@ -299,6 +318,8 @@ func _input(event: InputEvent) -> void:
 			_handle_configure_input(ke)
 		Mode.KEYS:
 			_handle_keys_input(ke)
+		Mode.GRAPHICS:
+			_handle_graphics_input(ke)
 	get_viewport().set_input_as_handled()
 
 func _handle_main_input(ke: InputEventKey) -> void:
@@ -313,6 +334,8 @@ func _handle_main_input(ke: InputEventKey) -> void:
 				queue_free())
 		KEY_C:
 			_show_configure_menu()
+		KEY_G:
+			_show_graphics_menu()
 		KEY_K:
 			_show_keys_menu()
 		KEY_ESCAPE:
@@ -367,6 +390,25 @@ func _handle_configure_input(ke: InputEventKey) -> void:
 			var idx := opts.find(GameManager.music_volume)
 			GameManager.music_volume = opts[(idx + 1) % opts.size()]
 			_update_config_text()
+
+func _handle_graphics_input(ke: InputEventKey) -> void:
+	if not GraphicsSettings:
+		return
+	match ke.keycode:
+		KEY_Q:
+			_show_main_menu()
+		KEY_1:
+			GraphicsSettings.cycle_window_mode()
+			_update_graphics_text()
+		KEY_2:
+			GraphicsSettings.cycle_resolution_width()
+			_update_graphics_text()
+		KEY_3:
+			GraphicsSettings.cycle_resolution_height()
+			_update_graphics_text()
+		KEY_F:
+			GraphicsSettings.fit_to_screen()
+			_update_graphics_text()
 
 func _handle_keys_input(ke: InputEventKey) -> void:
 	match ke.keycode:

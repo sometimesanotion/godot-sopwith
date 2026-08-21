@@ -14,23 +14,23 @@ var display_player_id: int = 0
 var enemy_labels: Array[Label] = []
 
 ## With canvas_items stretch mode, Godot scales the canvas to the window.
-## All UI is laid out at the design resolution from project settings.
-## get_viewport().size returns the window size, so we read from ProjectSettings.
+## All UI positions and fonts are scaled relative to the design resolution
+## so they look correct at any viewport size.
+
+const DESIGN_WIDTH := 3440
+const DESIGN_HEIGHT := 1440
 
 func _get_vp_size() -> Vector2:
-	return Vector2(
-		ProjectSettings.get_setting("display/window/size/viewport_width", 1720),
-		ProjectSettings.get_setting("display/window/size/viewport_height", 720)
-	)
+	return get_viewport().size
 
 func _scale_x(x: float) -> float:
-	return x
+	return x * get_viewport().size.x / DESIGN_WIDTH
 
 func _scale_y(y: float) -> float:
-	return y
+	return y * get_viewport().size.y / DESIGN_HEIGHT
 
 func _scale_font(size: float) -> int:
-	return maxi(8, int(size))
+	return maxi(8, int(size * get_viewport().size.y / DESIGN_HEIGHT))
 
 const AI_STATE_NAMES := {
 	0: "GROUNDED",

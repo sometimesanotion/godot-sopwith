@@ -445,6 +445,12 @@ class AvatarData:
 	var is_flipping:    bool  = false
 	var flip_progress:  float = 0.0
 	var flip_direction: int   = 0   ## 1 = upright→inverted, -1 = inverted→upright
+	## True while a GROUNDED direction-reversal is animating: the physical
+	## handover (velocity, heading, is_barrel_rolled) then fires atomically at
+	## the tween midpoint instead of the airborne flag-only toggle.
+	var flip_is_ground_reversal: bool = false
+	## One-shot guard so the midpoint handover runs exactly once per tween.
+	var flip_halfway_applied: bool = false
 
 	## ── Attitude frame helpers ───────────────────────────────────────────
 	## One small API hides every is_barrel_rolled / left-vs-right branch.
@@ -551,6 +557,8 @@ class AvatarData:
 		is_flipping      = false
 		flip_progress    = 0.0
 		flip_direction   = 0
+		flip_is_ground_reversal = false
+		flip_halfway_applied    = false
 		has_hit_ground    = false
 		ammo  = MAX_AMMO
 		fuel  = 100.0
@@ -1441,6 +1449,29 @@ func _check_altitude_engine_cutoff(avatar: AvatarData, delta: float) -> void:
 					SoundManager.start_engine()
 					SoundManager.set_engine_rpm(0.0)
 
+## Tilt-aware ground test for roll-input MODE SELECTION.  Uses the lowest
+## point of the ACTUAL collision capsule rather than the body centre: a
+## tilted capsule rests on its cap arc, which lifts the CENTRE a few pixels
+## clear of the surface — a centre-height probe misreads that as airborne and
+## picks the fatal airborne barrel-roll.  Capsule support-point geometry
+## (radius r, half-length l, fuselage axis slope |u.y|):
+##     hull_bottom = centre.y + r + l*|u.y|
+## The margin grows with tilt, so a resting hull can never be missed.
+func _is_on_ground_for_roll(avatar: AvatarData) -> bool:
+	if avatar.flight_state == FlightState.LANDED:
+		return true
+	var gc := _get_ground_contact(avatar)
+	var cs := get_node_or_null("CollisionShape2D") as CollisionShape2D
+	if cs and cs.shape is CapsuleShape2D:
+		var cap: CapsuleShape2D = cs.shape
+		# Shape node is rotated onto the fuselage axis: the capsule's long
+		# axis (height) runs along body-X, its radius across it.
+		var half_len := cap.height * 0.5
+		var fuselage_uy := absf(cos(rotation + cs.rotation))   # world |u.y| of long axis
+		var hull_bottom := global_position.y + cap.radius + half_len * fuselage_uy
+		return hull_bottom >= gc.ground_y - GROUND_TOLERANCE
+	return is_grounded(avatar)
+
 ###############################################################################
 # INPUT (human player)
 ###############################################################################
@@ -1476,8 +1507,11 @@ func _handle_input(avatar: AvatarData, delta: float) -> void:
 
 	avatar.throttle = move_toward(avatar.throttle, avatar.throttle_target, 5.0 * delta)
 
-	if Input.is_action_just_pressed("roll") and not avatar.is_flipping and not is_grounded(avatar):
-		_start_flip(avatar)
+	if Input.is_action_just_pressed("roll") and not avatar.is_flipping:
+		if _is_on_ground_for_roll(avatar):
+			_start_ground_reversal(avatar)
+		else:
+			_start_flip(avatar)
 	elif Input.is_action_just_released("roll") and avatar.is_flipping:
 		_release_flip(avatar)
 
@@ -1538,6 +1572,56 @@ func set_ai_input(pitch: float, throttle_amount: float) -> void:
 
 var _flip_tween: Tween = null
 
+## Grounded roll input (original Sopwith behaviour): a plane on the ground
+## cannot barrel-roll, so the roll key reverses its direction of travel.  The
+## reversal reuses the airborne flip tween verbatim — same duration, easing,
+## scale.y lerp and arc.  The only difference is the state handover: the
+## physical direction change (velocity, heading, is_barrel_rolled) fires
+## ATOMICALLY at the tween midpoint instead of the airborne flag-only toggle.
+## Heading and flag must never disagree for even one frame: the tilt-crash
+## check measures pitch_angle against level_rotation(), so a half-applied
+## reversal reads as ~180° tilt and instantly destroys the plane.
+func _start_ground_reversal(avatar: AvatarData) -> void:
+	_start_flip(avatar)
+	avatar.flip_is_ground_reversal = true
+
+## Atomic midpoint handover for a grounded reversal.  Called exactly once from
+## _set_flip_frame when the tween crosses t = 0.5.  Must NOT touch $Visual
+## here — the tween owns it until completion.
+func _apply_ground_reversal_state(avatar: AvatarData) -> void:
+	velocity.x = -velocity.x
+	# Carry the gravity-frame pitch across the mirror: a plane parked tilted
+	# (nose-down on a slope, tipped back on its tail) keeps that tilt mirrored
+	# in the new direction.  Snapping to perfectly level here would jump the
+	# attitude and can exceed max_landing_tilt — destroying the very plane
+	# this atomic handover exists to protect.
+	var ts_old := avatar.travel_sign()
+	var grav   := avatar.gravity_pitch()
+	avatar.is_barrel_rolled = not avatar.is_barrel_rolled
+	avatar.pitch_angle      = wrapf(avatar.level_rotation() - grav / ts_old, -PI, PI)
+	avatar.angular_velocity = 0.0
+	rotation                = avatar.pitch_angle
+	_update_ground_ray(avatar)
+
+## Shared reset of the per-flip bookkeeping fields.
+func _reset_flip_state(avatar: AvatarData) -> void:
+	avatar.is_flipping             = false
+	avatar.flip_progress           = 0.0
+	avatar.flip_is_ground_reversal = false
+	avatar.flip_halfway_applied    = false
+
+## Kill any in-flight flip tween AND restore the state it was mutating.
+## Killing the tween alone leaves `is_flipping` stuck true and the Visual node
+## frozen at an intermediate scale/arc offset; callers destroying, resetting,
+## or teleporting the plane need a clean attitude immediately.  Idempotent.
+func _cancel_flip(avatar: AvatarData) -> void:
+	_kill_flip_tween()
+	if avatar == null:
+		return
+	_reset_flip_state(avatar)
+	avatar.flip_direction = 0
+	reset_visual_transform(avatar)
+
 func _start_flip(avatar: AvatarData) -> void:
 	if _flip_tween and _flip_tween.is_valid():
 		_flip_tween.kill()
@@ -1561,31 +1645,65 @@ func _release_flip(avatar: AvatarData) -> void:
 	else:
 		if _flip_tween and _flip_tween.is_valid():
 			_flip_tween.kill()
-		_apply_flip_transform(avatar, 1.0)
+		_set_flip_frame(avatar, 1.0)
 		_on_flip_completed(avatar)
 
 func _update_flip(progress: float, avatar: AvatarData) -> void:
 	avatar.flip_progress = progress
-	_apply_flip_transform(avatar, progress)
+	_set_flip_frame(avatar, progress)
 
+## One frame of the ACTIVE flip mode — visuals plus the midpoint state
+## handover — shared by the tween, the early-release snap, and rewind so every
+## path through a flip behaves identically.  Handover runs BEFORE the visual
+## update so the t = 0.5 frame renders the post-handover pose.
+func _set_flip_frame(avatar: AvatarData, t: float) -> void:
+	if t >= 0.5 and not avatar.flip_halfway_applied:
+		avatar.flip_halfway_applied = true
+		if avatar.flip_is_ground_reversal:
+			_apply_ground_reversal_state(avatar)
+		elif _is_on_ground_for_roll(avatar):
+			# SAFETY NET: an air-mode flip whose plane is actually ON the
+			# ground at midpoint (tilted/bouncing rollout defeated the
+			# keypress-time probes).  The airborne bare flag-toggle against
+			# the stale heading reads as ~180° tilt and destroys the plane;
+			# the atomic mirrored handover keeps heading and flag consistent.
+			_apply_ground_reversal_state(avatar)
+		else:
+			avatar.is_barrel_rolled = (avatar.flip_direction == 1)
+	if avatar.flip_is_ground_reversal:
+		_apply_ground_reversal_transform(avatar, t)
+	else:
+		_apply_flip_transform(avatar, t)
+
+## Airborne barrel roll: somersault on Y with a small hop arc.
 func _apply_flip_transform(avatar: AvatarData, t: float) -> void:
 	var visual    := $Visual
 	var start     := 1.0 if avatar.flip_direction == 1 else -1.0
 	visual.scale.y     = lerp(start, -start, t)
 	visual.position.y  = -sin(t * PI) * FLIP_ARC_HEIGHT
-	if t >= 0.5:
-		avatar.is_barrel_rolled = (avatar.flip_direction == 1)
+
+## Grounded reversal: horizontal mirror.  First half squashes the sprite to
+## zero width; at that invisible instant the midpoint handover rotates the
+## BODY 180° and flips the vertical mirror, then the second half regrows the
+## sprite already facing the new direction.  The mirror phase derives from
+## flip_direction (+1 upright start, -1 inverted start) so the end pose is
+## exactly what reset_visual_transform() produces for the new attitude.
+## No hop arc: the plane pivots in place.
+func _apply_ground_reversal_transform(avatar: AvatarData, t: float) -> void:
+	var visual   := $Visual
+	var s        := 1.0 if avatar.flip_direction == 1 else -1.0
+	visual.scale.x    = absf(2.0 * t - 1.0)
+	visual.scale.y    = s if t < 0.5 else -s
+	visual.position.y = 0.0
 
 func _on_flip_completed(avatar: AvatarData) -> void:
-	avatar.is_flipping   = false
-	avatar.flip_progress = 0.0
+	_reset_flip_state(avatar)
 	avatar.is_barrel_rolled   = (avatar.flip_direction == 1)
 	_update_ground_ray(avatar)
 	_flip_tween = null
 
 func _on_flip_cancelled(avatar: AvatarData) -> void:
-	avatar.is_flipping   = false
-	avatar.flip_progress = 0.0
+	_reset_flip_state(avatar)
 	_flip_tween = null
 
 ###############################################################################
@@ -1927,6 +2045,9 @@ func take_damage(avatar_or_amount, amount_or_attacker = null, _attacker = null) 
 func _on_avatar_damage_state_changed(_from: DamageData.DamageState, _to: DamageData.DamageState, avatar: AvatarData) -> void:
 	if _to == DamageData.DamageState.DESTROYED:
 		SoundManager.set_engine_rpm(randf() * 0.2)
+		## A destroyed plane must not keep animating a barrel roll through its
+		## death tumble — cancel the tween and snap the visual to its attitude.
+		_cancel_flip(avatar)
 	_sync_damage_particles(avatar)
 
 ## Sync particle effects to current damage state using EffectManager continuous effects.
@@ -2004,7 +2125,7 @@ func _start_spinning_out(avatar: AvatarData) -> void:
 func _on_avatar_crashed(avatar: AvatarData) -> void:
 	## Stop any barrel-roll tween the moment we crash so it cannot corrupt the
 	## respawned plane's inverted/visual state after the crash delay.
-	_kill_flip_tween()
+	_cancel_flip(avatar)
 
 	if _crash_processed.has(avatar.id):
 		return
@@ -2289,11 +2410,11 @@ func _kill_flip_tween() -> void:
 	_flip_tween = null
 
 func reset_flight_state(avatar_id: int = 0) -> void:
-	## Any in-flight barrel-roll tween must be stopped before reset(), otherwise
+	var avatar := get_avatar_data(avatar_id)
+	## Any in-flight barrel-roll tween must be cancelled before reset(), otherwise
 	## its finished/cancelled callbacks fire after respawn and re-write
 	## avatar.is_barrel_rolled / visual.scale.y, leaving the plane rotated off-axis.
-	_kill_flip_tween()
-	var avatar := get_avatar_data(avatar_id)
+	_cancel_flip(avatar)
 	if avatar:
 		avatar.reset()
 		_crash_processed.erase(avatar_id)
@@ -2322,10 +2443,8 @@ func force_crash() -> void:
 		_on_avatar_crashed(avatar)
 
 func _perform_teleport_landing(avatar: AvatarData) -> void:
+	_cancel_flip(avatar)
 	avatar.is_barrel_rolled = false
-	avatar.is_flipping = false
-	avatar.flip_progress = 0.0
-	avatar.flip_direction = 0
 	avatar.pitch_angle = 0.0
 	linear_velocity = Vector2.ZERO
 	angular_velocity = 0.0

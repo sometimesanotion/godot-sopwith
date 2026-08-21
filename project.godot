@@ -29,6 +29,7 @@ SvgManager="*res://scripts/svg_manager.gd"
 EffectManager="*res://scripts/effect_manager.gd"
 RespawnManager="*res://scripts/respawn_manager.gd"
 BuildingRegistry="*res://scripts/building_registry.gd"
+GraphicsSettings="*res://scripts/graphics_settings.gd"
 
 [display]
 
@@ -41,7 +42,7 @@ BuildingRegistry="*res://scripts/building_registry.gd"
 window/size/viewport_width=3440
 window/size/viewport_height=1440
 ;window/size/mode=1
-window/size/mode=3
+window/size/mode=0
 window/stretch/mode="canvas_items"
 
 [input]
