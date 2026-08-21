@@ -1351,6 +1351,16 @@ func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true, 
 	if ground_avoid and _in_takeoff_roll():
 		ground_avoid = false
 
+	# Target collision avoidance belongs to the same avoidance family as
+	# ground avoidance: it must yield during the takeoff roll and the
+	# committed landing final.  Without this gate, a player overflying an
+	# airfield makes every rotating plane take a "dive away from the
+	# overhead threat" command (positive pitch) that slams its nose into
+	# the runway.
+	var tgt_pull := 0.0
+	if ground_avoid:
+		tgt_pull = _target_collision_reflex()
+
 	var alt_fix = 0.0
 	var pullup_fix = 0.0
 	var impact_t := INF
@@ -1399,12 +1409,21 @@ func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true, 
 		pitch = minf(pitch, pull)
 
 	# Target collision avoidance — overrides the heading when the AI is
-	# about to crash into its target (building, vehicle, or enemy plane).
+	# about to crash into its target (building, vehicle, or plane).
 	# Computed from relative velocity so a 200 px/s dive on a building
-	# triggers with the same urgency as a 400 px/s head-on merge.
-	var tgt_pull := _target_collision_reflex()
+	# triggers with the same urgency as a 400 px/s head-on merge.  Only
+	# computed when ground_avoid is true (see above).
 	if tgt_pull != 0.0:
 		pitch = tgt_pull
+
+	# Takeoff invariant: while rolling / climbing out below the tilt-limit
+	# altitude the plane must stay level or nose-up at full throttle.  No
+	# reflex (stall recovery, terrain projection, target avoidance) may
+	# command positive pitch here — the takeoff controller
+	# (_takeoff_pitch) owns the pitch curve for this whole window.
+	if _in_takeoff_roll():
+		pitch = minf(pitch, 0.0)
+		throttle = maxf(throttle, 1.0)
 
 	return [pitch, throttle]
 
