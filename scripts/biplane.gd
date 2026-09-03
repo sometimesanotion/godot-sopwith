@@ -1961,9 +1961,9 @@ func _check_home_refuel(avatar: AvatarData, delta: float) -> void:
 		has_hangar = BuildingRegistry.has_hangar(hb_id)
 		has_fuel_depot = BuildingRegistry.has_fuel_depot(hb_id)
 		has_ammo_depot = BuildingRegistry.has_ammo_depot(hb_id)
-	var hangar_factor := 20 if has_hangar else 10
-	var fuel_factor := 80 if has_fuel_depot else 40
-	var ammo_factor := 60 if has_ammo_depot else 30
+	var hangar_factor := 40 if has_hangar else 20
+	var fuel_factor := 50 if has_fuel_depot else 25
+	var ammo_factor := 70 if has_ammo_depot else 35
 
 	## Repair damage on landing at home.
 	if randomi <= hangar_factor and avatar.damage.damage_state != DamageData.DamageState.INTACT:
