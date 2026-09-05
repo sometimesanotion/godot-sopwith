@@ -42,7 +42,7 @@ const RUNWAY_BLEND_WIDTH := 350.0
 #     on top of the region sweep (flattened near runways by the blend).
 #   * MICRO  — tiny bumps only.
 const REGION_FREQUENCY := 0.00035
-const REGION_AMPLITUDE := 400.0
+const REGION_AMPLITUDE := 560.0
 # Keep seated runways inside a playable vertical band (well clear of the top
 # edge and of TERRAIN_LOW_BOUND) while still allowing a wide Y spread.
 const RUNWAY_MIN_Y := 200.0

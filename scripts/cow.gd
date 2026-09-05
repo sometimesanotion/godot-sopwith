@@ -15,6 +15,8 @@ func _ready() -> void:
 	mass = 200.0 + randf() * 80.0
 	gravity_scale = 0.0
 	add_to_group("obstacle")
+	add_to_group("destructible")
+	add_to_group("cow")
 	if SvgManager and SvgManager.has_sprite(_svg_sprite_name):
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	queue_redraw()

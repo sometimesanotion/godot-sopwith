@@ -401,14 +401,15 @@ func _spawn_enemies_and_targets() -> void:
 	var num_bases: int = GameManager.enemy_homebases if GameManager else 4
 	# D10 base layout: one base west of the player, the rest east.  The east
 	# bases spawn inverted (leftward launch) via `faces_left`.  Consecutive
-	# bases are spaced 2500 px apart (≥ MIN_ENEMY_DISTANCE) and all runways
+	# bases are spaced ~3200 px apart (≥ MIN_ENEMY_DISTANCE) and all runways
 	# fit inside the map; both invariants are checked by _validate_base_layout.
+	# East bases are spread further than the original 2500 to give each
+	# homebase more territory and reduce base clustering.
 	var possible_bases: Array[float] = [
 		2400.0,
-		8000.0,
-		10500.0,
-		13000.0,
-		15500.0,
+		8500.0,
+		11800.0,
+		15100.0,
 	]
 	possible_bases = possible_bases.slice(0, num_bases)
 	_validate_base_layout(possible_bases)

@@ -53,6 +53,13 @@ const FRICTION_TERRAIN_ROLLING: float  = 0.07
 const FRICTION_TERRAIN_BRAKING: float = 0.80
 const THROTTLE_STEP: float            = 0.15
 
+## Tracked-vehicle traction: tanks use continuous tracks with far lower rolling
+## resistance and much higher low-speed pull than wheeled aircraft.  Isolating
+## these constants keeps the change local to wing_area == 0.0 vehicles.
+const TANK_FRICTION_RUNWAY: float = 0.015
+const TANK_FRICTION_TERRAIN: float = 0.025
+const TANK_TRACTION_THRUST: float = 9500.0  # N at full throttle, enough to climb 30°+ slopes
+
 const ENGINE_EFFICIENCY_START_ALTITUDE: float = 1800.0
 const ENGINE_CUTOFF_ALTITUDE: float            = 2000.0
 
@@ -153,7 +160,12 @@ static func calculate_forces(inp: FlightInput) -> FlightOutput:
 			out.normal_force = inp.ground_normal * into_gnd
 
 		if speed_si > 0.01:
-			var mu := _friction_coeff(inp.on_runway, inp.throttle)
+			var is_tank: bool = inp.model_params.get("wing_area", 21.46) == 0.0
+			var mu: float
+			if is_tank:
+				mu = TANK_FRICTION_RUNWAY if inp.on_runway else TANK_FRICTION_TERRAIN
+			else:
+				mu = _friction_coeff(inp.on_runway, inp.throttle)
 			out.friction_force = -vel_si.normalized() * (maxf(0.0, into_gnd) * mu * 2.0)
 
 	out.net_force = out.weight_force + out.thrust_force + out.lift_force + out.drag_force + out.normal_force + out.friction_force
@@ -191,6 +203,16 @@ static func _calc_thrust(inp: FlightInput, speed_si: float, ground_y: float) -> 
 
 	var thr := inp.throttle * inp.damage_thrust_mult
 	var engine_power: float = inp.model_params.get("engine_power_watts", 96941.0)
+
+	# Ground vehicles (wing_area == 0.0) use tracked traction: constant high pull
+	# at low speed so they climb steadily even uphill, with gentle falloff at
+	# higher speeds.  Aircraft keep the prop-efficiency curve.
+	var is_tank: bool = inp.model_params.get("wing_area", 21.46) == 0.0
+	if is_tank:
+		# Slight speed falloff keeps tanks from accelerating indefinitely, but
+		# retains ~85% thrust at 10 m/s so hills never stall them.
+		var traction_falloff: float = clampf(1.0 - speed_si * 0.015, 0.85, 1.0)
+		return TANK_TRACTION_THRUST * thr * alt_eff * traction_falloff
 
 	if speed_si < 0.5:
 		return 2000.0 * thr * alt_eff

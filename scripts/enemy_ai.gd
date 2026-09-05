@@ -90,12 +90,13 @@ const RETURN_GLIDE_SLOPE       := 0.16
 # climb-forcing ground-avoidance reflexes are suppressed so it can descend the
 # rest of the way to the runway and flare.
 const RETURN_FINAL_DIST        := 520.0
-# Below this altitude on final the plane flares (levels the nose and cuts the
-# throttle) to arrest the sink rate for a soft touchdown.
+# Below this altitude on final the plane flares (pitches slightly nose-up and
+# cuts the throttle) to arrest the sink rate for a soft touchdown.
 const RETURN_FLARE_ALT         := 90.0
 const RETURN_CRUISE_THROTTLE   := 0.7   # en-route, maintain speed
-const RETURN_FINAL_THROTTLE    := 0.3   # short final, slow down
+const RETURN_FINAL_THROTTLE    := 0.18  # short final, cut throttle for gentle descent
 const RETURN_FLARE_THROTTLE    := 0.0   # idle on the flare
+const RETURN_FLARE_PITCH_UP_PX := 18.0  # px above current altitude for flare aim (slight nose-up)
 
 # Energy-state thresholds
 const ENERGY_ALTITUDE_ADVANTAGE := 120.0   # px altitude edge to press a dive
@@ -843,11 +844,13 @@ func _return_aim_and_throttle() -> Array:
 	var ground_y := _get_ground_height(touchdown_x)
 
 	var flare_aim := Vector2(biplane.global_position.x + rdir * 300.0,
-		biplane.global_position.y)
+		biplane.global_position.y - RETURN_FLARE_PITCH_UP_PX)
 
 	# --- Committed final approach ---
 	if td_dist_x < RETURN_FINAL_DIST:
 		# Flare: close to the touchdown edge AND low enough to settle.
+		# Pitch very slightly nose-up (aim slightly above current altitude) and
+		# cut throttle to bleed speed for a soft touchdown instead of diving.
 		if td_dist_x < 30.0 and alt < RETURN_FLARE_ALT:
 			return [flare_aim, RETURN_FLARE_THROTTLE]
 		# Descend toward the touchdown point on the glide slope.
@@ -1391,9 +1394,16 @@ func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true, 
 	if pullup_fix != 0.0:
 		pitch = pullup_fix
 
-	var energy = _energy_stall_reflex(pitch, throttle)
-	pitch = energy[0]
-	throttle = energy[1]
+	var is_landing_final := ai_fsm and ai_fsm.current_key == &"returning" \
+			and _dist_to_runway() < RETURN_FINAL_DIST
+	if not is_landing_final:
+		var energy = _energy_stall_reflex(pitch, throttle)
+		pitch = energy[0]
+		throttle = energy[1]
+	# During landing flare the plane deliberately holds a slight nose-up
+	# attitude at low speed and cut throttle — the energy reflex would level
+	# the nose or force full throttle to rebuild speed, exactly the dive that
+	# crashes the landing.  Suppressed on final so the flare sticks.
 
 	# Predictive terrain avoidance, applied LAST so it overrides even the
 	# energy gate: samples the velocity vector for a terrain intersection
@@ -2125,12 +2135,26 @@ func _tank_hostile(child: Node, avatar) -> bool:
 		return avatar.team == Biplane.Team.ALLIED
 	if child.is_in_group("tank") and child != biplane:
 		var oa = child.get_primary_entity()
-		return oa and avatar.is_hostile_to(oa)
-	if child.is_in_group("player"):
-		# Only engage the player plane when it is on the ground (landed) —
-		# a tank shouldn't futilely chase an aircraft at altitude.
-		var oa = child.get_primary_entity()
-		return oa and (not oa.is_airborne) and avatar.team != oa.team
+		if not oa or not avatar.is_hostile_to(oa):
+			return false
+		# Never target a destroyed wreck.
+		if oa.damage.damage_state == DamageData.DamageState.DESTROYED:
+			return false
+		if oa.flight_state == Biplane.FlightState.CRASHED or oa.flight_state == Biplane.FlightState.FALLING:
+			return false
+		return true
+	if child.is_in_group("player") or child.is_in_group("enemy_plane"):
+		var oa = child.get_primary_entity() if child.has_method("get_primary_entity") else null
+		if not oa or not avatar.is_hostile_to(oa):
+			return false
+		# Live aircraft only — a crashed/FALLING wreck is not a valid target.
+		# This fixes the bug where tanks only fired when the aircraft was
+		# already destroyed (is_airborne == false after crash).
+		if oa.damage.damage_state == DamageData.DamageState.DESTROYED:
+			return false
+		if oa.flight_state == Biplane.FlightState.CRASHED or oa.flight_state == Biplane.FlightState.FALLING:
+			return false
+		return true
 	if child.is_in_group("ground_target"):
 		# Hostile buildings: a structure whose faction opposes the tank's
 		# team.  This lets either side's tanks shell the enemy's base
@@ -2138,4 +2162,14 @@ func _tank_hostile(child: Node, avatar) -> bool:
 		var building_is_enemy: bool = child.is_enemy
 		var tank_is_enemy: bool = (avatar.team == Biplane.Team.ENEMY)
 		return building_is_enemy != tank_is_enemy
+	# Generic hostile aircraft fallback: any Biplane-derived node not already
+	# covered above (e.g. future plane types) that is hostile and alive.
+	if child.has_method("get_primary_entity"):
+		var oa = child.get_primary_entity()
+		if oa and avatar.is_hostile_to(oa):
+			if oa.damage.damage_state == DamageData.DamageState.DESTROYED:
+				return false
+			if oa.flight_state == Biplane.FlightState.CRASHED or oa.flight_state == Biplane.FlightState.FALLING:
+				return false
+			return true
 	return false
