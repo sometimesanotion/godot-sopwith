@@ -1049,7 +1049,7 @@ func _get_hit_radius_for_body(body: Node) -> float:
 			var vertical_extent := maxf(abs(pbounds["min_y"]), abs(pbounds["max_y"]))
 			return maxf(horizontal_extent, vertical_extent) + 5.0
 		return 85.0
-	return 25.0
+	return 15.0
 
 ###############################################################################
 # GROUND CONTACT

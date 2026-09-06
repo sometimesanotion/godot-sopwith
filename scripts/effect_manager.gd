@@ -322,6 +322,8 @@ func _build_damage_fx(profile: DamageFXProfile) -> Node2D:
 	smoke_mat.scale_min = 6.0 * profile.scale
 	smoke_mat.scale_max = 14.0 * profile.scale
 	smoke_mat.color_ramp = make_smoke_ramp(profile.smoke_color)
+	smoke_mat.angle_min = 0.0
+	smoke_mat.angle_max = 360.0
 	smoke.process_material = smoke_mat
 	root.add_child(smoke)
 
@@ -346,6 +348,8 @@ func _build_damage_fx(profile: DamageFXProfile) -> Node2D:
 		fire_mat.scale_min = 4.0 * profile.scale
 		fire_mat.scale_max = 8.0 * profile.scale
 		fire_mat.color_ramp = make_fire_ramp(colors["peak"], colors["mid"], colors["ash"])
+		fire_mat.angle_min = 0.0
+		fire_mat.angle_max = 360.0
 		fire.process_material = fire_mat
 		root.add_child(fire)
 
