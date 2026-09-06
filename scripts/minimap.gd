@@ -21,7 +21,6 @@ func _ready() -> void:
 	_create_terrain_line()
 	_create_terrain_fill()
 	_create_player_marker()
-	_create_home_marker()
 
 func _create_background() -> void:
 	var bg := ColorRect.new()
@@ -57,12 +56,6 @@ func _create_player_marker() -> void:
 	player_dot.custom_minimum_size = Vector2(8, 8)
 	player_dot.color = Color(0.2, 0.8, 0.2)
 	add_child(player_dot)
-
-func _create_home_marker() -> void:
-	home_marker = ColorRect.new()
-	home_marker.custom_minimum_size = Vector2(8, 8)
-	home_marker.color = Color(0.8, 0.8, 0.2)
-	add_child(home_marker)
 
 func update_terrain(points: PackedVector2Array) -> void:
 	terrain_points = points
@@ -120,12 +113,6 @@ func update_enemies(enemies: Array) -> void:
 			enemy_dots[i].position = Vector2(map_x - 2.0, map_y - 2.0)
 			enemy_dots[i].visible = true
 
-func update_home(base_x: float) -> void:
-	var scale: float = MINIMAP_WIDTH / TERRAIN_LENGTH
-	var map_x: float = base_x * scale
-	var map_y: float = _altitude_to_map_y(GROUND_Y)
-	home_marker.position = Vector2(map_x - 4.0, map_y - 4.0)
-
 func update_targets(targets: Array) -> void:
 	while target_dots.size() < targets.size():
 		var dot := ColorRect.new()
@@ -148,6 +135,10 @@ func update_targets(targets: Array) -> void:
 			var map_y: float = _altitude_to_map_y(world_pos.y)
 			target_dots[i].position = Vector2(map_x - 1.0, map_y - 1.0)
 			target_dots[i].visible = true
+			if target.is_in_group("enemy_target"):
+				target_dots[i].color = Color(0.8, 0.1, 0.1)
+			else:
+				target_dots[i].color = Color(0.4, 0.8, 0.95)
 		else:
 			target_dots[i].visible = false
 

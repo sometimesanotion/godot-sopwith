@@ -56,6 +56,8 @@ func _ready() -> void:
 		"visual_scale": Vector2.ONE,
 		"bungee_time": 0.15,
 		"max_landing_tilt_deg": 150.0,
+		"collision_armor_factor": 0.15,
+		"collision_armor_slow_factor": 0.05,
 		"soft_landing_vperp": 180.0,
 		"hard_landing_vperp": 300.0,
 		"svg_sprite_name": "",
@@ -150,6 +152,21 @@ func take_damage(avatar_or_amount, amount_or_attacker = null, _attacker = null) 
 ## Drop the tank from the targeting/minimap bookkeeping the instant it is
 ## destroyed, so a wreck no longer counts as a live enemy target (which would
 ## otherwise block the win check).  Leaves a burned-out hull with smoke.
+func get_collision_response(other: Node, other_avatar: AvatarData, other_speed: float,
+		plane_soft_landing: float = 100.0, plane_hard_landing: float = 200.0) -> Biplane.CollisionResult:
+	var result := super.get_collision_response(other, other_avatar, other_speed, plane_soft_landing, plane_hard_landing)
+	if result.hit:
+		# Tank armor: reduce incoming collision damage significantly; slow/light
+		# bumps should not destroy a tank.
+		var armor_factor := float(get_avatar_data(0).model_params.get("collision_armor_factor", 0.15))
+		if other_speed < 50.0:
+			armor_factor = float(get_avatar_data(0).model_params.get("collision_armor_slow_factor", 0.05))
+		result.damage *= armor_factor
+		if result.damage < 0.05:
+			result.hit = false
+			result.damage = 0.0
+	return result
+
 func _on_avatar_crashed(avatar: AvatarData) -> void:
 	super._on_avatar_crashed(avatar)
 	if is_in_group("enemy_target"):

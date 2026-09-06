@@ -946,7 +946,7 @@ const MIDAIR_MIN_CLOSING_MS := 2.0
 ## Gentle plane-plane touches (closing below this, m/s) spring apart with
 ## restitution instead of grinding: bounce, light damage, keep flying.
 const MIDAIR_BOUNCE_LIMIT_MS := 12.0
-const MIDAIR_BOUNCE_RESTITUTION := 0.5
+const MIDAIR_BOUNCE_RESTITUTION := 0.08
 const MIDAIR_BOUNCE_MIN_PUSH_PX := 30.0
 ## Sub-catastrophic impact hits apply at most this often per avatar, so a
 ## sustained grind deals damage over time instead of melting at 60 Hz.

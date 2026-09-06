@@ -386,6 +386,8 @@ func _start_playing() -> void:
 const COW_SCENE := preload("res://scenes/cow.tscn")
 const BIRD_FLOCK_SCENE := preload("res://scenes/bird_flock.tscn")
 
+var birds_spawned: bool = false
+
 var enemy_home_positions: Array[float] = []
 ## Parallel to enemy_home_positions: true if this base launches leftward
 ## (runway sits on the left of base_x, buildings on the right).  Set in
@@ -437,6 +439,16 @@ func _process(delta: float) -> void:
 		_spawn_enemy_plane(int(entry["base_i"]), int(entry["p_idx"]),
 			float(entry["base_x"]), bool(entry["faces_left"]),
 			float(entry["runway_left"]), int(entry["faction"]), 0.0)
+
+	if not birds_spawned:
+		birds_spawned = true
+		var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
+		var bird_count_map: Dictionary = {"None": 0, "Few": 3, "Normal": 5, "Many": 8}
+		var num_birds: int = int(bird_count_map.get(GameManager.bird_count if GameManager else "Normal", 6) * lm)
+		for i in range(num_birds):
+			var flock: Node2D = BIRD_FLOCK_SCENE.instantiate()
+			flock.position = Vector2(200 + randf() * 16000, -300 - randf() * 1200)
+			add_child(flock)
 
 func _spawn_enemies_and_targets() -> void:
 	enemies.clear()
@@ -584,14 +596,6 @@ func _spawn_enemy_plane(base_i: int, _p_idx: int, base_x: float, faces_left: boo
 		enemy.rotation = enemy.get_homebase_spawn_rotation(hb_av)
 	add_child(enemy)
 	enemies.append(enemy)
-
-	var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
-	var bird_count_map: Dictionary = {"None": 0, "Few": 3, "Normal": 5, "Many": 8}
-	var num_birds: int = int(bird_count_map.get(GameManager.bird_count if GameManager else "Normal", 6) * lm)
-	for i in range(num_birds):
-		var flock: Node2D = BIRD_FLOCK_SCENE.instantiate()
-		flock.position = Vector2(200 + randf() * 16000, -300 - randf() * 1200)
-		add_child(flock)
 
 ## Spawn cows across the terrain, excluding homebase zones (player + enemy)
 ## and runways. Called after all bases, tanks, and structures are placed so
@@ -1221,7 +1225,6 @@ func _create_minimap() -> void:
 	ui.add_child(minimap_instance)
 	var vp_w := get_viewport_rect().size.x
 	minimap_instance.position = Vector2((vp_w - 574) * 0.5, 20)
-	minimap_instance.update_home(HOME_BASE.x)
 	if terrain and terrain.has_method("get_ground_points"):
 		minimap_instance.update_terrain(terrain.get_ground_points())
 
@@ -1232,7 +1235,17 @@ func _update_minimap() -> void:
 	minimap_instance.update_enemies(enemies)
 
 	var enemy_targets: Array = get_tree().get_nodes_in_group("enemy_target")
-	minimap_instance.update_targets(enemy_targets)
+	var friendly_targets: Array = get_tree().get_nodes_in_group("ground_target")
+	var friendly_tanks: Array = get_tree().get_nodes_in_group("tank")
+	# Combine; minimap colors enemy_target red, everything else yellow
+	var all_targets: Array = enemy_targets.duplicate()
+	for t in friendly_targets:
+		if not t.is_in_group("enemy_target"):
+			all_targets.append(t)
+	for t in friendly_tanks:
+		if t and is_instance_valid(t) and not t.is_in_group("enemy_target"):
+			all_targets.append(t)
+	minimap_instance.update_targets(all_targets)
 
 	var birds: Array = get_tree().get_nodes_in_group("flock")
 	minimap_instance.update_birds(birds)

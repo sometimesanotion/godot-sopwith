@@ -38,7 +38,7 @@ const ENERGY_DAMAGE_SCALE: float = 0.1
 ##     WRECK_FIRE_AMOUNT / WRECK_SMOKE_AMOUNT — so a SEVERE biplane, a fresh
 ##     tank wreck, and a burning building wreck all carry the identical fire.
 const WRECK_FIRE_DURATION := 8.0
-const WRECK_FIRE_AMOUNT := 4
+const WRECK_FIRE_AMOUNT := 10
 const WRECK_SMOKE_AMOUNT := 8
 
 ## Destroyed buildings burn with fire and smoke that both steadily wane and
@@ -332,7 +332,7 @@ func _build_damage_fx(profile: DamageFXProfile) -> Node2D:
 		fire.emitting = true
 		fire.one_shot = false
 		fire.amount = maxi(1, profile.fire_amount)
-		fire.lifetime = 0.25
+		fire.lifetime = 0.35
 		fire.explosiveness = 0.35
 		fire.position = Vector2.ZERO
 		fire.local_coords = false
@@ -343,8 +343,8 @@ func _build_damage_fx(profile: DamageFXProfile) -> Node2D:
 		fire_mat.spread = 30.0
 		fire_mat.initial_velocity_min = 60.0
 		fire_mat.initial_velocity_max = 90.0
-		fire_mat.scale_min = 3.0 * profile.scale
-		fire_mat.scale_max = 6.0 * profile.scale
+		fire_mat.scale_min = 4.0 * profile.scale
+		fire_mat.scale_max = 8.0 * profile.scale
 		fire_mat.color_ramp = make_fire_ramp(colors["peak"], colors["mid"], colors["ash"])
 		fire.process_material = fire_mat
 		root.add_child(fire)
