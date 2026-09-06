@@ -134,7 +134,7 @@ enum FireColorPreset {
 ## above worst-case battle load (lingering wreck/depot burns + attached damage
 ## smoke + bursts): if the cap saturates, fresh wreck fires are dropped
 ## outright while only half-second puffs remain visible.
-@export var max_concurrent_effects: int = 64
+@export var max_concurrent_effects: int = 128
 
 var _active_effects: Array[Node] = []
 var _effect_count: int = 0
