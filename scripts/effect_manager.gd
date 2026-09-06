@@ -288,10 +288,14 @@ func _build_damage_fx(profile: DamageFXProfile) -> Node2D:
 	var smoke_mat := ParticleProcessMaterial.new()
 	smoke_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
 	smoke_mat.emission_sphere_radius = 8.0 * profile.scale
-	smoke_mat.gravity = Vector3(0, -30, 0)
+	# Larger burns drive stronger thermals: smoke rise scales with size, so
+	# building plumes (1.5–3.0) climb faster while planes/tanks (1.0) are
+	# bit-identical to before.
+	var rise := 0.5 + 0.5 * profile.scale
+	smoke_mat.gravity = Vector3(0, -30.0 * rise, 0)
 	smoke_mat.spread = 30.0
-	smoke_mat.initial_velocity_min = 30.0
-	smoke_mat.initial_velocity_max = 60.0
+	smoke_mat.initial_velocity_min = 30.0 * rise
+	smoke_mat.initial_velocity_max = 60.0 * rise
 	smoke_mat.scale_min = 4.0 * profile.scale
 	smoke_mat.scale_max = 10.0 * profile.scale
 	smoke_mat.color_ramp = make_smoke_ramp(profile.smoke_color)
@@ -384,16 +388,31 @@ func sync_damage_fx(parent: Node, current: Node2D, state: int, percent: float, s
 	detach_damage_fx(current)
 	return attach_damage_fx(parent, want)
 
-## Stop and free a node created by attach/spawn/sync_damage_fx (or the wreck
-## helpers).  Safe on null/freed nodes.
+## Stop and release a node created by attach/spawn/sync_damage_fx (or the
+## wreck helpers).  Safe on null/freed nodes.  Emission ceases at once but
+## the node is freed only after its longest particle lifetime expires, so
+## state switches dissolve instead of popping.  It is reparented to the
+## world first so a dying parent (destroyed building, respawning plane)
+## cannot cut the fade short.
 func detach_damage_fx(node: Node2D) -> void:
 	if node == null or not is_instance_valid(node):
 		return
+	_active_effects.erase(node)
+	var longest := 0.0
 	for child in node.get_children():
 		if child is GPUParticles2D:
 			child.emitting = false
-	node.queue_free()
-	_active_effects.erase(node)
+			longest = maxf(longest, child.lifetime)
+	var world := _get_world()
+	if node.get_parent() != world:
+		var gp := node.global_position
+		var parent := node.get_parent()
+		if parent:
+			parent.remove_child(node)
+		world.add_child(node)
+		node.global_position = gp
+	var t := get_tree().create_timer(longest + 0.2)
+	t.timeout.connect(node.queue_free)
 
 func spawn_explosion(pos: Vector2, energy: float) -> Node2D:
 	var instance: Node2D = EXPLOSION_SCENE.instantiate()
