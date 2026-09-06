@@ -409,6 +409,10 @@ class AvatarData:
 	var reliability:     float       = 1.0
 	var refuel_timer:    float       = 0.0
 	var refuel_cooldown: float       = 0.0
+	## Throttle for sub-catastrophic impact damage (see _apply_impact): the
+	## tick of the last applied hit, so sustained grinding cannot melt a
+	## plane at 60 applications per second.  Catastrophic hits bypass it.
+	var last_impact_ms:  int         = 0
 	## Cached physics modifiers; recomputed by _refresh_damage_modifiers().
 	var drag_multiplier:   float = 1.0
 	var thrust_multiplier: float = 1.0
@@ -541,6 +545,7 @@ class AvatarData:
 		thrust_multiplier = 1.0
 		refuel_timer     = 0.0
 		refuel_cooldown  = 0.0
+		last_impact_ms   = 0
 		pitch_angle      = 0.0
 		angular_velocity  = 0.0
 		control_effectiveness = 1.0
@@ -915,6 +920,73 @@ class CollisionResult:
 	var is_midair: bool = false
 	var impact_speed: float = 0.0
 
+## Center distance below which two aircraft count as colliding.  The fuselage
+## capsule (r=32.5) first touches at ~65 px center distance and the solver
+## never lets centers get closer than ~50 px (measured headless), so the old
+## 40.0 gates could never fire for plane-vs-plane.
+const PLANE_PROXIMITY_RADIUS := 75.0
+## Mid-air closing speed (m/s) that destroys both aircraft outright.  Cruise
+## is ~40–50 m/s, so any genuine head-on impact is catastrophic while
+## formation kisses and overtake bumps merely damage.
+const MIDAIR_CRASH_CLOSING_MS := 30.0
+## Minimum closing speed (m/s) that counts as a mid-air hit at all.
+const MIDAIR_MIN_CLOSING_MS := 2.0
+## Gentle plane-plane touches (closing below this, m/s) spring apart with
+## restitution instead of grinding: bounce, light damage, keep flying.
+const MIDAIR_BOUNCE_LIMIT_MS := 12.0
+const MIDAIR_BOUNCE_RESTITUTION := 0.5
+const MIDAIR_BOUNCE_MIN_PUSH_PX := 30.0
+## Sub-catastrophic impact hits apply at most this often per avatar, so a
+## sustained grind deals damage over time instead of melting at 60 Hz.
+const IMPACT_THROTTLE_MS := 250
+
+## Natural-physics mid-air damage from dissipated collision energy.  Two
+## bodies closing at v share E = ½·μ·v² (μ = reduced mass); each airframe
+## absorbs that in inverse proportion to its own mass share, so a light
+## scout ramming a heavy bomber comes off far worse — and barely scratches
+## the bomber.  Calibrated: equal 447 kg masses at MIDAIR_CRASH_CLOSING_MS
+## score exactly 100 (destruction); the restitution loss (1−e²) is folded
+## into that anchor.  Returns 0–100 damage points (100 = destruction).
+static func midair_impact_damage(closing_px_s: float, ppm: float,
+		self_mass_kg: float, other_mass_kg: float) -> float:
+	var closing_ms := closing_px_s / maxf(ppm, 1.0)
+	if closing_ms < MIDAIR_MIN_CLOSING_MS:
+		return 0.0
+	var m_self := maxf(self_mass_kg, 1.0)
+	var m_other := maxf(other_mass_kg, 1.0)
+	# μ/m_self = other's mass share; ×2 anchors equal masses to the plain
+	# (v/30)² curve at the calibration point.
+	var f := closing_ms / MIDAIR_CRASH_CLOSING_MS
+	return clampf(200.0 * (m_other / (m_self + m_other)) * f * f, 0.0, 100.0)
+
+## Airframe mass for impact physics (kg), with a sane fallback.
+static func impact_mass_kg(av: AvatarData) -> float:
+	if av == null:
+		return 447.0
+	return maxf(float(av.model_params.get("mass_kg", 447.0)), 1.0)
+
+## Single choke point for impact damage on self (+ symmetric counter-damage
+## on the collider).  Sub-catastrophic hits are throttled per avatar;
+## catastrophic hits (crash=true) always apply immediately.  Returns true
+## when damage was applied.
+func _apply_impact(avatar: AvatarData, self_damage: float, collider: Node,
+		collider_damage: float, crash: bool) -> bool:
+	if self_damage <= 0.0 and not crash:
+		return false
+	if not crash:
+		var now := Time.get_ticks_msec()
+		if now - avatar.last_impact_ms < IMPACT_THROTTLE_MS:
+			return false
+		avatar.last_impact_ms = now
+	if self_damage > 0.0:
+		take_damage(avatar, self_damage, collider)
+	if collider_damage > 0.0 and collider and is_instance_valid(collider) \
+			and collider.has_method("take_damage"):
+		collider.take_damage(collider_damage, self)
+	if crash:
+		_on_avatar_crashed(avatar)
+	return true
+
 ###############################################################################
 # COLLISION RESPONSE (called by other biplanes via get_collision_response)
 ###############################################################################
@@ -929,13 +1001,17 @@ func get_collision_response(other: Node, other_avatar: AvatarData, other_speed: 
 		var self_av := get_primary_entity()
 		if self_av and other_avatar and not self_av.is_hostile_to(other_avatar):
 			return result
-		var relative_speed := velocity.length() + other_speed
-		var stall_speed: float = other_avatar.stall_speed_ms if other_avatar else 21.4
-		var damage_ratio: float = clampf(relative_speed / stall_speed, 0.0, 2.0)
-		if dist < 40.0 and other_speed > 10.0:
-			result.hit = true
-			result.damage = clampf(damage_ratio, 0.5, 1.0)
-			result.is_midair = true
+		# Approaching component only, consistent with the contact loop.
+		var closing := other_speed + velocity.length()
+		if dist > 0.01 and dist < PLANE_PROXIMITY_RADIUS and other_speed > 10.0:
+			var axis: Vector2 = (other.global_position - global_position) / dist
+			closing = maxf(0.0, (velocity - (other as RigidBody2D).velocity).dot(axis))
+			var dmg := midair_impact_damage(closing, pixels_per_meter,
+				impact_mass_kg(self_av), impact_mass_kg(other_avatar))
+			if dmg > 0.0:
+				result.hit = true
+				result.damage = dmg
+				result.is_midair = true
 	return result
 
 func _get_hit_radius_for_body(body: Node) -> float:
@@ -1096,7 +1172,19 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 	# The analytical model checks center position vs terrain surface (pos_y >= ground_y - 2),
 	# missing contacts where only the collision shape's lower extent touches terrain.
 	# Physics contacts from state.get_contact_count() provide the real collision state.
+	#
+	# Impact severity comes from pre-solve closing velocity, NOT solver
+	# impulses: this body re-asserts aerodynamic velocity every tick, so
+	# vehicle-vs-vehicle contacts exchange almost no momentum (impulses read
+	# ~0) even in violent collisions.  Closing velocity is exact every tick.
+	# (Static structures force real momentum exchange, but closing velocity
+	# measures the same Δv there, so one classifier serves both.)
+	var pre_vel := state.get_linear_velocity()
 	var cc := state.get_contact_count()
+	# Restitution pending for gentle aircraft touches (set in the mid-air
+	# branch, applied to the final velocity below).
+	var bounce_n := Vector2.ZERO
+	var bounce_push := 0.0
 	for ci in range(cc):
 		var collider := state.get_contact_collider_object(ci)
 		if not collider:
@@ -1110,82 +1198,82 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 				inp.is_grounded = true
 				out.v_perp = maxf(0.0, -inp.velocity.dot(inp.ground_normal))
 			continue
-		# Building/obstacle: StaticBody2D that isn't terrain.  Ground
-		# vehicles (tanks) are blocked physically by the collision, but their
-		# contact damage is handled by the obstacle-collision scan, so skip
-		# the impulse-driven crash path here for them.
-		if collider is StaticBody2D and avatar.is_aerodynamic():
-			var impulse: Vector2 = state.get_contact_impulse(ci)
-			var impulse_mag: float = impulse.length()
-			if impulse_mag <= 0.0:
-				continue
+		var col_node := collider as Node2D
+		if col_node == null:
+			continue
+		# Approach speed along the collision axis, px/s.  Falls back to the
+		# relative-speed magnitude for degenerate (coincident) centers.
+		var other_vel: Vector2 = state.get_contact_collider_velocity_at_position(ci)
+		var to_other: Vector2 = col_node.global_position - global_position
+		var closing := 0.0
+		if to_other.length_squared() > 0.01:
+			closing = maxf(0.0, (pre_vel - other_vel).dot(to_other.normalized()))
+		else:
+			closing = (pre_vel - other_vel).length()
+		if closing <= 0.0:
+			continue
+		var other_av: AvatarData = null
+		if collider is RigidBody2D and collider.has_method("get_primary_entity"):
+			other_av = collider.get_primary_entity()
+		# Structures (static bodies) and ground vehicles (tanks: huge,
+		# effectively static masses) share the soft/hard landing
+		# classification — now fed by closing velocity instead of impulse.
+		if (collider is StaticBody2D \
+				or (other_av != null and not other_av.is_aerodynamic())) \
+				and avatar.is_aerodynamic():
 			var model_params = avatar.model_params
-			var impact_vel: float = impulse_mag / model_params.get("mass_kg", 447.0)
 			var soft_landing: float = model_params.get("soft_landing_vperp", 80.0)
 			var hard_landing: float = model_params.get("hard_landing_vperp", 200.0)
 			_debug_forensic_log(avatar, "building_contact", {
 				"frame": _debug_frame_count,
-				"collider": collider.name,
-				"impulse": snapped(impulse_mag, 1.0),
-				"impact_vel": snapped(impact_vel, 1.0),
+				"collider": (collider as Node).name,
+				"closing": snapped(closing, 1.0),
 				"soft": soft_landing,
 				"hard": hard_landing,
 			})
-			if impact_vel >= hard_landing:
-				_on_avatar_crashed(avatar)
-				if collider.has_method("take_damage"):
-					collider.take_damage(impact_vel / hard_landing * 400.0, self)
+			if closing >= hard_landing:
+				_apply_impact(avatar, 100.0, collider,
+					closing / hard_landing * 400.0, true)
 				return
-			elif impact_vel > soft_landing:
-				var damage_pct: float = (impact_vel - soft_landing) / (hard_landing - soft_landing)
+			elif closing > soft_landing:
+				var damage_pct: float = (closing - soft_landing) / (hard_landing - soft_landing)
 				damage_pct = clampf(damage_pct, 0.0, 1.0)
-				take_damage(avatar, damage_pct * 100.0, collider)
-				if collider.has_method("take_damage"):
-					collider.take_damage(damage_pct * 300.0, self)
+				_apply_impact(avatar, damage_pct * 100.0, collider,
+					damage_pct * 300.0, false)
 			continue
 		# Biplane-vs-biplane: RigidBody2D with a primary avatar (another plane).
 		# Each body's _integrate_forces sees the same contact independently,
 		# so damage is applied only to self (the other body damages itself
-		# from its own callback) to avoid double-counting.
+		# from its own callback) — counter-damage here covers the collider
+		# only when IT cannot process contacts itself.
 		#
 		# Mid-air collisions have no shock absorption (unlike landing gear
-		# cushioned by oleos and tyres), so thresholds are far lower than
-		# the per-model soft_landing_vperp / hard_landing_vperp.
-		#
-		# Impulse correction: get_contact_impulse returns the same scalar
-		# J for both bodies (Newton III).  Δv_self = J/m1, Δv_other = J/m2,
-		# so the full closing speed = J·(m1+m2)/(m1·m2).  Dividing only by
-		# m1 understates the collision by up to 2× for equal masses.
-		if collider is RigidBody2D \
-				and collider.has_method("get_primary_entity") \
-				and avatar.is_aerodynamic():
-			var impulse: Vector2 = state.get_contact_impulse(ci)
-			var impulse_mag: float = impulse.length()
-			if impulse_mag <= 0.0:
-				continue
-			var self_mass: float = avatar.model_params.get("mass_kg", 447.0)
-			var other_av: AvatarData = collider.get_primary_entity()
-			var other_mass: float = 447.0
-			if other_av:
-				other_mass = other_av.model_params.get("mass_kg", 447.0)
-			var impact_vel: float = impulse_mag / self_mass * (self_mass + other_mass) / other_mass
-			var midair_hard: float = 5.0
+		# cushioned by oleos and tyres), so the kinetic-energy ramp below
+		# replaces the per-model landing thresholds: a high-speed impact is
+		# catastrophic as a natural outcome of the closing speed.
+		if other_av != null and other_av.is_aerodynamic() and avatar.is_aerodynamic():
+			var self_kg := impact_mass_kg(avatar)
+			var other_kg := impact_mass_kg(other_av)
+			var dmg := midair_impact_damage(closing, pixels_per_meter, self_kg, other_kg)
 			_debug_forensic_log(avatar, "midair_contact", {
 				"frame": _debug_frame_count,
-				"collider": collider.name,
-				"impulse": snapped(impulse_mag, 1.0),
-				"impact_vel": snapped(impact_vel, 1.0),
-				"hard": midair_hard,
-				"self_mass": snapped(self_mass, 1.0),
-				"other_mass": snapped(other_mass, 1.0),
+				"collider": (collider as Node).name,
+				"closing": snapped(closing, 1.0),
+				"damage": snapped(dmg, 1.0),
 			})
-			if impact_vel >= midair_hard:
-				_on_avatar_crashed(avatar)
-				return
-			elif impact_vel > midair_hard:
-				var damage_pct: float = impact_vel / midair_hard
-				damage_pct = clampf(damage_pct, 0.2, 2.0)
-				take_damage(avatar, damage_pct * 300.0, collider)
+			if dmg > 0.0:
+				_apply_impact(avatar, dmg, collider, dmg * 0.5, dmg >= 100.0)
+			# Gentle touches bounce: remember the strongest separation push
+			# so the final velocity springs apart instead of re-asserting
+			# aerodynamic velocity into the other aircraft (grind).  Scaled
+			# by the elastic recoil share — the lighter aircraft recoils more.
+			if dmg < 100.0 and to_other.length_squared() > 0.01 \
+					and closing / maxf(pixels_per_meter, 1.0) < MIDAIR_BOUNCE_LIMIT_MS:
+				var push := (closing * MIDAIR_BOUNCE_RESTITUTION + MIDAIR_BOUNCE_MIN_PUSH_PX) \
+					* 2.0 * other_kg / (self_kg + other_kg)
+				if push > bounce_push:
+					bounce_push = push
+					bounce_n = -to_other.normalized()
 			continue
 
 	if out.should_crash:
@@ -1227,6 +1315,17 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 		var vel_into_ground := -current_vel.dot(gc.ground_normal)
 		if vel_into_ground > 0.0:
 			current_vel += gc.ground_normal * vel_into_ground
+			state.set_linear_velocity(current_vel)
+
+	# Restitution for gentle mid-air touches: guarantee separation along the
+	# contact axis so aircraft bounce apart instead of grinding.  Skipped
+	# once crashed (the wreck is ballistic) — the crash path returns earlier
+	# in the catastrophic case; this covers the bounce-and-keep-flying case.
+	if bounce_n != Vector2.ZERO and avatar.is_aerodynamic() \
+			and avatar.flight_state != FlightState.CRASHED:
+		var vn := current_vel.dot(bounce_n)
+		if vn < bounce_push:
+			current_vel += bounce_n * (bounce_push - vn)
 			state.set_linear_velocity(current_vel)
 
 	_debug_check_ground_forensics(avatar, state, gc, inp, out, "post_clamp")
@@ -1769,11 +1868,8 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 			if collision_result.hit:
 				var actual_damage: float = collision_result.damage * 100.0
 				if collision_result.is_midair or avatar.flight_state == FlightState.FALLING:
-					if child.has_method("take_damage"):
-						child.take_damage(actual_damage * 0.5, self)
-					take_damage(avatar, actual_damage, child)
-					if actual_damage >= 100.0:
-						_on_avatar_crashed(avatar)
+					_apply_impact(avatar, actual_damage, child,
+						actual_damage * 0.5, actual_damage >= 100.0)
 				elif not collision_result.is_midair and avatar.flight_state != FlightState.FALLING:
 					if child.has_method("take_damage"):
 						child.take_damage(actual_damage * 0.5, self)
@@ -1783,18 +1879,16 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 						take_damage(avatar, actual_damage, child)
 				return
 		if child is RigidBody2D and child.has_method("get_primary_entity") and not child.has_method("get_collision_response"):
-			var other_speed: float = child.velocity.length()
 			var dist := global_position.distance_to(child.global_position)
-			if dist < 40.0 and speed > 10.0 and other_speed > 10.0:
-				var stall_speed: float = avatar.stall_speed_ms
-				var relative_speed: float = speed + other_speed
-				var damage_ratio: float = clampf(relative_speed / stall_speed * 0.5, 0.5, 1.0)
-				var actual_damage: float = damage_ratio * 100.0
-				take_damage(avatar, actual_damage, child)
-				if child.has_method("take_damage"):
-					child.take_damage(damage_ratio * 50.0, self)
-				if actual_damage >= 100.0:
-					_on_avatar_crashed(avatar)
+			if dist < PLANE_PROXIMITY_RADIUS and dist > 0.01:
+				# Approaching component only: receding aircraft are bouncing
+				# apart, not colliding.
+				var axis: Vector2 = (child.global_position - global_position) / dist
+				var closing: float = maxf(0.0, (velocity - child.velocity).dot(axis))
+				var dmg := midair_impact_damage(closing, pixels_per_meter,
+					impact_mass_kg(avatar), impact_mass_kg(child.get_primary_entity()))
+				if dmg > 0.0:
+					_apply_impact(avatar, dmg, child, dmg * 0.5, dmg >= 100.0)
 				return
 
 ###############################################################################

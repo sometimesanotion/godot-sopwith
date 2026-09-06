@@ -434,8 +434,8 @@ func _create_wreck() -> void:
 	wreck_draw.set_meta("wreck_points", wrecked_points)
 	wreck.add_child(wreck_draw)
 
-	# Lingering wreck burn, scaled to the structure footprint: open fire for
-	# 10 s, then black smoke thereafter — the same fire family as tank
+	# Lingering wreck burn, scaled to the structure footprint: fire and
+	# black smoke wane and go out together — the same fire family as tank
 	# wrecks and SEVERE biplanes.
 	if EffectManager:
 		EffectManager.spawn_building_wreck_fire(global_position, _fx_size())

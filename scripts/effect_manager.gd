@@ -41,10 +41,10 @@ const WRECK_FIRE_DURATION := 8.0
 const WRECK_FIRE_AMOUNT := 15
 const WRECK_SMOKE_AMOUNT := 25
 
-## Destroyed buildings burn in two phases: an open fire that steadily wanes
-## and goes out as it loses intensity (BUILDING_WANE_TIME to burn down),
-## then black smoke indefinitely.  Fuel-depot blasts use the same waning
-## burn (hotter preset, longer wane) instead of bespoke mound emitters.
+## Destroyed buildings burn with fire and smoke that both steadily wane and
+## go out together as they lose intensity (BUILDING_WANE_TIME to burn down).
+## Fuel-depot blasts use the same waning burn (hotter preset, longer wane)
+## instead of bespoke mound emitters.
 const BUILDING_WANE_TIME := 12.0
 const DEPOT_WANE_TIME := 18.0
 
@@ -223,25 +223,27 @@ func attach_wreck_fire(parent: Node, offset: Vector2 = Vector2(15, -5), size := 
 func detach_wreck_fire(instance: Node2D) -> void:
 	detach_damage_fx(instance)
 
-## Two-phase burn for a destroyed building wreck: an open fire that steadily
-## wanes and goes out as it loses intensity, then black smoke rising
-## indefinitely.  One node, so the plume never jumps position.
+## Waning burn for a destroyed building wreck: fire and black smoke that
+## steadily lose intensity together and go out as one.  One node, so the
+## plume never jumps position.
 func spawn_building_wreck_fire(pos: Vector2, size := 1.0) -> Node2D:
 	return spawn_waning_fire(pos, size, FireColorPreset.STANDARD, BUILDING_WANE_TIME)
 
-## Waning burn: world-space fire + smoke whose fire emitter loses `amount`
-## linearly over `wane_time` and goes out at zero while the smoke keeps
-## rising.  Fuel-depot blasts use this (INTENSE, long wane) instead of the
-## old bespoke mound emitters.
+## Waning burn: world-space fire + smoke whose emitters both lose `amount`
+## linearly over `wane_time` and go out together at zero — smoke wanes and
+## fades exactly like fire.  Fuel-depot blasts use this (INTENSE, long wane)
+## instead of the old bespoke mound emitters.
 func spawn_waning_fire(pos: Vector2, size := 1.0, preset: FireColorPreset = FireColorPreset.STANDARD, wane_time := BUILDING_WANE_TIME) -> Node2D:
 	var profile := make_damage_profile(DamageData.DamageState.DESTROYED, 1.0, size, Vector2.ZERO)
 	profile.fire_preset = preset
 	var node := spawn_damage_fx(pos, profile, INF)
 	if node:
 		var fire := node.get_node_or_null("Fire") as GPUParticles2D
+		var smoke := node.get_node_or_null("Smoke") as GPUParticles2D
 		node.set_meta("wane_total", wane_time)
 		node.set_meta("wane_left", wane_time)
 		node.set_meta("wane_from", fire.amount if fire else 0)
+		node.set_meta("wane_smoke_from", smoke.amount if smoke else 0)
 	return node
 
 func _tick_wane(node: Node, delta: float) -> void:
@@ -252,18 +254,18 @@ func _tick_wane(node: Node, delta: float) -> void:
 		return
 	var left := float(node.get_meta("wane_left")) - delta
 	node.set_meta("wane_left", left)
-	var fire := node2d.get_node_or_null("Fire") as GPUParticles2D
-	if fire == null:
-		node.remove_meta("wane_left")
-		return
 	if left <= 0.0:
-		fire.emitting = false
-		node.remove_meta("wane_left")
-		node.remove_meta("wane_total")
-		node.remove_meta("wane_from")
+		# Burned out: cease emission and let the last particles fade before
+		# the node frees itself (same graceful retirement as detach).
+		detach_damage_fx(node2d)
 		return
 	var frac := left / float(node.get_meta("wane_total"))
-	fire.amount = maxi(0, int(round(int(node.get_meta("wane_from")) * frac)))
+	var fire := node2d.get_node_or_null("Fire") as GPUParticles2D
+	if fire:
+		fire.amount = maxi(0, int(round(int(node.get_meta("wane_from")) * frac)))
+	var smoke := node2d.get_node_or_null("Smoke") as GPUParticles2D
+	if smoke:
+		smoke.amount = maxi(0, int(round(int(node.get_meta("wane_smoke_from")) * frac)))
 
 ## Single builder for all continuous damage-FX.  One Node2D carrying a smoke
 ## emitter plus (FIRE_SMOKE only) a fire emitter in the STANDARD palette, both
