@@ -14,10 +14,10 @@ var game_state: String = "PLAYING"
 
 var terrain_seed: int = 0
 
-var enemy_planes: bool = true
+var enemy_planes: int = 1
 var enemy_bombs: bool = true
 var enemy_homebases: int = 2
-var enemy_tanks: String = "Few"
+var enemy_tanks: int = 1
 var huge_explosions: bool = true
 var bird_count: String = "Normal"
 var cow_count: String = "Normal"

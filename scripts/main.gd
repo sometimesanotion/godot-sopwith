@@ -399,7 +399,7 @@ func _spawn_enemies_and_targets() -> void:
 	if BuildingRegistry:
 		BuildingRegistry.reset()
 
-	var num_bases: int = GameManager.enemy_homebases if GameManager else 4
+	var num_bases: int = GameManager.enemy_homebases if GameManager else 2
 	# D10 base layout: one base west of the player, the rest east.  The east
 	# bases spawn inverted (leftward launch) via `faces_left`.  Consecutive
 	# bases are spaced ~3200 px apart (≥ MIN_ENEMY_DISTANCE) and all runways
@@ -442,9 +442,9 @@ func _spawn_enemies_and_targets() -> void:
 		if terrain and terrain.has_method("add_runway"):
 			terrain.add_runway(runway_left)
 		if GameManager:
-			planes_per_field = max(GameManager.ENEMY_PLANES_PER_AIRFIELD_DEFAULT, 1 + int(GameManager.current_level / 3))
+			planes_per_field = max(GameManager.enemy_planes, 1 + int(GameManager.current_level / 4))
 		else:
-			planes_per_field = GameManager.ENEMY_PLANES_PER_AIRFIELD_DEFAULT
+			planes_per_field = GameManager.enemy_planes
 		for p_idx in range(planes_per_field):
 			var spawn_rot := PI if faces_left else 0.0
 			var runway_right: float = runway_left + Terrain.RUNWAY_LENGTH
@@ -792,11 +792,9 @@ func _create_enemy_bases() -> void:
 
 		# Tanks: crawl out from the OPPOSITE (second) spawn point, IN FRONT
 		# of the machine gun nests, to hunt the player.  Hostile homebases
-		# field a count driven by the `enemy_tanks` preference (None=0,
-		# Few=1, Normal=2, Many=3 at level 1) and add +1 every 2nd level.
+		# field a count driven by the `enemy_tanks` preference
 		# Tanks never respawn.
-		var tank_base_map: Dictionary = {"None": 0, "Few": 1, "Normal": 2, "Many": 3}
-		var tanks_per_base: int = tank_base_map.get(GameManager.enemy_tanks if GameManager else "Normal", 2) + int(lv / 2)
+		var tanks_per_base: int = GameManager.enemy_tanks + int(lv / 2)
 		var tank_start: float = 40.0 + mg_total * 90.0 + 60.0
 		for k in range(tanks_per_base):
 			var dir := -1.0 if faces_left else 1.0
@@ -933,7 +931,7 @@ func _on_next_level() -> void:
 	# --- 3. Compute enemy base count for the NEW level ---
 	# Every 4th level adds a base, up to maximum of 6.
 	var lv := GameManager.current_level if GameManager else 1
-	var num_bases := mini(6, 2 + int(lv / 4))
+	var num_bases := mini(5, 2 + int(lv / 3))
 	if GameManager:
 		GameManager.enemy_homebases = num_bases
 	if RespawnManager:

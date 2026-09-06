@@ -36,6 +36,7 @@ var _fire: GPUParticles2D = null
 var _smoke: GPUParticles2D = null
 var _fragments: Array[DebrisFragment] = []
 var _fragments_created: bool = false
+var _fragments_ready: bool = false
 var _lifetime: float = 0.0
 var _terrain: Node = null
 
@@ -53,7 +54,9 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	_integrate_fragments(delta)
 	_lifetime += delta
-	if _lifetime >= debris_lifetime or _fragments.is_empty():
+	# The empty check waits for deferred creation (see setup): fragments
+	# arrive a frame later, and must not trigger cleanup before that.
+	if _lifetime >= debris_lifetime or (_fragments_ready and _fragments.is_empty()):
 		_cleanup()
 
 func setup(pos: Vector2, color: Color = Color(0.05, 0.055, 0.05), count: int = -1, damage: float = -1.0) -> void:
@@ -64,7 +67,16 @@ func setup(pos: Vector2, color: Color = Color(0.05, 0.055, 0.05), count: int = -
 		debris_damage = damage
 	if not _fragments_created:
 		_fragments_created = true
-		_create_fragments_with_color(color)
+		# Deferred: setup() often runs inside _integrate_forces (physics
+		# flush), where registering Area2D sensor shapes is illegal
+		# ("Can't change this state while flushing queries").  The one-frame
+		# delay is invisible (fire/smoke bursts are immediate); if the node
+		# is freed first, Godot safely drops the call.
+		_create_fragments_deferred.bind(color).call_deferred()
+
+func _create_fragments_deferred(base_color: Color) -> void:
+	_create_fragments_with_color(base_color)
+	_fragments_ready = true
 
 func _create_fire_effect() -> void:
 	_fire = GPUParticles2D.new()

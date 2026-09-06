@@ -260,12 +260,15 @@ func _tick_wane(node: Node, delta: float) -> void:
 		detach_damage_fx(node2d)
 		return
 	var frac := left / float(node.get_meta("wane_total"))
+	# Floor at 1: the engine rejects amount 0 ("Amount of particles cannot
+	# be smaller than 1").  The last sliver burns at a single particle
+	# until `left` expires and detach retires the node.
 	var fire := node2d.get_node_or_null("Fire") as GPUParticles2D
 	if fire:
-		fire.amount = maxi(0, int(round(int(node.get_meta("wane_from")) * frac)))
+		fire.amount = maxi(1, int(round(int(node.get_meta("wane_from")) * frac)))
 	var smoke := node2d.get_node_or_null("Smoke") as GPUParticles2D
 	if smoke:
-		smoke.amount = maxi(0, int(round(int(node.get_meta("wane_smoke_from")) * frac)))
+		smoke.amount = maxi(1, int(round(int(node.get_meta("wane_smoke_from")) * frac)))
 
 ## Single builder for all continuous damage-FX.  One Node2D carrying a smoke
 ## emitter plus (FIRE_SMOKE only) a fire emitter in the STANDARD palette, both
