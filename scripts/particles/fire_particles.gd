@@ -34,13 +34,8 @@ func _ready() -> void:
 	mat.scale_min = 3.0
 	mat.scale_max = 6.0
 
-	var gradient := Gradient.new()
-	gradient.add_point(0.0, color_peak)
-	gradient.add_point(0.3, color_mid)
-	gradient.add_point(1.0, color_ash)
-	var tex := GradientTexture1D.new()
-	tex.gradient = gradient
-	mat.color_ramp = tex
+	var gradient := EffectManager.make_fire_ramp(color_peak, color_mid, color_ash)
+	mat.color_ramp = gradient
 
 	_particles.process_material = mat
 	add_child(_particles)

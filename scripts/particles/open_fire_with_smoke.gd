@@ -3,7 +3,7 @@ extends Node2D
 ## GPUParticles2D scene with fire and smoke emitters.
 
 @export var fire_amount: int = 40
-@export var smoke_amount: int = 30
+@export var smoke_amount: int = 45
 @export var duration: float = 8.0
 
 ## Fire color gradient parameters
@@ -37,12 +37,7 @@ func _ready() -> void:
 	fire_mat.scale_min = 3.0
 	fire_mat.scale_max = 6.0
 
-	var fire_gradient := Gradient.new()
-	fire_gradient.add_point(0.0, color_peak)
-	fire_gradient.add_point(0.3, color_mid)
-	fire_gradient.add_point(1.0, color_ash)
-	var fire_tex := GradientTexture1D.new()
-	fire_tex.gradient = fire_gradient
+	var fire_tex := EffectManager.make_fire_ramp(color_peak, color_mid, color_ash)
 	fire_mat.color_ramp = fire_tex
 	_fire.process_material = fire_mat
 	add_child(_fire)
@@ -64,7 +59,7 @@ func _ready() -> void:
 	smoke_mat.initial_velocity_max = 60.0
 	smoke_mat.scale_min = 4.0
 	smoke_mat.scale_max = 10.0
-	smoke_mat.color = Color(0.05, 0.05, 0.05, 0.5)
+	smoke_mat.color_ramp = EffectManager.make_smoke_ramp(Color(0.05, 0.05, 0.05, 0.5))
 	_smoke.process_material = smoke_mat
 	add_child(_smoke)
 

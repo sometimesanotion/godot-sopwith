@@ -2,7 +2,7 @@ extends Node2D
 ## Black smoke for heavy damage. GPUParticles2D scene.
 ## Attached to an entity; position and rotation track the parent.
 
-@export var smoke_amount: int = 30
+@export var smoke_amount: int = 45
 @export var smoke_lifetime: float = 2.0
 @export var smoke_speed_min: float = 30.0
 @export var smoke_speed_max: float = 60.0
@@ -30,7 +30,7 @@ func _ready() -> void:
 	mat.initial_velocity_max = smoke_speed_max
 	mat.scale_min = 4.0
 	mat.scale_max = 10.0
-	mat.color = Color(0.05, 0.05, 0.05, 0.5)
+	mat.color_ramp = EffectManager.make_smoke_ramp(Color(0.05, 0.05, 0.05, 0.5))
 
 	_particles.process_material = mat
 	add_child(_particles)

@@ -185,7 +185,7 @@ func _create_tank_wreck() -> void:
 	wreck.add_child(wreck_draw)
 
 	if EffectManager:
-		EffectManager.spawn_open_fire_with_smoke(wreck.position, 8.0, 15, 25)
+		EffectManager.spawn_wreck_fire(wreck.position)
 
 	get_parent().call_deferred("add_child", wreck)
 	queue_free()

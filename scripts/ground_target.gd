@@ -304,6 +304,9 @@ func draw_building_details() -> void:
 
 var _last_attacker_player_id: int = 0
 
+## Live unified damage-FX node (see _on_ground_damage_state_changed).
+var _damage_fx: Node2D = null
+
 func take_damage(amount: float, attacker: Node) -> void:
 	if is_destroyed:
 		return
@@ -333,9 +336,31 @@ func _get_player_id_from_attacker(attacker: Node) -> int:
 func _on_ground_damage_state_changed(_from: DamageData.DamageState, _to: DamageData.DamageState) -> void:
 	if is_destroyed:
 		return
-	var pos := global_position
+	# Unified damage visuals (same mapping as biplanes/tanks): one attached
+	# node, synced on transitions — no per-hit emitter pile-up.  Attached
+	# rather than spawned so repair/destroy lifecycle is automatic; the
+	# building is static, so the anchor never drifts.
 	if EffectManager:
-		EffectManager.spawn_damage_effects(pos, damage.damage_state, damage.damage_percent)
+		_damage_fx = EffectManager.sync_damage_fx(
+			self, _damage_fx, damage.damage_state, damage.damage_percent,
+			_fx_size(), Vector2.ZERO)
+
+## Entity scale factor for the unified damage-FX mapping (1.0 = biplane).
+## Derived from the structure footprint so larger buildings burn bigger.
+func _fx_size() -> float:
+	var bounds := get_polygon_bounds()
+	var extent := maxf(
+		maxf(absf(bounds["min_x"]), absf(bounds["max_x"])),
+		maxf(absf(bounds["min_y"]), absf(bounds["max_y"])))
+	return clampf(extent / 40.0, 1.5, 3.0)
+
+func _detach_damage_fx() -> void:
+	if _damage_fx:
+		if EffectManager:
+			EffectManager.detach_damage_fx(_damage_fx)
+		elif is_instance_valid(_damage_fx):
+			_damage_fx.queue_free()
+		_damage_fx = null
 
 func _polygon_centroid(points: PackedVector2Array) -> Vector2:
 	if points.is_empty():
@@ -347,6 +372,9 @@ func _polygon_centroid(points: PackedVector2Array) -> Vector2:
 
 func _destroy(attacker: Node) -> void:
 	is_destroyed = true
+	# The attached damage smoke dies with the structure; the wreck below gets
+	# its own scaled lingering fire (like tank and plane crash sites).
+	_detach_damage_fx()
 
 	# Drop this structure from the per-homebase tally (and fire the
 	# last-hangar notification) before the wreck is spawned/queued.
@@ -379,28 +407,12 @@ func _destroy(attacker: Node) -> void:
 
 	queue_free()
 
-func _create_fire_plume() -> Node2D:
-	return EffectManager.spawn_open_fire_with_smoke(global_position, 10.0) if EffectManager else null
-
-func _create_heavy_black_smoke() -> Node2D:
-	return EffectManager.spawn_black_smoke(global_position, 30) if EffectManager else null
-
 func _damage_nearby_planes(radius: float) -> void:
 	var planes = get_tree().get_nodes_in_group("destructible")
 	for plane in planes:
 		if plane.has_method("take_damage") and plane != self:
 			if plane.global_position.distance_to(global_position) < radius:
 				plane.take_damage(50.0, self)
-
-func _create_building_smoke_puffs() -> void:
-	if not EffectManager:
-		return
-	for i in range(3):
-		var smoke_pos := global_position + Vector2(randf_range(-15, 15), randf_range(-35, -10))
-		EffectManager.spawn_black_smoke(smoke_pos, 20)
-
-func _create_fading_smoke_puff() -> Node2D:
-	return EffectManager.spawn_black_smoke(global_position, 20) if EffectManager else null
 
 func _create_wreck() -> void:
 	var wreck: StaticBody2D = StaticBody2D.new()
@@ -421,6 +433,12 @@ func _create_wreck() -> void:
 	wreck_draw.set_meta("wreck_color", _get_wreck_color())
 	wreck_draw.set_meta("wreck_points", wrecked_points)
 	wreck.add_child(wreck_draw)
+
+	# Lingering wreck burn, scaled to the structure footprint: open fire for
+	# 10 s, then black smoke thereafter — the same fire family as tank
+	# wrecks and SEVERE biplanes.
+	if EffectManager:
+		EffectManager.spawn_building_wreck_fire(global_position, _fx_size())
 
 	get_parent().call_deferred("add_child", wreck)
 

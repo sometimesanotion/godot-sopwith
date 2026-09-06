@@ -1,13 +1,23 @@
 extends Node2D
-## Explosion debris with collision-enabled RigidBody2D fragments.
-## Spawns on crash/destroy events. Debris fragments collide and can damage other objects.
+## Explosion debris: lightweight sensor fragments, no physics bodies.
+## Spawns on crash/destroy events. Fragments damage on overlap (Area2D
+## sensor only — they never push, bounce, or block anything) and vanish
+## individually once they slow down; nothing solid is left behind.
 
 @export var fragment_count: int = 6
 @export var debris_damage: float = 5.0
 @export var debris_lifetime: float = 2.0
-## Mass (kg) of each debris fragment. Lighter fragments impart less kinetic force
-## when they strike planes, reducing dramatic bouncing. Lower = gentler impacts.
-@export var debris_mass: float = 0.001
+
+## Fragment vanish speed: 2 m/s, converted with the project's pixels-per-meter
+## (Biplane.pixels_per_meter default). Fragments are visual shrapnel + a
+## damage sensor — a slow fragment is spent, so it is removed.
+const VANISH_SPEED_MS := 1.0
+const PIXELS_PER_METER := 13.0
+const VANISH_SPEED_PX := VANISH_SPEED_MS * PIXELS_PER_METER
+## Gravity for manual fragment integration (px/s^2).
+const GRAVITY_PX := 9.81 * PIXELS_PER_METER
+## Air drag, same model as the old RigidBody linear_damp (vel /= 1 + damp*dt).
+const AIR_DAMP := 0.5
 
 const DEBRIS_COLORS := [
 	Color(0.04, 0.015, 0.04),
@@ -16,22 +26,34 @@ const DEBRIS_COLORS := [
 	Color(0.03, 0.03, 0.03),
 ]
 
+## One sensor fragment: an Area2D that detects physics bodies for damage but
+## takes part in no collision response. Motion is integrated manually.
+class DebrisFragment extends Area2D:
+	var vel: Vector2 = Vector2.ZERO
+	var spin: float = 0.0
+
 var _fire: GPUParticles2D = null
 var _smoke: GPUParticles2D = null
-var _fragments: Array[RigidBody2D] = []
+var _fragments: Array[DebrisFragment] = []
+var _fragments_created: bool = false
 var _lifetime: float = 0.0
+var _terrain: Node = null
 
 func _ready() -> void:
 	add_to_group("explosion_debris")
 	_create_fire_effect()
 	_create_smoke_effect()
-	_create_fragments()
+	# Fragments are created once in setup(), not here: _ready runs at add_child
+	# (before setup), so creating them here as well would double-spawn.
 	_lifetime = 0.0
-	set_process(true)
+	var parent := get_parent()
+	if parent:
+		_terrain = parent.get_node_or_null("Terrain")
 
-func _process(delta: float) -> void:
+func _physics_process(delta: float) -> void:
+	_integrate_fragments(delta)
 	_lifetime += delta
-	if _lifetime >= debris_lifetime:
+	if _lifetime >= debris_lifetime or _fragments.is_empty():
 		_cleanup()
 
 func setup(pos: Vector2, color: Color = Color(0.05, 0.055, 0.05), count: int = -1, damage: float = -1.0) -> void:
@@ -40,7 +62,9 @@ func setup(pos: Vector2, color: Color = Color(0.05, 0.055, 0.05), count: int = -
 		fragment_count = count
 	if damage >= 0.0:
 		debris_damage = damage
-	_create_fragments_with_color(color)
+	if not _fragments_created:
+		_fragments_created = true
+		_create_fragments_with_color(color)
 
 func _create_fire_effect() -> void:
 	_fire = GPUParticles2D.new()
@@ -84,9 +108,6 @@ func _create_smoke_effect() -> void:
 	_smoke.process_material = smoke_mat
 	add_child(_smoke)
 
-func _create_fragments() -> void:
-	_create_fragments_with_color(Color(0.5, 0.55, 0.5))
-
 func _create_fragments_with_color(base_color: Color) -> void:
 	for i in range(fragment_count):
 		var frag_color := base_color.darkened(randf() * 0.3)
@@ -100,47 +121,50 @@ func _create_fragments_with_color(base_color: Color) -> void:
 			var dist := randf_range(1, 4)
 			points.append(Vector2(cos(angle), sin(angle)) * dist)
 
-		# Real physics body (not an Area) so fast fragments can't tunnel
-		# through a plane between frames — continuous CCD sweeps the motion.
-		# Near-zero mass means the collision impulse on a heavy plane is
-		# negligible: the plane is NOT bounced, only the tiny fragment
-		# ricochets off it.  body_entered still fires, so damage is dealt.
-		var rb := RigidBody2D.new()
-		rb.mass = debris_mass
-		rb.gravity_scale = 1.0
-		rb.linear_damp = 0.5
-		rb.angular_damp = 0.5
-		rb.continuous_cd = RigidBody2D.CCD_MODE_CAST_SHAPE
-		rb.contact_monitor = true
-		rb.max_contacts_reported = 2
+		# Sensor only: detects bodies for damage, resolves nothing. Speeds
+		# are small vs. body sizes at 60 Hz physics, so no CCD is needed.
+		var frag := DebrisFragment.new()
+		frag.collision_layer = 0
+		frag.collision_mask = 1
+		frag.monitorable = false
 
-		var collision := CollisionPolygon2D.new()
-		collision.polygon = points
-		rb.add_child(collision)
+		var sensor := CollisionPolygon2D.new()
+		sensor.polygon = points
+		frag.add_child(sensor)
 
 		var sprite := Polygon2D.new()
 		sprite.polygon = points
 		sprite.color = frag_color
-		rb.add_child(sprite)
+		frag.add_child(sprite)
 
 		var random_dir := Vector2(randf_range(-1, 1), randf_range(-1, -0.3)).normalized()
-		var force := random_dir * randf_range(100, 300)
-		rb.linear_velocity = force
-		rb.angular_velocity = randf_range(-5, 5)
+		frag.vel = random_dir * randf_range(100, 300)
+		frag.spin = randf_range(-5, 5)
 
-		# Stop fragments colliding with one another (no erratic clumping)
-		# without touching any other body's layers.  Set once the body is in
-		# the tree so its physics RID is valid.
-		rb.tree_entered.connect(_on_fragment_entered_tree.bind(rb))
+		frag.body_entered.connect(_on_fragment_hit)
+		_fragments.append(frag)
+		add_child(frag)
 
-		rb.body_entered.connect(_on_fragment_hit)
-		_fragments.append(rb)
-		call_deferred("add_child", rb)
+func _integrate_fragments(delta: float) -> void:
+	var drag := 1.0 / (1.0 + AIR_DAMP * delta)
+	for i in range(_fragments.size() - 1, -1, -1):
+		var frag := _fragments[i]
+		if not is_instance_valid(frag):
+			_fragments.remove_at(i)
+			continue
+		frag.vel.y += GRAVITY_PX * delta
+		frag.vel *= drag
+		frag.position += frag.vel * delta
+		frag.rotation += frag.spin * delta
+		# Spent fragments vanish: too slow to matter, or buried in terrain.
+		if frag.vel.length() < VANISH_SPEED_PX or _is_buried(frag):
+			frag.queue_free()
+			_fragments.remove_at(i)
 
-func _on_fragment_entered_tree(rb: RigidBody2D) -> void:
-	for other in _fragments:
-		if other != rb and is_instance_valid(other):
-			rb.add_collision_exception_with(other)
+func _is_buried(frag: DebrisFragment) -> bool:
+	if _terrain and _terrain.has_method("get_ground_height_at"):
+		return frag.global_position.y >= _terrain.get_ground_height_at(frag.global_position.x)
+	return false
 
 func _on_fragment_hit(body: Node) -> void:
 	if body.has_method("take_damage"):

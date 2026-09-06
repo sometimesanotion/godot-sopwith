@@ -516,11 +516,11 @@ class AvatarData:
 	var max_bullet_range: float = 1000.0
 	var last_shot_range:  float = 0.0
 
-	# View-layer particle handles (managed via EffectManager)
-	var continuous_fire_handles: Dictionary = {}  ## keys "core","glow" or empty
-	var continuous_smoke:       GPUParticles2D = null
-	var _extra_smoke:           GPUParticles2D = null
-	var current_smoke_type:     int = 0         ## 0=none, 1=white, 2=black, 3=both
+	# View-layer damage-FX handle (managed via EffectManager.sync_damage_fx).
+	# One node covers every state: white smoke (LIGHT), black smoke
+	# (MODERATE), wreck fire (SEVERE/DESTROYED — identical to a fresh tank
+	# wreck).  Null when INTACT.
+	var damage_fx: Node2D = null
 
 	var max_landing_tilt: float = model_params.get("max_landing_tilt_deg", 34.0)
 	var soft_landing: float = model_params.get("soft_landing_vperp", 80.0)
@@ -566,19 +566,16 @@ class AvatarData:
 		bomb_timer = 0.0
 		last_shot_range = 0.0
 		last_flight_output = null
-		if continuous_fire_handles.size() > 0:
+		# Respawn is the ONLY point where attached fire/smoke is cleared:
+		# wrecks keep burning through the fall, impact, and time on the
+		# ground.  (Inner class, so the detach is inline — AvatarData
+		# cannot call the outer sync helpers.)
+		if damage_fx:
 			if EffectManager:
-				EffectManager.detach_continuous_fire(continuous_fire_handles)
-			continuous_fire_handles.clear()
-		if continuous_smoke:
-			if EffectManager:
-				EffectManager.detach_continuous_smoke(continuous_smoke)
-			continuous_smoke = null
-		if _extra_smoke:
-			if EffectManager:
-				EffectManager.detach_continuous_smoke(_extra_smoke)
-			_extra_smoke = null
-		current_smoke_type = 0
+				EffectManager.detach_damage_fx(damage_fx)
+			elif is_instance_valid(damage_fx):
+				damage_fx.queue_free()
+			damage_fx = null
 
 		# Initialize plane model parameters
 		update_model_params()
@@ -1902,9 +1899,13 @@ func _check_fuel_consumption(avatar: AvatarData, delta: float) -> void:
 	if avatar.fuel <= 0.0:
 		avatar.throttle        = 0.0
 		avatar.throttle_target = 0.0
-		if avatar.current_smoke_type == 0 and EffectManager:
-			avatar.continuous_smoke = EffectManager.attach_continuous_smoke(self, Vector2(-15, 5), 1, 10)
-			avatar.current_smoke_type = 1
+		# Fuel-starvation plume shares the unified damage-FX builder (small
+		# white smoke).  It morphs into real damage smoke via
+		# _sync_damage_particles once damage arrives, and is cleared on
+		# refuel-teleport / reset like all damage FX.
+		if avatar.damage_fx == null and avatar.damage.damage_state == DamageData.DamageState.INTACT and EffectManager:
+			avatar.damage_fx = EffectManager.attach_damage_fx(
+				self, EffectManager.make_puff_profile(10, true, 1.0, Vector2(-15, 5)))
 		return
 
 	if avatar.throttle > 0.0 or avatar.damage.damage_state >= DamageData.DamageState.MODERATE:
@@ -2049,68 +2050,18 @@ func _on_avatar_damage_state_changed(_from: DamageData.DamageState, _to: DamageD
 		_cancel_flip(avatar)
 	_sync_damage_particles(avatar)
 
-## Sync particle effects to current damage state using EffectManager continuous effects.
+## Sync particle effects to current damage state.  Single call into the
+## unified EffectManager mapping: smoke trails from the tail, wreck fire
+## burns at the engine (identical to a fresh tank wreck).
 func _sync_damage_particles(avatar: AvatarData) -> void:
 	if not EffectManager:
 		return
-
-	match avatar.damage.damage_state:
-		DamageData.DamageState.DESTROYED, DamageData.DamageState.SEVERE:
-			if avatar.continuous_fire_handles.is_empty():
-				avatar.continuous_fire_handles = EffectManager.attach_continuous_fire(self, Vector2(15, -5), int(30.0 * avatar.damage.damage_percent))
-			else:
-				EffectManager.update_continuous_fire(avatar.continuous_fire_handles, int(30.0 * avatar.damage.damage_percent))
-
-			if not avatar.continuous_smoke or avatar.current_smoke_type != 2:
-				_detach_smoke(avatar)
-				var black_amount := int(30.0 * avatar.damage.damage_percent)
-				avatar.continuous_smoke = EffectManager.attach_continuous_smoke(self, Vector2(-10, 8), 2, black_amount)
-				avatar._extra_smoke = null
-				avatar.current_smoke_type = 2
-			else:
-				if avatar.continuous_smoke:
-					EffectManager.update_continuous_smoke(avatar.continuous_smoke, int(30.0 * avatar.damage.damage_percent))
-
-		DamageData.DamageState.MODERATE:
-			_detach_fire(avatar)
-
-			if not avatar.continuous_smoke or avatar.current_smoke_type != 2:
-				_detach_smoke(avatar)
-				avatar.continuous_smoke = EffectManager.attach_continuous_smoke(self, Vector2(-15, 5), 2, int(60.0 * avatar.damage.damage_percent))
-				avatar.current_smoke_type = 2
-			else:
-				EffectManager.update_continuous_smoke(avatar.continuous_smoke, int(60.0 * avatar.damage.damage_percent))
-
-		DamageData.DamageState.LIGHT:
-			_detach_fire(avatar)
-
-			if not avatar.continuous_smoke or avatar.current_smoke_type != 1:
-				_detach_smoke(avatar)
-				avatar.continuous_smoke = EffectManager.attach_continuous_smoke(self, Vector2(-15, 5), 1, int(20.0 * avatar.damage.damage_percent))
-				avatar.current_smoke_type = 1
-			else:
-				EffectManager.update_continuous_smoke(avatar.continuous_smoke, int(20.0 * avatar.damage.damage_percent))
-
-		_:
-			_detach_fire(avatar)
-			_detach_smoke(avatar)
-
-func _detach_fire(avatar: AvatarData) -> void:
-	if not avatar.continuous_fire_handles.is_empty():
-		if EffectManager:
-			EffectManager.detach_continuous_fire(avatar.continuous_fire_handles)
-		avatar.continuous_fire_handles.clear()
-
-func _detach_smoke(avatar: AvatarData) -> void:
-	if avatar.continuous_smoke:
-		if EffectManager:
-			EffectManager.detach_continuous_smoke(avatar.continuous_smoke)
-		avatar.continuous_smoke = null
-	if avatar._extra_smoke:
-		if EffectManager:
-			EffectManager.detach_continuous_smoke(avatar._extra_smoke)
-		avatar._extra_smoke = null
-	avatar.current_smoke_type = 0
+	var offset := Vector2(-15, 5)
+	if avatar.damage.damage_state >= DamageData.DamageState.SEVERE:
+		offset = Vector2(15, -5)
+	avatar.damage_fx = EffectManager.sync_damage_fx(
+		self, avatar.damage_fx, avatar.damage.damage_state,
+		avatar.damage.damage_percent, 1.0, offset)
 
 ###############################################################################
 # CRASH & SPIN-OUT
@@ -2148,12 +2099,12 @@ func _on_avatar_crashed(avatar: AvatarData) -> void:
 	if is_player_controlled and SoundManager:
 		SoundManager.stop_engine()
 
-	## Drop any continuous (plane-parented) fire/smoke from the damage system so
-	## the wreck carries no emitter children into its fall, crash, or respawn.
-	## The lingering burn at the impact point is now provided by the
-	## self-terminating world-space emitters spawned just below.
-	_detach_fire(avatar)
-	_detach_smoke(avatar)
+	## Fire/smoke stays attached to the wreck through its fall, impact, and
+	## time on the ground — it is cleared only on respawn (AvatarData.reset).
+	## Sync to DESTROYED so even an undamaged plane burns as a wreck; the
+	## lingering burn at the impact point is reinforced by the world-space
+	## crash effects spawned just below.
+	_sync_damage_particles(avatar)
 
 	## Single, consolidated crash-effect path for EVERY destructive end-state
 	## (mid-air shoot-down, terrain impact, obstacle/building collision,
@@ -2457,10 +2408,9 @@ func _perform_teleport_landing(avatar: AvatarData) -> void:
 	_pending_teleport = true
 	_teleport_position = spawn_pos
 	_teleport_rotation = spawn_rot
-	## Refuel teleport relocates the plane WITHOUT a full reset, so clear any
-	## damage fire/smoke parented to the node or they'd ride to the spawn point.
-	_detach_fire(avatar)
-	_detach_smoke(avatar)
+	## Refuel teleport relocates the plane WITHOUT a full reset, so attached
+	## damage FX rides to the spawn point with it — damage persists through
+	## refuel, and repair clears the FX via the damage-state signal.
 	reset_visual_transform(avatar)
 	if GameManager and is_player_controlled:
 		GameManager.fuel_changed.emit(avatar.id, avatar.fuel)
@@ -2539,12 +2489,7 @@ func teleport_to(pos: Vector2, rot: float = 0.0) -> void:
 	_pending_teleport = true
 	_teleport_position = pos
 	_teleport_rotation = rot
-	## Clear any damage fire/smoke parented to the node so they don't teleport
-	## with the plane to its new location.
-	var av := get_primary_entity()
-	if av:
-		_detach_fire(av)
-		_detach_smoke(av)
+	## Attached damage FX rides along (cleared only on respawn/reset).
 
 func set_unlimited_fuel_ammo(avatar: AvatarData, val: bool) -> void:
 	avatar.unlimited_fuel_ammo = val
