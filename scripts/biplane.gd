@@ -2268,6 +2268,8 @@ func _spawn_crash_effects(avatar: AvatarData, is_midair: bool) -> void:
 	if not EffectManager:
 		return
 
+	EffectManager.spawn_destruction_puff(pos)
+
 	# 1. Flash + core blast, scaled with impact energy.
 	var blast = EffectManager.spawn_explosion(pos, energy)
 	if blast and is_instance_valid(blast):

@@ -359,6 +359,7 @@ func _destroy(attacker: Node) -> void:
 	var debris_color := get_dominant_color()
 
 	if EffectManager:
+		EffectManager.spawn_destruction_puff(pos)
 		var huge := GameManager.huge_explosions if GameManager else true
 		if target_type == "fuel_depot" and huge:
 			EffectManager.spawn_explosion_style(pos, 200.0, EffectManager.ExplosionStyle.FUEL_DEPOT, 12, debris_color, EffectManager.FireColorPreset.STANDARD, polygon_points)

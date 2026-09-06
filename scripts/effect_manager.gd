@@ -162,11 +162,17 @@ func spawn_explosion_style(pos: Vector2, energy: float, style: ExplosionStyle, d
 		ExplosionStyle.FUEL_DEPOT:
 			for i in range(5):
 				spawn_explosion(pos + Vector2(randf_range(-12, 12), randf_range(-15, 2)), energy * 0.3)
-			for i in range(5):
-				var fire := _spawn_fuel_depot_fire(pos, fire_preset)
-				if fire:
-					_active_effects.append(fire)
+			# Larger extreme-damage fire version
 			for i in range(3):
+				var fire := _spawn_fuel_depot_fire(pos, FireColorPreset.INTENSE)
+				if fire:
+					fire.amount = 60
+					fire.lifetime = 2.0
+					fire.scale = Vector2(2.0, 2.0)
+					_active_effects.append(fire)
+			# Flak-like area explosion puff
+			spawn_fire_puff(pos, 250.0, 0.5)
+			for i in range(2):
 				var smoke := _spawn_fuel_depot_smoke(pos)
 				if smoke:
 					_active_effects.append(smoke)
@@ -510,6 +516,10 @@ func spawn_fire_puff(pos: Vector2, radius: float = 200.0, duration: float = 0.3)
 	effect_spawned.emit("fire_puff", pos)
 	_free_after(puff, duration + 0.1)
 	return puff
+
+func spawn_destruction_puff(pos: Vector2) -> void:
+	spawn_fire(pos, 15, 0.5)
+	spawn_black_smoke(pos, 20, 0.5)
 
 func _get_world() -> Node:
 	var tree := get_tree()

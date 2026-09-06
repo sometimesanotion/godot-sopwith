@@ -84,6 +84,9 @@ func _ready() -> void:
 	angular_damp = 6.0
 	linear_damp = 0.0
 
+	# Ensure tank is drawn above buildings/wrecks
+	z_index = 1
+
 	if has_node("Visual"):
 		$Visual.set_script(load("res://scripts/tank_draw.gd"))
 	reset_visual_transform(av)

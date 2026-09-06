@@ -50,6 +50,7 @@ var pause_menu: CanvasLayer = null
 var is_paused: bool = false
 var screen_shake_intensity: float = 0.0
 var enemies: Array = []
+var planes_per_field: int = 1
 var minimap_instance: Control = null
 var is_vs_computer: bool = false
 var _showing_title_screen: bool = false
@@ -436,76 +437,77 @@ func _spawn_enemies_and_targets() -> void:
 		enemy_base_faces_left.append(faces_left)
 		if not spawn_enemies:
 			continue
-		var spawn_rot := PI if faces_left else 0.0
-		# Runway span: rightward bases → [base_x+50, base_x+50+LEN] (runway on
-		# the right); leftward bases → [base_x-50-LEN, base_x-50] (runway on
-		# the left).  LEN = Terrain.RUNWAY_LENGTH (widened 20% in T-runway).
 		var runway_left: float = (base_x - (Terrain.RUNWAY_LENGTH + 50.0)) if faces_left else (base_x + 50.0)
-		var runway_right: float = runway_left + Terrain.RUNWAY_LENGTH
-		var spawn_x: float = (runway_right - ENEMY_SPAWN_RUNWAY_EDGE_MARGIN) if faces_left \
-							else (runway_left + ENEMY_SPAWN_RUNWAY_EDGE_MARGIN)
-		# Register the runway first so the surrounding terrain (and therefore
-		# this base's spawn elevation) is built around its own height.
+		# Register runway once per base
 		if terrain and terrain.has_method("add_runway"):
 			terrain.add_runway(runway_left)
-		var enemy: RigidBody2D = ENEMY_SCENE.instantiate()
-		var ground_y := 650.0
-		if terrain and terrain.has_method("get_ground_height_at"):
-			ground_y = terrain.get_ground_height_at(spawn_x)
-		var spawn_pos := Vector2(spawn_x, ground_y - Biplane.GROUND_SURFACE_OFFSET)
-		enemy.position = spawn_pos
-		enemy.rotation = spawn_rot
-		enemy.add_to_group("destructible")
-		enemy.add_to_group("enemy_plane")
-		if enemy.has_node("EnemyAI"):
-			var ai := enemy.get_node("EnemyAI")
-			ai.target = biplane
-			ai.biplane = enemy
-			ai.home_base_x = base_x
-			ai.homebase_id = i + 1
-			ai.unlimited_fuel_ammo = is_vs_computer
-		if enemy.has_method("setup_faction_homebase"):
-			enemy.setup_faction_homebase(i + 1, base_x, Terrain.RUNWAY_LENGTH, spawn_pos, spawn_rot, enemy_faction_enum)
-		if enemy.has_method("get_avatar_data"):
-			var enemy_avatar = enemy.get_avatar_data(0)
-			if enemy.has_method("assign_plane_model") and enemy.has_method("get_default_plane_model"):
-				var enemy_model = enemy.get_default_plane_model(enemy_faction_enum)
-				enemy.assign_plane_model(enemy_avatar, enemy_model)
-			# D10: parked enemies must already be inverted if they will launch
-			# leftward; biplane.respawn() does this on every respawn, so the
-			# initial spawn just needs to match (otherwise the plane visually
-			# flips on its first death).  Set via the geometric helper so the
-			# field is always derived from the spawn rotation, never branched
-			# on by callers.
-			enemy_avatar.is_barrel_rolled = Biplane.AvatarData.rotation_is_leftward(spawn_rot)
-			if enemy.has_method("reset_visual_transform"):
-				enemy.reset_visual_transform(enemy_avatar)
-		if enemy.has_method("set_home_base") and enemy.has_method("get_avatar_data"):
-			enemy.set_home_base(enemy.get_avatar_data(0), i + 1)
-		if enemy.has_method("set_game_active"):
-			enemy.set_game_active(true)
-		enemy.is_player_controlled = false
-		if enemy.has_node("EnemyAI"):
-			# Initial heading must match the parked orientation so the AI
-			# doesn't try to yaw 180° on the first decision tick.
-			enemy.get_node("EnemyAI").pilots[0].desired_heading = spawn_rot
-		# Guarantee the initial spawn exactly matches the homebase spawn point.
-		# The homebase above was built from this same spawn_pos / spawn_rot, so
-		# re-deriving the parked transform from the homebase itself means the
-		# plane can never drift from where it is meant to sit, and a respawn
-		# (which also reads get_homebase_spawn_position) lands in the same spot.
-		if enemy.has_method("get_homebase_spawn_position") \
-				and enemy.has_method("get_homebase_spawn_rotation") \
-				and enemy.has_method("get_avatar_data"):
-			var hb_av = enemy.get_avatar_data(0)
-			enemy.global_position = enemy.get_homebase_spawn_position(hb_av)
-			enemy.rotation = enemy.get_homebase_spawn_rotation(hb_av)
-		if is_vs_computer:
-			var takeoff_delay := i * 1.5
+		if GameManager:
+			planes_per_field = max(GameManager.ENEMY_PLANES_PER_AIRFIELD_DEFAULT, 1 + int(GameManager.current_level / 3))
+		else:
+			planes_per_field = GameManager.ENEMY_PLANES_PER_AIRFIELD_DEFAULT
+		for p_idx in range(planes_per_field):
+			var spawn_rot := PI if faces_left else 0.0
+			var runway_right: float = runway_left + Terrain.RUNWAY_LENGTH
+			var spawn_x: float = (runway_right - ENEMY_SPAWN_RUNWAY_EDGE_MARGIN) if faces_left \
+						else (runway_left + ENEMY_SPAWN_RUNWAY_EDGE_MARGIN)
+			var enemy: RigidBody2D = ENEMY_SCENE.instantiate()
+			var ground_y := 650.0
+			if terrain and terrain.has_method("get_ground_height_at"):
+				ground_y = terrain.get_ground_height_at(spawn_x)
+			var spawn_pos := Vector2(spawn_x, ground_y - Biplane.GROUND_SURFACE_OFFSET)
+			enemy.position = spawn_pos
+			enemy.rotation = spawn_rot
+			enemy.add_to_group("destructible")
+			enemy.add_to_group("enemy_plane")
 			if enemy.has_node("EnemyAI"):
-				enemy.get_node("EnemyAI").takeoff_delay = takeoff_delay
-		add_child(enemy)
-		enemies.append(enemy)
+				var ai := enemy.get_node("EnemyAI")
+				ai.target = biplane
+				ai.biplane = enemy
+				ai.home_base_x = base_x
+				ai.homebase_id = i + 1
+				ai.unlimited_fuel_ammo = is_vs_computer
+			if enemy.has_method("setup_faction_homebase"):
+				enemy.setup_faction_homebase(i + 1, base_x, Terrain.RUNWAY_LENGTH, spawn_pos, spawn_rot, enemy_faction_enum)
+			if enemy.has_method("get_avatar_data"):
+				var enemy_avatar = enemy.get_avatar_data(0)
+				if enemy.has_method("assign_plane_model") and enemy.has_method("get_default_plane_model"):
+					var enemy_model = enemy.get_default_plane_model(enemy_faction_enum)
+					enemy.assign_plane_model(enemy_avatar, enemy_model)
+				# D10: parked enemies must already be inverted if they will launch
+				# leftward; biplane.respawn() does this on every respawn, so the
+				# initial spawn just needs to match (otherwise the plane visually
+				# flips on its first death).  Set via the geometric helper so the
+				# field is always derived from the spawn rotation, never branched
+				# on by callers.
+				enemy_avatar.is_barrel_rolled = Biplane.AvatarData.rotation_is_leftward(spawn_rot)
+				if enemy.has_method("reset_visual_transform"):
+					enemy.reset_visual_transform(enemy_avatar)
+			if enemy.has_method("set_home_base") and enemy.has_method("get_avatar_data"):
+				enemy.set_home_base(enemy.get_avatar_data(0), i + 1)
+			if enemy.has_method("set_game_active"):
+				enemy.set_game_active(true)
+			enemy.is_player_controlled = false
+			if enemy.has_node("EnemyAI"):
+				# Initial heading must match the parked orientation so the AI
+				# doesn't try to yaw 180° on the first decision tick.
+				enemy.get_node("EnemyAI").pilots[0].desired_heading = spawn_rot
+			# Guarantee the initial spawn exactly matches the homebase spawn point.
+			# The homebase above was built from this same spawn_pos / spawn_rot, so
+			# re-deriving the parked transform from the homebase itself means the
+			# plane can never drift from where it is meant to sit, and a respawn
+			# (which also reads get_homebase_spawn_position) lands in the same spot.
+			if enemy.has_method("get_homebase_spawn_position") \
+					and enemy.has_method("get_homebase_spawn_rotation") \
+					and enemy.has_method("get_avatar_data"):
+				var hb_av = enemy.get_avatar_data(0)
+				enemy.global_position = enemy.get_homebase_spawn_position(hb_av)
+				enemy.rotation = enemy.get_homebase_spawn_rotation(hb_av)
+			if is_vs_computer:
+				var takeoff_delay := (i * 1.5) + (p_idx * GameManager.ENEMY_PLANE_COOLDOWN_SEC)
+				if enemy.has_node("EnemyAI"):
+					enemy.get_node("EnemyAI").takeoff_delay = takeoff_delay
+			add_child(enemy)
+			enemies.append(enemy)
 
 	var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
 	var bird_count_map: Dictionary = {"None": 0, "Few": 3, "Normal": 5, "Many": 8}

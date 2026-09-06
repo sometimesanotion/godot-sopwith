@@ -26,6 +26,9 @@ var music_volume: float = 0.2
 var debug_hud: bool = false
 var player_faction: String = "British"
 
+const ENEMY_PLANE_COOLDOWN_SEC := 30.0
+const ENEMY_PLANES_PER_AIRFIELD_DEFAULT := 1
+
 var current_level: int = 1
 
 ## Tanks awarded to the player for completing a level with both their tank and

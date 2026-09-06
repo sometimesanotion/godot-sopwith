@@ -74,6 +74,19 @@ func _do_destroy(attacker: Node = null) -> void:
 	if attacker and attacker.has_method("is_player_plane"):
 		if GameManager:
 			GameManager.add_score(0, -COW_KILLER_PENALTY)
+	# Spawn a wreck (fallen cow) and keep it
+	var wreck := Node2D.new()
+	wreck.name = "CowWreck"
+	wreck.position = global_position
+	wreck.rotation = randf_range(-0.3, 0.3)
+	wreck.z_index = -1
+	wreck.add_to_group("wreck")
+	var draw_script := load("res://scripts/cow_wreck_draw.gd")
+	var draw_node := Node2D.new()
+	draw_node.set_script(draw_script)
+	draw_node.set_meta("wreck_color", Color(0.7, 0.7, 0.7))
+	wreck.add_child(draw_node)
+	get_parent().call_deferred("add_child", wreck)
 	queue_free()
 
 func get_visual_top() -> float:
