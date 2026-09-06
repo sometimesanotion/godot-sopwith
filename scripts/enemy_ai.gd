@@ -111,7 +111,7 @@ const EXTEND_ENTER_SPEED_RATIO  := 1.2
 # or airspeed in reserve, it reverses course back toward the target on the X
 # axis instead of sailing off the edge of the map.  This is the boom-zoom
 # energy-management that keeps a fast/high plane in the fight.
-const FLYAWAY_TURNAROUND_ALTITUDE    := 600.0   # px above ground
+const FLYAWAY_TURNAROUND_ALTITUDE    := 500.0   # px above ground
 const FLYAWAY_TURNAROUND_SPEED_RATIO := 1.7     # speed / stall_speed
 
 # Immelmann fly-away turnaround: build the reversal aim as a point PAST the
@@ -210,13 +210,17 @@ const TERRAIN_RISE_THRESHOLD := 0.3
 # Take-off
 const TAKEOFF_BUILD_SPEED  := 90.0
 const TAKEOFF_ROTATE_SPEED := 120.0
-const TAKEOFF_PITCH        := -0.05
-const TAKEOFF_CLIMB_PITCH  := -0.10
+const TAKEOFF_PITCH        := -0.20
+const TAKEOFF_CLIMB_PITCH  := -0.20
 # Below this AGL the climb tilt is capped to 90% of the plane's max landing
 # tilt (see _takeoff_pitch) so AI pilots don't loop themselves into a crash
 # during the initial climb-out.  Covers the whole takeoff (the state hands off
 # to patrolling above PATROL_ALTITUDE).
 const TAKEOFF_TILT_LIMIT_ALT := 250.0
+# Safely airborne for the takeoff→engaging interrupt: above the tallest
+# runway structures (~150 px) with margin, well above the engaging state's
+# own danger floor (60 px), so the handoff cannot flap straight into evade.
+const TAKEOFF_ENGAGE_MIN_ALT := 200.0
 
 # Bombing
 const GROUND_ATTACK_ALTITUDE    := 300.0
@@ -669,18 +673,20 @@ func _takeoff_pitch(avatar) -> float:
 	if _is_grounded():
 		return 0.0 if speed < TAKEOFF_ROTATE_SPEED else TAKEOFF_PITCH
 
-	# In the air: hold the nose level until ~2× stall (px/s) to build
-	# flying speed before the climb — comparison is in px/s, not the
-	# raw m/s stall value.
+	# In the air: hold the nose near level until flying speed builds, then
+	# ROTATE firmly once the wing has lift — a shallow dribble mows through
+	# runway structures (up to ~150 px tall), so anything with lift climbs
+	# at 15% stick until clear of them.  The tilt limiter below remains the
+	# safety rail near the ground.
 	var alt = _get_altitude_above_ground()
 	var rotate_speed_px: float = stall_speed * ppm * 2.0
+	var has_lift: bool = speed > stall_speed * ppm
 	var command: float
 	if speed < rotate_speed_px:
-		command = clampf(-0.03 * (speed / rotate_speed_px), -0.03, 0.0)
-	elif alt < 100.0:
-		command = -0.05
-	elif alt < 200.0:
-		command = -0.08
+		command = clampf(-0.25 * (speed / rotate_speed_px), -0.25, 0.0) if has_lift \
+			else clampf(-0.15 * (speed / rotate_speed_px), -0.15, 0.0)
+	# elif alt < 200.0:
+	# 	command = -0.2 if has_lift else -0.08
 	else:
 		command = TAKEOFF_CLIMB_PITCH
 
@@ -1323,9 +1329,19 @@ func _compute_engage_throttle() -> float:
 ## state's pitch/throttle so a state can deliberately set a pitch
 ## (takeoff, stall recovery) and the reflex still nudges it for safety.
 func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true, allow_ceiling := true) -> Array:
+	# Takeoff owns its window outright: while rolling / climbing out, the
+	# takeoff controller's speed-gated pitch curve is the ONLY cue that may
+	# lift the nose.  Neither stall recovery (which would level into relative
+	# wind) nor the energy gate (which zeroes any climb below 1.3× stall —
+	# i.e. the entire rotation window) may veto rotation here, or the plane
+	# rolls flat off the runway forever.  The tilt limiter inside
+	# _takeoff_pitch plus the level-or-up invariant below remain as rails.
+	var in_takeoff := _in_takeoff_roll()
 	# Stall recovery takes priority: it overrides the heading AND sets its
 	# own throttle.  Released on its own hysteresis (AoA < 70 % max).
-	var stall := _stall_recovery()
+	var stall: Array = []
+	if not in_takeoff:
+		stall = _stall_recovery()
 	if stall.size() == 2:
 		return [stall[0], stall[1]]
 
@@ -1396,7 +1412,7 @@ func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true, 
 
 	var is_landing_final := ai_fsm and ai_fsm.current_key == &"returning" \
 			and _dist_to_runway() < RETURN_FINAL_DIST
-	if not is_landing_final:
+	if not is_landing_final and not in_takeoff:
 		var energy = _energy_stall_reflex(pitch, throttle)
 		pitch = energy[0]
 		throttle = energy[1]
@@ -1427,11 +1443,12 @@ func _apply_reflexes(pitch: float, throttle: float, allow_ground_avoid := true, 
 		pitch = tgt_pull
 
 	# Takeoff invariant: while rolling / climbing out below the tilt-limit
-	# altitude the plane must stay level or nose-up at full throttle.  No
-	# reflex (stall recovery, terrain projection, target avoidance) may
-	# command positive pitch here — the takeoff controller
+	# altitude the plane must stay level or nose-up at full throttle.  Stall
+	# recovery and the energy gate are already skipped above; this is the
+	# backstop so no remaining cue (terrain projection, target avoidance,
+	# ceiling) can command positive pitch here — the takeoff controller
 	# (_takeoff_pitch) owns the pitch curve for this whole window.
-	if _in_takeoff_roll():
+	if in_takeoff:
 		pitch = minf(pitch, 0.0)
 		throttle = maxf(throttle, 1.0)
 
@@ -1897,9 +1914,20 @@ func _on_enemy_landed(avatar_id: int) -> void:
 	if homebase_id >= 0 and BuildingRegistry and not BuildingRegistry.has_any_building(homebase_id):
 		_remove_from_map()
 		return
-	## The wreck has hit the ground — queue the fixed 2s respawn.
+	## Hangarless-base capacity: without a hangar the base is limited to 1
+	## plane maximum, so this wreck only comes back if it is the last one —
+	## otherwise it is struck from the map like the no-buildings case.
+	var main := biplane.get_parent() if biplane else null
+	if homebase_id >= 0 and main and main.has_method("enemy_planes_at_base") \
+			and main.has_method("max_planes_for_base"):
+		if main.enemy_planes_at_base(homebase_id, biplane) >= main.max_planes_for_base(homebase_id):
+			_remove_from_map()
+			return
+	## Destroyed planes come back after the respawn cooldown, not the flat
+	## 2 s wreck-settle delay (kept as a floor via maxf).
 	if RespawnManager:
-		RespawnManager.queue_respawn(_respawn_id, RespawnManager.RESPAWN_DELAY)
+		var cooldown := GameManager.ENEMY_PLANE_COOLDOWN_SEC if GameManager else 30.0
+		RespawnManager.queue_respawn(_respawn_id, maxf(RespawnManager.RESPAWN_DELAY, cooldown))
 
 ## Permanently removes this AI plane from the world.  Called when a destroyed
 ## plane has no surviving hangar at its homebase and therefore can never
@@ -1926,6 +1954,14 @@ func _do_respawn() -> void:
 		return
 	if not biplane:
 		return
+	## Recheck the hangarless-base cap at fire time: the base may have lost
+	## its hangar (or filled up) during the cooldown wait.
+	var main := biplane.get_parent() if biplane else null
+	if homebase_id >= 0 and main and main.has_method("enemy_planes_at_base") \
+			and main.has_method("max_planes_for_base"):
+		if main.enemy_planes_at_base(homebase_id, biplane) >= main.max_planes_for_base(homebase_id):
+			_remove_from_map()
+			return
 
 	# Reset all per-pilot mutable state so nothing leaks across spare_planes.
 	pilots[0] = AIData.new()
@@ -2132,7 +2168,10 @@ func _acquire_tank_target(avatar) -> Node:
 
 func _tank_hostile(child: Node, avatar) -> bool:
 	if child.is_in_group("enemy_target"):
-		return avatar.team == Biplane.Team.ALLIED
+		var target_oa = child.get_primary_entity() if child.has_method("get_primary_entity") else null
+		if target_oa:
+			return avatar.is_hostile_to(target_oa)
+		return false
 	if child.is_in_group("tank") and child != biplane:
 		var oa = child.get_primary_entity()
 		if not oa or not avatar.is_hostile_to(oa):
@@ -2156,12 +2195,18 @@ func _tank_hostile(child: Node, avatar) -> bool:
 			return false
 		return true
 	if child.is_in_group("ground_target"):
-		# Hostile buildings: a structure whose faction opposes the tank's
-		# team.  This lets either side's tanks shell the enemy's base
-		# structures (hangars, depots, AA emplacements), not just vehicles.
-		var building_is_enemy: bool = child.is_enemy
-		var tank_is_enemy: bool = (avatar.team == Biplane.Team.ENEMY)
-		return building_is_enemy != tank_is_enemy
+		# Hostile buildings: oppose by faction, not by hardcoded team.
+		var target_oa = child.get_primary_entity() if child.has_method("get_primary_entity") else null
+		if target_oa and avatar.is_hostile_to(target_oa):
+			return true
+		# If no primary entity, derive hostility from the structure's faction 
+		# versus the tank's faction (not hardcoded ALLIED/ENEMY).
+		var target_team := -1
+		if child.has("team"):
+			target_team = child.team
+		if target_team >= 0 and avatar.team >= 0:
+			return avatar.team != target_team
+		return false
 	# Generic hostile aircraft fallback: any Biplane-derived node not already
 	# covered above (e.g. future plane types) that is hostile and alive.
 	if child.has_method("get_primary_entity"):

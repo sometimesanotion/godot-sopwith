@@ -200,6 +200,7 @@ func _abort_game() -> void:
 func _clear_game_objects() -> void:
 	enemies.clear()
 	enemy_home_positions.clear()
+	_pending_enemy_spawns.clear()
 	_occupied_positions.clear()
 	var children = get_children()
 	for child in children:
@@ -390,11 +391,58 @@ var enemy_home_positions: Array[float] = []
 ## (runway sits on the left of base_x, buildings on the right).  Set in
 ## _spawn_enemies_and_targets; consumed by _create_enemy_bases.
 var enemy_base_faces_left: Array[bool] = []
+## Enemy reinforcements not yet spawned: one entry per plane beyond the lead
+## plane of each base.  The spawn cooldown staggers EXISTENCE (not just
+## takeoff), so a base set to 3 planes fields one at startup and the rest as
+## their cooldowns elapse.  Entry: {"base_i","p_idx","base_x","faces_left",
+## "runway_left","faction","delay"}.
+var _pending_enemy_spawns: Array[Dictionary] = []
+
+## Max live planes a base may field: the full complement while its hangar
+## stands, else 1 — a hangarless base can only keep a single spare in the air.
+func max_planes_for_base(hb_id: int) -> int:
+	if BuildingRegistry and not BuildingRegistry.has_hangar(hb_id):
+		return 1
+	return planes_per_field
+
+## Live enemy planes currently attached to a base (valid nodes with a
+## matching AI homebase), excluding `exclude` (usually the wreck asking).
+func enemy_planes_at_base(hb_id: int, exclude: Node = null) -> int:
+	var n := 0
+	for e in enemies:
+		if e == exclude or not is_instance_valid(e):
+			continue
+		if e.has_node("EnemyAI") and e.get_node("EnemyAI").homebase_id == hb_id:
+			n += 1
+	return n
+
+func _process(delta: float) -> void:
+	if _pending_enemy_spawns.is_empty():
+		return
+	for idx in range(_pending_enemy_spawns.size() - 1, -1, -1):
+		var entry := _pending_enemy_spawns[idx]
+		entry["delay"] = float(entry["delay"]) - delta
+		if float(entry["delay"]) > 0.0:
+			continue
+		_pending_enemy_spawns.remove_at(idx)
+		# A base destroyed while its reinforcements were still queued can no
+		# longer field them — drop the spawn instead of launching from ruins.
+		var hb_id: int = int(entry["base_i"]) + 1
+		if BuildingRegistry and not BuildingRegistry.has_any_building(hb_id):
+			continue
+		# A hangarless base is capped at 1 plane: reinforcements queued
+		# before the hangar fell are stood down once the cap is met.
+		if enemy_planes_at_base(hb_id) >= max_planes_for_base(hb_id):
+			continue
+		_spawn_enemy_plane(int(entry["base_i"]), int(entry["p_idx"]),
+			float(entry["base_x"]), bool(entry["faces_left"]),
+			float(entry["runway_left"]), int(entry["faction"]), 0.0)
 
 func _spawn_enemies_and_targets() -> void:
 	enemies.clear()
 	enemy_home_positions.clear()
 	enemy_base_faces_left.clear()
+	_pending_enemy_spawns.clear()
 	_occupied_positions.clear()
 	if BuildingRegistry:
 		BuildingRegistry.reset()
@@ -407,9 +455,9 @@ func _spawn_enemies_and_targets() -> void:
 	# East bases are spread further than the original 2500 to give each
 	# homebase more territory and reduce base clustering.
 	var possible_bases: Array[float] = [
-		2400.0,
-		8500.0,
-		11800.0,
+		9200.0,
+		2200.0,
+		12800.0,
 		15100.0,
 	]
 	possible_bases = possible_bases.slice(0, num_bases)
@@ -445,69 +493,97 @@ func _spawn_enemies_and_targets() -> void:
 			planes_per_field = max(GameManager.enemy_planes, 1 + int(GameManager.current_level / 4))
 		else:
 			planes_per_field = GameManager.enemy_planes
+		var cooldown := GameManager.ENEMY_PLANE_COOLDOWN_SEC if GameManager else 30.0
 		for p_idx in range(planes_per_field):
-			var spawn_rot := PI if faces_left else 0.0
-			var runway_right: float = runway_left + Terrain.RUNWAY_LENGTH
-			var spawn_x: float = (runway_right - ENEMY_SPAWN_RUNWAY_EDGE_MARGIN) if faces_left \
-						else (runway_left + ENEMY_SPAWN_RUNWAY_EDGE_MARGIN)
-			var enemy: RigidBody2D = ENEMY_SCENE.instantiate()
-			var ground_y := 650.0
-			if terrain and terrain.has_method("get_ground_height_at"):
-				ground_y = terrain.get_ground_height_at(spawn_x)
-			var spawn_pos := Vector2(spawn_x, ground_y - Biplane.GROUND_SURFACE_OFFSET)
-			enemy.position = spawn_pos
-			enemy.rotation = spawn_rot
-			enemy.add_to_group("destructible")
-			enemy.add_to_group("enemy_plane")
-			if enemy.has_node("EnemyAI"):
-				var ai := enemy.get_node("EnemyAI")
-				ai.target = biplane
-				ai.biplane = enemy
-				ai.home_base_x = base_x
-				ai.homebase_id = i + 1
-				ai.unlimited_fuel_ammo = is_vs_computer
-			if enemy.has_method("setup_faction_homebase"):
-				enemy.setup_faction_homebase(i + 1, base_x, Terrain.RUNWAY_LENGTH, spawn_pos, spawn_rot, enemy_faction_enum)
-			if enemy.has_method("get_avatar_data"):
-				var enemy_avatar = enemy.get_avatar_data(0)
-				if enemy.has_method("assign_plane_model") and enemy.has_method("get_default_plane_model"):
-					var enemy_model = enemy.get_default_plane_model(enemy_faction_enum)
-					enemy.assign_plane_model(enemy_avatar, enemy_model)
-				# D10: parked enemies must already be inverted if they will launch
-				# leftward; biplane.respawn() does this on every respawn, so the
-				# initial spawn just needs to match (otherwise the plane visually
-				# flips on its first death).  Set via the geometric helper so the
-				# field is always derived from the spawn rotation, never branched
-				# on by callers.
-				enemy_avatar.is_barrel_rolled = Biplane.AvatarData.rotation_is_leftward(spawn_rot)
-				if enemy.has_method("reset_visual_transform"):
-					enemy.reset_visual_transform(enemy_avatar)
-			if enemy.has_method("set_home_base") and enemy.has_method("get_avatar_data"):
-				enemy.set_home_base(enemy.get_avatar_data(0), i + 1)
-			if enemy.has_method("set_game_active"):
-				enemy.set_game_active(true)
-			enemy.is_player_controlled = false
-			if enemy.has_node("EnemyAI"):
-				# Initial heading must match the parked orientation so the AI
-				# doesn't try to yaw 180° on the first decision tick.
-				enemy.get_node("EnemyAI").pilots[0].desired_heading = spawn_rot
-			# Guarantee the initial spawn exactly matches the homebase spawn point.
-			# The homebase above was built from this same spawn_pos / spawn_rot, so
-			# re-deriving the parked transform from the homebase itself means the
-			# plane can never drift from where it is meant to sit, and a respawn
-			# (which also reads get_homebase_spawn_position) lands in the same spot.
-			if enemy.has_method("get_homebase_spawn_position") \
-					and enemy.has_method("get_homebase_spawn_rotation") \
-					and enemy.has_method("get_avatar_data"):
-				var hb_av = enemy.get_avatar_data(0)
-				enemy.global_position = enemy.get_homebase_spawn_position(hb_av)
-				enemy.rotation = enemy.get_homebase_spawn_rotation(hb_av)
-			if is_vs_computer:
-				var takeoff_delay := (i * 1.5) + (p_idx * GameManager.ENEMY_PLANE_COOLDOWN_SEC)
-				if enemy.has_node("EnemyAI"):
-					enemy.get_node("EnemyAI").takeoff_delay = takeoff_delay
-			add_child(enemy)
-			enemies.append(enemy)
+			# The spawn cooldown staggers existence: only the lead plane of
+			# each base exists at startup; the rest spawn as their cooldown
+			# elapses (previously all N spawned at once and only takeoff
+			# was staggered, so 3 planes sat on every runway from frame one).
+			var spawn_delay := (i * 1.5) + (p_idx * cooldown)
+			if spawn_delay <= 0.0:
+				var takeoff_delay := 0.0
+				if is_vs_computer:
+					takeoff_delay = spawn_delay
+				_spawn_enemy_plane(i, p_idx, base_x, faces_left, runway_left,
+					enemy_faction_enum, takeoff_delay)
+			else:
+				_pending_enemy_spawns.append({
+					"base_i": i, "p_idx": p_idx, "base_x": base_x,
+					"faces_left": faces_left, "runway_left": runway_left,
+					"faction": enemy_faction_enum, "delay": spawn_delay,
+				})
+
+## Instantiates, configures, and parks a single enemy plane for a base.
+## Shared by the startup spawn and the staggered reinforcement spawns, so
+## both paths field identically configured aircraft.  `takeoff_delay` holds
+## the launch (vs-computer mode only; delayed reinforcements pass 0.0 since
+## the spawn cooldown already did the staggering).
+func _spawn_enemy_plane(base_i: int, _p_idx: int, base_x: float, faces_left: bool,
+		runway_left: float, enemy_faction_enum: int, takeoff_delay: float) -> void:
+	var spawn_rot := PI if faces_left else 0.0
+	var runway_right: float = runway_left + Terrain.RUNWAY_LENGTH
+	var spawn_x: float = (runway_right - ENEMY_SPAWN_RUNWAY_EDGE_MARGIN) if faces_left \
+				else (runway_left + ENEMY_SPAWN_RUNWAY_EDGE_MARGIN)
+	var enemy: RigidBody2D = ENEMY_SCENE.instantiate()
+	var ground_y := 650.0
+	if terrain and terrain.has_method("get_ground_height_at"):
+		ground_y = terrain.get_ground_height_at(spawn_x)
+	var spawn_pos := Vector2(spawn_x, ground_y - Biplane.GROUND_SURFACE_OFFSET)
+	enemy.position = spawn_pos
+	enemy.rotation = spawn_rot
+	enemy.add_to_group("destructible")
+	enemy.add_to_group("enemy_plane")
+	if enemy.has_node("EnemyAI"):
+		var ai := enemy.get_node("EnemyAI")
+		ai.target = biplane
+		ai.biplane = enemy
+		ai.home_base_x = base_x
+		ai.homebase_id = base_i + 1
+		ai.unlimited_fuel_ammo = is_vs_computer
+	if enemy.has_method("setup_faction_homebase"):
+		enemy.setup_faction_homebase(base_i + 1, base_x, Terrain.RUNWAY_LENGTH, spawn_pos, spawn_rot, enemy_faction_enum)
+	if enemy.has_method("get_avatar_data"):
+		var enemy_avatar = enemy.get_avatar_data(0)
+		if enemy.has_method("assign_plane_model") and enemy.has_method("get_default_plane_model"):
+			var enemy_model = enemy.get_default_plane_model(enemy_faction_enum)
+			enemy.assign_plane_model(enemy_avatar, enemy_model)
+		# D10: parked enemies must already be inverted if they will launch
+		# leftward; biplane.respawn() does this on every respawn, so the
+		# initial spawn just needs to match (otherwise the plane visually
+		# flips on its first death).  Set via the geometric helper so the
+		# field is always derived from the spawn rotation, never branched
+		# on by callers.  pitch_angle must match too: the attitude
+		# integrator rewrites body rotation from pitch_angle every physics
+		# frame, so leaving the default 0.0 snaps leftward-parked bodies
+		# to nose-right while the visual stays flipped — upside down and
+		# facing the wrong way, unlike respawns (which set all three).
+		enemy_avatar.is_barrel_rolled = Biplane.AvatarData.rotation_is_leftward(spawn_rot)
+		enemy_avatar.pitch_angle = spawn_rot
+		if enemy.has_method("reset_visual_transform"):
+			enemy.reset_visual_transform(enemy_avatar)
+	if enemy.has_method("set_home_base") and enemy.has_method("get_avatar_data"):
+		enemy.set_home_base(enemy.get_avatar_data(0), base_i + 1)
+	if enemy.has_method("set_game_active"):
+		enemy.set_game_active(true)
+	enemy.is_player_controlled = false
+	if enemy.has_node("EnemyAI"):
+		# Initial heading must match the parked orientation so the AI
+		# doesn't try to yaw 180° on the first decision tick.
+		enemy.get_node("EnemyAI").pilots[0].desired_heading = spawn_rot
+		enemy.get_node("EnemyAI").takeoff_delay = takeoff_delay
+	# Guarantee the initial spawn exactly matches the homebase spawn point.
+	# The homebase above was built from this same spawn_pos / spawn_rot, so
+	# re-deriving the parked transform from the homebase itself means the
+	# plane can never drift from where it is meant to sit, and a respawn
+	# (which also reads get_homebase_spawn_position) lands in the same spot.
+	if enemy.has_method("get_homebase_spawn_position") \
+			and enemy.has_method("get_homebase_spawn_rotation") \
+			and enemy.has_method("get_avatar_data"):
+		var hb_av = enemy.get_avatar_data(0)
+		enemy.global_position = enemy.get_homebase_spawn_position(hb_av)
+		enemy.rotation = enemy.get_homebase_spawn_rotation(hb_av)
+	add_child(enemy)
+	enemies.append(enemy)
 
 	var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
 	var bird_count_map: Dictionary = {"None": 0, "Few": 3, "Normal": 5, "Many": 8}
@@ -633,6 +709,7 @@ func _spawn_base_target(homebase_id: int, target_type: String, x: float, is_enem
 	add_child(t)
 	var hw := _get_target_half_width(target_type)
 	_mark_position_occupied(x, hw)
+	_exempt_existing_tanks_from_building(t)
 
 ## Spawn a tank ground vehicle for a homebase.  Tanks are NOT buildings — they
 ## are Biplane-derived RigidBody2Ds driven by a ground-mode EnemyAI.  They crawl
@@ -657,7 +734,12 @@ func _spawn_tank(homebase_id: int, base_x: float, x: float, is_enemy: bool, faci
 
 	var av = t.get_avatar_data(0)
 	av.faction = faction_enum
-	av.team = Biplane.Team.ENEMY if is_enemy else Biplane.Team.ALLIED
+	var player_faction_str := GameManager.player_faction if GameManager else "British"
+	var player_faction_enum := Biplane.Faction.BRITISH
+	match player_faction_str:
+		"German": player_faction_enum = Biplane.Faction.GERMAN
+		"French": player_faction_enum = Biplane.Faction.FRENCH
+	av.team = Biplane.Team.ALLIED if faction_enum == player_faction_enum else Biplane.Team.ENEMY
 	av.homebase_id = homebase_id
 	av.travel_dir = facing_dir
 	av.pitch_angle = 0.0 if facing_dir > 0.0 else PI
@@ -685,6 +767,63 @@ func _spawn_tank(homebase_id: int, base_x: float, x: float, is_enemy: bool, faci
 		t.set_game_active(true)
 	t.is_player_controlled = false
 	add_child(t)
+	_exempt_tank_from_passthrough(t)
+
+## Tanks roll through same-side structures (intact or wrecked) and through
+## ALL wrecks — only intact hostile buildings block them.  Exemptions are
+## added mutually so the pair never collides regardless of evaluation order.
+## Called for every new tank (vs. existing buildings/wrecks), every new
+## building (vs. existing tanks), and every new wreck (vs. all tanks).
+func _exempt_tank_from_passthrough(tank: Node) -> void:
+	if not is_instance_valid(tank):
+		return
+	for b in get_tree().get_nodes_in_group("ground_target"):
+		if b != tank and is_instance_valid(b) and b is CollisionObject2D \
+				and _tank_matches_building_side(tank, b):
+			_ignore_body_pair(tank, b)
+	for w in get_tree().get_nodes_in_group("wreck"):
+		if w != tank and is_instance_valid(w) and w is CollisionObject2D:
+			_ignore_body_pair(tank, w)
+
+## A fresh structure must not block the tanks already rolling around it —
+## same-side tanks get a mutual exemption (covers both facing dirs).
+func _exempt_existing_tanks_from_building(building: Node) -> void:
+	if not is_instance_valid(building):
+		return
+	var body := building as CollisionObject2D
+	if body == null:
+		return
+	for tk in get_tree().get_nodes_in_group("tank"):
+		if is_instance_valid(tk) and _tank_matches_building_side(tk, building):
+			_ignore_body_pair(tk, body)
+
+## Every wreck is drivable ground for every tank — register the mutual
+## exemption with all live tanks the moment the wreck is created.
+func register_wreck_for_tanks(wreck: CollisionObject2D) -> void:
+	if not is_instance_valid(wreck):
+		return
+	for tk in get_tree().get_nodes_in_group("tank"):
+		if is_instance_valid(tk):
+			_ignore_body_pair(tk, wreck)
+
+## Same side = tank's enemy-ness matches the building's.  Tanks carry
+## "enemy_target" (enemy) or "player" (allied); buildings carry is_enemy.
+func _tank_matches_building_side(tank: Node, building: Node) -> bool:
+	var foe_flag = building.get("is_enemy")
+	if foe_flag == null:
+		return false
+	return tank.is_in_group("enemy_target") == bool(foe_flag)
+
+func _ignore_body_pair(a: Node, b: CollisionObject2D) -> void:
+	# Server-level pair exemption: Godot 4 has no per-node
+	# add_collision_exception, so exemptions go straight to the physics
+	# server.  Works regardless of tree membership, which is what lets a
+	# wreck be exempted before its deferred add_child.
+	var ao := a as CollisionObject2D
+	if ao == null:
+		return
+	PhysicsServer2D.body_add_collision_exception(ao.get_rid(), b.get_rid())
+	PhysicsServer2D.body_add_collision_exception(b.get_rid(), ao.get_rid())
 
 ## Lay out a list of structures on ONE side of the runway, starting just
 ## off `edge` and stepping outward in `dir` (+1 = +x, -1 = -x).

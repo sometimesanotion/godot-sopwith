@@ -422,6 +422,12 @@ class AvatarData:
 	var angular_velocity:    float = 0.0
 	var control_effectiveness: float = 1.0
 	var is_airborne:         bool  = true
+	## Last authoritatively set velocity (px/s): what the flight model (or
+	## crash ballistics) commanded, BEFORE the solver mangles it into walls.
+	## Impact severity reads intent, not solver output — a body pressed into
+	## a wall reports ~0 solver velocity while still flying into it at full
+	## command, so contact/closing math must use this.
+	var commanded_vel:       Vector2 = Vector2.ZERO
 
 	# Ground-vehicle support (tanks).  When the model has wing_area == 0.0,
 	# Aerodynamics skips lift so the body stays earth-bound; the "pitch" control
@@ -546,6 +552,7 @@ class AvatarData:
 		refuel_timer     = 0.0
 		refuel_cooldown  = 0.0
 		last_impact_ms   = 0
+		commanded_vel    = Vector2.ZERO
 		pitch_angle      = 0.0
 		angular_velocity  = 0.0
 		control_effectiveness = 1.0
@@ -689,19 +696,24 @@ func assign_plane_model(avatar: AvatarData, model: String) -> void:
 	avatar.plane_model = model
 	avatar.update_model_params()
 
+	var player_faction_str := GameManager.player_faction if GameManager else "British"
+	var player_faction_enum := Faction.BRITISH
+	match player_faction_str:
+		"German": player_faction_enum = Faction.GERMAN
+		"French": player_faction_enum = Faction.FRENCH
 	match model:
 		"fokker_d7":
 			avatar.faction = Faction.GERMAN
-			avatar.team = Team.ENEMY
+			avatar.team = Team.ALLIED if avatar.faction == player_faction_enum else Team.ENEMY
 		"spad_s13":
 			avatar.faction = Faction.FRENCH
-			avatar.team = Team.ALLIED
+			avatar.team = Team.ALLIED if avatar.faction == player_faction_enum else Team.ENEMY
 		"p-51d":
 			avatar.faction = Faction.USA
-			avatar.team = Team.ALLIED
+			avatar.team = Team.ALLIED if avatar.faction == player_faction_enum else Team.ENEMY
 		_:
 			avatar.faction = Faction.BRITISH
-			avatar.team = Team.ALLIED
+			avatar.team = Team.ALLIED if avatar.faction == player_faction_enum else Team.ENEMY
 
 	# Update visual representation
 	if has_node("Visual/Sprite2D"):
@@ -965,6 +977,18 @@ static func impact_mass_kg(av: AvatarData) -> float:
 		return 447.0
 	return maxf(float(av.model_params.get("mass_kg", 447.0)), 1.0)
 
+## Flight intent velocity for impact math: what the model commanded last
+## tick, falling back to the solver's body velocity before intent exists
+## (fresh spawn) or when it decayed to rest.  Solver output reads ~0 for a
+## body pressed into an obstacle while intent still says full speed — impact
+## severity must use intent.
+func _intent_velocity(body: RigidBody2D, av: AvatarData) -> Vector2:
+	if av and av.commanded_vel.length_squared() > 0.01:
+		return av.commanded_vel
+	if body:
+		return body.linear_velocity
+	return Vector2.ZERO
+
 ## Single choke point for impact damage on self (+ symmetric counter-damage
 ## on the collider).  Sub-catastrophic hits are throttled per avatar;
 ## catastrophic hits (crash=true) always apply immediately.  Returns true
@@ -1002,10 +1026,13 @@ func get_collision_response(other: Node, other_avatar: AvatarData, other_speed: 
 		if self_av and other_avatar and not self_av.is_hostile_to(other_avatar):
 			return result
 		# Approaching component only, consistent with the contact loop.
+		# Intent velocities (see commanded_vel): pressed-together bodies
+		# report ~0 solver velocity while still flying into each other.
 		var closing := other_speed + velocity.length()
 		if dist > 0.01 and dist < PLANE_PROXIMITY_RADIUS and other_speed > 10.0:
 			var axis: Vector2 = (other.global_position - global_position) / dist
-			closing = maxf(0.0, (velocity - (other as RigidBody2D).velocity).dot(axis))
+			closing = maxf(0.0, (_intent_velocity(self, self_av) \
+				- _intent_velocity(other as RigidBody2D, other_avatar)).dot(axis))
 			var dmg := midair_impact_damage(closing, pixels_per_meter,
 				impact_mass_kg(self_av), impact_mass_kg(other_avatar))
 			if dmg > 0.0:
@@ -1173,13 +1200,11 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 	# missing contacts where only the collision shape's lower extent touches terrain.
 	# Physics contacts from state.get_contact_count() provide the real collision state.
 	#
-	# Impact severity comes from pre-solve closing velocity, NOT solver
-	# impulses: this body re-asserts aerodynamic velocity every tick, so
-	# vehicle-vs-vehicle contacts exchange almost no momentum (impulses read
-	# ~0) even in violent collisions.  Closing velocity is exact every tick.
-	# (Static structures force real momentum exchange, but closing velocity
-	# measures the same Δv there, so one classifier serves both.)
-	var pre_vel := state.get_linear_velocity()
+	# Impact severity reads flight INTENT (see commanded_vel), not solver
+	# output: pressing into a wall reports ~0 solver velocity while intent
+	# still says full speed, and vehicle-vs-vehicle contacts exchange almost
+	# no solver momentum at all (both bodies re-assert velocity every tick).
+	var intent_vel := _intent_velocity(self, avatar)
 	var cc := state.get_contact_count()
 	# Restitution pending for gentle aircraft touches (set in the mid-air
 	# branch, applied to the final velocity below).
@@ -1201,20 +1226,24 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 		var col_node := collider as Node2D
 		if col_node == null:
 			continue
-		# Approach speed along the collision axis, px/s.  Falls back to the
-		# relative-speed magnitude for degenerate (coincident) centers.
-		var other_vel: Vector2 = state.get_contact_collider_velocity_at_position(ci)
-		var to_other: Vector2 = col_node.global_position - global_position
-		var closing := 0.0
-		if to_other.length_squared() > 0.01:
-			closing = maxf(0.0, (pre_vel - other_vel).dot(to_other.normalized()))
-		else:
-			closing = (pre_vel - other_vel).length()
-		if closing <= 0.0:
-			continue
 		var other_av: AvatarData = null
 		if collider is RigidBody2D and collider.has_method("get_primary_entity"):
 			other_av = collider.get_primary_entity()
+		# Approach speed along the collision axis, px/s.  Falls back to the
+		# relative-speed magnitude for degenerate (coincident) centers.
+		var other_vel := Vector2.ZERO
+		if other_av != null:
+			other_vel = _intent_velocity(collider, other_av)
+		else:
+			other_vel = state.get_contact_collider_velocity_at_position(ci)
+		var to_other: Vector2 = col_node.global_position - global_position
+		var closing := 0.0
+		if to_other.length_squared() > 0.01:
+			closing = maxf(0.0, (intent_vel - other_vel).dot(to_other.normalized()))
+		else:
+			closing = (intent_vel - other_vel).length()
+		if closing <= 0.0:
+			continue
 		# Structures (static bodies) and ground vehicles (tanks: huge,
 		# effectively static masses) share the soft/hard landing
 		# classification — now fed by closing velocity instead of impulse.
@@ -1332,6 +1361,9 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 
 	avatar.control_effectiveness = out.control_effectiveness
 	avatar.is_airborne = not gc.is_grounded
+	# Record flight intent AFTER all adjustments (clamp, bounce): this is the
+	# velocity the model commanded, which impact math reads next tick.
+	avatar.commanded_vel = current_vel
 
 	_update_flight_state(avatar, gc, out.is_stalled, current_vel)
 
@@ -1475,16 +1507,19 @@ func _integrate_crash_forces(state: PhysicsDirectBodyState2D, avatar: AvatarData
 	if current_vel == Vector2.ZERO and avatar.has_hit_ground:
 		state.set_linear_velocity(Vector2.ZERO)
 		state.set_angular_velocity(0.0)
+		avatar.commanded_vel = Vector2.ZERO
 		return
 
 	current_vel.y += gravity * pixels_per_meter * step
 	var ang_vel = current_vel.x * 0.01
 	state.set_linear_velocity(current_vel)
 	state.set_angular_velocity(ang_vel)
+	avatar.commanded_vel = current_vel
 
 	if ground_ray and ground_ray.is_colliding() and not avatar.has_hit_ground:
 		state.set_linear_velocity(Vector2.ZERO)
 		state.set_angular_velocity(0.0)
+		avatar.commanded_vel = Vector2.ZERO
 		avatar.has_hit_ground = true
 		damaged.emit(1.0, 0.0)
 		DLog.crash_enter(avatar.id, "ground_ray", {
@@ -1844,7 +1879,8 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 	# deals zero damage, so a plane resting on the ground/runway is safe by
 	# virtue of its low impact speed, not by an artificial "hasn't moved yet"
 	# exemption that made planes indestructible until they started moving.
-	var speed := velocity.length()
+	# Intent speed, not solver output (see commanded_vel).
+	var speed := _intent_velocity(self, avatar).length()
 	var parent := get_parent()
 	if not parent:
 		return
@@ -1882,11 +1918,15 @@ func _check_obstacle_collision(avatar: AvatarData) -> void:
 			var dist := global_position.distance_to(child.global_position)
 			if dist < PLANE_PROXIMITY_RADIUS and dist > 0.01:
 				# Approaching component only: receding aircraft are bouncing
-				# apart, not colliding.
+				# apart, not colliding.  Intent velocities, not solver output
+				# (see commanded_vel): pressed-together bodies report ~0.
 				var axis: Vector2 = (child.global_position - global_position) / dist
-				var closing: float = maxf(0.0, (velocity - child.velocity).dot(axis))
+				var my_vel := _intent_velocity(self, avatar)
+				var child_av: AvatarData = child.get_primary_entity()
+				var other_vel := _intent_velocity(child, child_av)
+				var closing: float = maxf(0.0, (my_vel - other_vel).dot(axis))
 				var dmg := midair_impact_damage(closing, pixels_per_meter,
-					impact_mass_kg(avatar), impact_mass_kg(child.get_primary_entity()))
+					impact_mass_kg(avatar), impact_mass_kg(child_av))
 				if dmg > 0.0:
 					_apply_impact(avatar, dmg, child, dmg * 0.5, dmg >= 100.0)
 				return
@@ -2416,14 +2456,12 @@ func spawn_british_ally(position: Vector2 = Vector2.ZERO, rotation: float = 0.0)
 ## Configure a homebase with specific faction and model
 func setup_faction_homebase(id: int, x: float, width: float, spawn_pos: Vector2,
 		spawn_rot: float, faction: Faction) -> void:
-	var team: Team
-	match faction:
-		Faction.BRITISH, Faction.FRENCH, Faction.USA:
-			team = Team.ALLIED
-		Faction.GERMAN:
-			team = Team.ENEMY
-		_:
-			team = Team.NEUTRAL
+	var player_faction_str := GameManager.player_faction if GameManager else "British"
+	var player_faction_enum := Faction.BRITISH
+	match player_faction_str:
+		"German": player_faction_enum = Faction.GERMAN
+		"French": player_faction_enum = Faction.FRENCH
+	var team: Team = Team.ALLIED if faction == player_faction_enum else Team.ENEMY
 	setup_homebase(id, x, width, spawn_pos, spawn_rot, team)
 	_homebases[id].faction = faction
 

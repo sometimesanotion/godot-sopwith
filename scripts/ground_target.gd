@@ -352,7 +352,7 @@ func _fx_size() -> float:
 	var extent := maxf(
 		maxf(absf(bounds["min_x"]), absf(bounds["max_x"])),
 		maxf(absf(bounds["min_y"]), absf(bounds["max_y"])))
-	return clampf(extent / 40.0, 1.5, 3.0)
+	return clampf(extent / 32.0, 2.0, 4.5)
 
 func _detach_damage_fx() -> void:
 	if _damage_fx:
@@ -439,6 +439,11 @@ func _create_wreck() -> void:
 	# wrecks and SEVERE biplanes.
 	if EffectManager:
 		EffectManager.spawn_building_wreck_fire(global_position, _fx_size())
+
+	# Fresh rubble must not bar tanks: every tank drives over every wreck.
+	var main := get_parent()
+	if main and main.has_method("register_wreck_for_tanks"):
+		main.register_wreck_for_tanks(wreck)
 
 	get_parent().call_deferred("add_child", wreck)
 

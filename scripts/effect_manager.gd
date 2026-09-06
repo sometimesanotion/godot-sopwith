@@ -38,19 +38,22 @@ const ENERGY_DAMAGE_SCALE: float = 0.1
 ##     WRECK_FIRE_AMOUNT / WRECK_SMOKE_AMOUNT — so a SEVERE biplane, a fresh
 ##     tank wreck, and a burning building wreck all carry the identical fire.
 const WRECK_FIRE_DURATION := 8.0
-const WRECK_FIRE_AMOUNT := 15
-const WRECK_SMOKE_AMOUNT := 25
+const WRECK_FIRE_AMOUNT := 4
+const WRECK_SMOKE_AMOUNT := 8
 
 ## Destroyed buildings burn with fire and smoke that both steadily wane and
 ## go out together as they lose intensity (BUILDING_WANE_TIME to burn down).
 ## Fuel-depot blasts use the same waning burn (hotter preset, longer wane)
-## instead of bespoke mound emitters.
-const BUILDING_WANE_TIME := 12.0
-const DEPOT_WANE_TIME := 18.0
+## instead of bespoke mound emitters.  Wanes are kept short on purpose: every
+## lingering node occupies effect budget until deleted, and long burns were
+## saturating the cap and starving fresh wreck fires (leaving only the
+## half-second puffs visible).
+const BUILDING_WANE_TIME := 6.0
+const DEPOT_WANE_TIME := 12.0
 
 ## Smoke reads ~50% denser than the raw profile amounts everywhere.  Single
 ## multiplier, applied centrally in _smoke_amount() / the spawn wrappers.
-const SMOKE_ABUNDANCE := 1.5
+const SMOKE_ABUNDANCE := 1.2
 
 ## Damage FX always draws above structures/wrecks (buildings z=0, tank
 ## wrecks z=-10, tanks z=1).  Set on the DamageFX root; children inherit.
@@ -86,17 +89,17 @@ static func make_damage_profile(state: int, percent: float, size := 1.0, offset 
 		DamageData.DamageState.LIGHT:
 			p.kind = DamageFXKind.SMOKE
 			p.smoke_color = SMOKE_WHITE
-			p.smoke_lifetime = 1.5
+			p.smoke_lifetime = 2.0
 			p.smoke_amount = int(round((10.0 + 20.0 * percent) * size))
 		DamageData.DamageState.MODERATE:
 			p.kind = DamageFXKind.SMOKE
 			p.smoke_color = SMOKE_BLACK
-			p.smoke_lifetime = 2.0
+			p.smoke_lifetime = 2.5
 			p.smoke_amount = int(round((14.0 + 28.0 * percent) * size))
 		DamageData.DamageState.SEVERE, DamageData.DamageState.DESTROYED:
 			p.kind = DamageFXKind.FIRE_SMOKE
 			p.smoke_color = SMOKE_BLACK
-			p.smoke_lifetime = 2.0
+			p.smoke_lifetime = 2.5
 			p.fire_amount = int(round(WRECK_FIRE_AMOUNT * size))
 			p.smoke_amount = int(round(WRECK_SMOKE_AMOUNT * size))
 		_:
@@ -127,17 +130,27 @@ enum FireColorPreset {
 	COOL,       ## More white/blue-white to pale orange
 }
 
-## Maximum concurrent effects to keep performance stable.
-@export var max_concurrent_effects: int = 32
+## Maximum concurrent effects to keep performance stable.  Sized with headroom
+## above worst-case battle load (lingering wreck/depot burns + attached damage
+## smoke + bursts): if the cap saturates, fresh wreck fires are dropped
+## outright while only half-second puffs remain visible.
+@export var max_concurrent_effects: int = 64
 
 var _active_effects: Array[Node] = []
 var _effect_count: int = 0
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	_active_effects = _active_effects.filter(func(e): return is_instance_valid(e))
-	for e in _active_effects:
-		_tick_wane(e, delta)
 	_effect_count = _active_effects.size()
+
+func _physics_process(delta: float) -> void:
+	# Wane runs on fixed physics steps, not idle frames: idle rate varies
+	# (and can stall entirely headless), but intensity expiry must advance
+	# on a steady clock.  Snapshot: retiring a node mid-loop must not skip
+	# the siblings behind it.
+	for e in _active_effects.duplicate():
+		if is_instance_valid(e):
+			_tick_wane(e, delta)
 
 func _exit_tree() -> void:
 	for e in _active_effects:
@@ -184,11 +197,16 @@ func spawn_fire(pos: Vector2, amount: int = 30, lifetime: float = 0.0) -> Node2D
 
 ## Schedule an effect node to free itself once its particles have finished, so
 ## one-shot / burst effects (explosions, crash fire, crash smoke) don't pile up
-## at crash sites forever.  A `lifetime` of 0 (default) leaves the node alive
-## indefinitely — used by persistent damage effects on static wreckage.
+## at crash sites forever.  A `lifetime` of 0 (default) expires with the
+## longest emitter instead of living forever — every effect deletes itself
+## when its intensity is spent.
 func _free_after(instance: Node2D, lifetime: float) -> void:
-	if lifetime <= 0.0 or not is_instance_valid(instance):
+	if not is_instance_valid(instance):
 		return
+	if lifetime <= 0.0:
+		lifetime = 0.2
+		for child in instance.find_children("*", "GPUParticles2D", true, false):
+			lifetime = maxf(lifetime, (child as GPUParticles2D).lifetime + 0.2)
 	var t := instance.get_tree().create_timer(lifetime)
 	t.timeout.connect(instance.queue_free)
 
@@ -292,7 +310,7 @@ func _build_damage_fx(profile: DamageFXProfile) -> Node2D:
 	smoke.local_coords = false
 	var smoke_mat := ParticleProcessMaterial.new()
 	smoke_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	smoke_mat.emission_sphere_radius = 8.0 * profile.scale
+	smoke_mat.emission_sphere_radius = 10.0 * profile.scale
 	# Larger burns drive stronger thermals: smoke rise scales with size, so
 	# building plumes (1.5–3.0) climb faster while planes/tanks (1.0) are
 	# bit-identical to before.
@@ -301,8 +319,8 @@ func _build_damage_fx(profile: DamageFXProfile) -> Node2D:
 	smoke_mat.spread = 30.0
 	smoke_mat.initial_velocity_min = 30.0 * rise
 	smoke_mat.initial_velocity_max = 60.0 * rise
-	smoke_mat.scale_min = 4.0 * profile.scale
-	smoke_mat.scale_max = 10.0 * profile.scale
+	smoke_mat.scale_min = 6.0 * profile.scale
+	smoke_mat.scale_max = 14.0 * profile.scale
 	smoke_mat.color_ramp = make_smoke_ramp(profile.smoke_color)
 	smoke.process_material = smoke_mat
 	root.add_child(smoke)
@@ -314,8 +332,8 @@ func _build_damage_fx(profile: DamageFXProfile) -> Node2D:
 		fire.emitting = true
 		fire.one_shot = false
 		fire.amount = maxi(1, profile.fire_amount)
-		fire.lifetime = 0.3
-		fire.explosiveness = 0.2
+		fire.lifetime = 0.25
+		fire.explosiveness = 0.35
 		fire.position = Vector2.ZERO
 		fire.local_coords = false
 		var fire_mat := ParticleProcessMaterial.new()
@@ -351,6 +369,9 @@ func attach_damage_fx(parent: Node, profile: DamageFXProfile) -> Node2D:
 	if _effect_count >= max_concurrent_effects:
 		return null
 	var node := _build_damage_fx(profile)
+	node.set_meta("fx_kind", profile.kind)
+	node.set_meta("fx_size", profile.scale)
+	node.set_meta("fx_color", profile.smoke_color.to_rgba32())
 	node.position = profile.offset
 	parent.add_child(node)
 	_active_effects.append(node)
@@ -373,7 +394,11 @@ func _free_damage_fx_after(node: Node2D, duration: float) -> void:
 	if duration == INF or duration <= 0.0 or not is_instance_valid(node):
 		return
 	var t := node.get_tree().create_timer(duration)
-	t.timeout.connect(detach_damage_fx.bind(node))
+	# Guarded closure, NOT .bind(node): a bound freed object fails typed
+	# conversion at emit time ("Cannot convert argument 1 from Object to
+	# Object") when the node dies first (level change, early detach).  The
+	# closure checks validity before touching it.
+	t.timeout.connect(func(): if is_instance_valid(node): detach_damage_fx(node))
 
 ## Idempotent sync: the ONE entry point for lingering damage visuals.
 ## Returns the live node (or null for INTACT).  Rebuilds only when kind or
@@ -386,7 +411,8 @@ func sync_damage_fx(parent: Node, current: Node2D, state: int, percent: float, s
 		return null
 	if current != null and is_instance_valid(current) \
 			and int(current.get_meta("fx_kind", -1)) == want.kind \
-			and is_equal_approx(float(current.get_meta("fx_size", 0.0)), size):
+			and is_equal_approx(float(current.get_meta("fx_size", 0.0)), size) \
+			and int(current.get_meta("fx_color", 0)) == int(want.smoke_color.to_rgba32()):
 		_retune_damage_fx(current, want)
 		current.position = offset
 		return current

@@ -43,5 +43,17 @@ func update(_delta: float) -> void:
 	# takeoff state's job narrow (just get airborne) avoids a
 	# mid-takeoff engage decision that flaps back to patrolling when
 	# the target drifts.
+	#
+	# Early interrupt: a safely airborne plane (above the tallest runway
+	# structures) with a live target inside detection range answers the
+	# cue at once instead of climbing blind to patrol altitude first.
+	# Engaging owns low-altitude safety itself (evades below danger
+	# altitude), and its 0.4 s stickiness prevents flap-back, so this
+	# cannot oscillate.
+	if fsm.can_transition() and ai._get_altitude_above_ground() > ai.TAKEOFF_ENGAGE_MIN_ALT \
+			and ai._is_target_alive() \
+			and ai._get_wrapped_distance(ai.biplane.global_position.x, ai.target.global_position.x) < ai.DETECTION_RANGE:
+		finished.emit(&"engaging")
+		return
 	if fsm.can_transition() and ai._get_altitude_above_ground() > ai.PATROL_ALTITUDE:
 		finished.emit(&"patrolling")
