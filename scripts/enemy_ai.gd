@@ -934,7 +934,7 @@ func _engaging_aim_and_throttle() -> Array:
 func _is_flying_away() -> bool:
 	if not biplane or not target:
 		return false
-	var to_tgt := target.global_position - biplane.global_position
+	var to_tgt: Vector2 = target.global_position - biplane.global_position
 	if to_tgt.length_squared() < 1.0:
 		return false
 	var speed: float = biplane.velocity.length()
@@ -1152,9 +1152,9 @@ func _is_low_energy() -> bool:
 func _should_evade_defensively() -> bool:
 	if not biplane or not target or not _is_target_alive():
 		return false
-	var to_tgt := target.global_position - biplane.global_position
+	var to_tgt: Vector2 = target.global_position - biplane.global_position
 	to_tgt.x = wrapf(to_tgt.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
-	var dist := to_tgt.length()
+	var dist: float = to_tgt.length()
 	if dist > DEFENSIVE_RANGE or dist < 1.0:
 		return false
 	var my_fwd := Vector2(cos(biplane.rotation), sin(biplane.rotation))
@@ -1174,9 +1174,9 @@ func _should_evade_defensively() -> bool:
 func _player_has_enemy_in_scope() -> bool:
 	if not biplane or not target or not _is_target_alive():
 		return false
-	var to_enemy := biplane.global_position - target.global_position
+	var to_enemy: Vector2 = biplane.global_position - target.global_position
 	to_enemy.x = wrapf(to_enemy.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
-	var dist := to_enemy.length()
+	var dist: float = to_enemy.length()
 	if dist > SCOPE_RANGE:
 		return false
 	var player_fwd := Vector2(cos(target.rotation), sin(target.rotation))
@@ -1186,7 +1186,7 @@ func _player_has_enemy_in_scope() -> bool:
 func _enemy_facing_away_from_player() -> bool:
 	if not biplane or not target:
 		return false
-	var to_player := target.global_position - biplane.global_position
+	var to_player: Vector2 = target.global_position - biplane.global_position
 	to_player.x = wrapf(to_player.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
 	var my_fwd := Vector2(cos(biplane.rotation), sin(biplane.rotation))
 	var angle := absf(my_fwd.angle_to(to_player.normalized()))
@@ -1196,9 +1196,9 @@ func _enemy_facing_away_from_player() -> bool:
 func _is_head_on() -> bool:
 	if not biplane or not target:
 		return false
-	var to_enemy := biplane.global_position - target.global_position
+	var to_enemy: Vector2 = biplane.global_position - target.global_position
 	to_enemy.x = wrapf(to_enemy.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
-	var to_player := -to_enemy
+	var to_player: Vector2 = -to_enemy
 	var my_fwd := Vector2(cos(biplane.rotation), sin(biplane.rotation))
 	var player_fwd := Vector2(cos(target.rotation), sin(target.rotation))
 	var enemy_sees_player := absf(my_fwd.angle_to(to_player.normalized())) <= SCOPE_ANGLE
@@ -1584,9 +1584,9 @@ func _target_collision_reflex() -> float:
 		return 0.0
 
 	var my_pos := biplane.global_position
-	var tgt_pos := target.global_position
+	var tgt_pos: Vector2 = target.global_position
 	var dx := wrapf(tgt_pos.x - my_pos.x, -Biplane.TERRAIN_LENGTH * 0.5, Biplane.TERRAIN_LENGTH * 0.5)
-	var dy := tgt_pos.y - my_pos.y
+	var dy: float = tgt_pos.y - my_pos.y
 	var dist := sqrt(dx * dx + dy * dy)
 	if dist < 30.0:
 		return 0.0
@@ -2091,20 +2091,21 @@ func _ground_control(delta: float) -> void:
 		_tank_patrol(avatar)
 		turret_aim = 0.0 if avatar.travel_dir > 0.0 else PI
 
-	# Body heading follows travel direction (roll axis).
-	# When travel_dir changes, animate the 180° reversal via a tween instead
-	# of snapping instantly.
-	if not _tank_is_turning:
-		var target_angle := 0.0 if avatar.travel_dir > 0.0 else PI
-		if not is_equal_approx(avatar.pitch_angle, target_angle):
-			_tank_is_turning = true
-			var tween := biplane.create_tween()
-			tween.tween_property(avatar, "pitch_angle", target_angle, 0.35).set_ease(Tween.EASE_IN_OUT)
-			tween.tween_callback(func(): _tank_is_turning = false)
-		else:
-			avatar.pitch_angle = target_angle
-	biplane.rotation = avatar.pitch_angle
-	avatar.is_barrel_rolled = Biplane.AvatarData.rotation_is_leftward(avatar.pitch_angle)
+	# Body heading follows travel direction (roll axis).  Physics state
+	# (pitch_angle / rotation / is_barrel_rolled) snaps ATOMICALLY: the
+	# tilt-crash check measures pitch_angle against level_rotation(), so a
+	# half-applied reversal reads as ~180° tilt and destroys the tank (see
+	# Biplane._apply_ground_reversal_state).  Never tween the physics body
+	# (position) or sweep the angle through PI/2 — thrust would point into
+	# the ground mid-turn and the teleport embeds the hull in the terrain.
+	# The smooth turn is a VISUAL-ONLY squash on $Visual.scale.x.
+	var target_angle := 0.0 if avatar.travel_dir > 0.0 else PI
+	var heading_changed := not is_equal_approx(avatar.pitch_angle, target_angle)
+	avatar.pitch_angle = target_angle
+	biplane.rotation = target_angle
+	avatar.is_barrel_rolled = Biplane.AvatarData.rotation_is_leftward(target_angle)
+	if heading_changed:
+		_animate_tank_turn()
 
 	# Smoothly slew the turret (pitch axis) toward the aim.
 	if turret_aim != INF:
@@ -2117,6 +2118,31 @@ func _ground_control(delta: float) -> void:
 	avatar.throttle = move_toward(avatar.throttle, throttle, 2.5 * delta)
 
 	biplane.set_tank_fire(fire)
+
+## Visual-only turn flourish for tanks: squash $Visual on X and regrow,
+## mirroring Biplane._apply_ground_reversal_transform (squash → invisible
+## instant → regrow) but without touching physics.  The body has already
+## snapped, so this never double-flips: scale stays non-negative (a punch,
+## not a mirror).  Re-entrant calls while a flourish runs are ignored.
+func _animate_tank_turn() -> void:
+	if _tank_is_turning:
+		return
+	if not biplane or not biplane.has_node("Visual"):
+		return
+	var visual := biplane.get_node("Visual") as Node2D
+	if visual == null:
+		return
+	_tank_is_turning = true
+	var tween := biplane.create_tween()
+	tween.set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
+	tween.tween_property(visual, "scale:x", 0.15, 0.17)
+	tween.tween_property(visual, "scale:x", 1.0, 0.18)
+	tween.tween_callback(_on_tank_turn_finished)
+
+func _on_tank_turn_finished() -> void:
+	if is_instance_valid(biplane) and biplane.has_node("Visual"):
+		(biplane.get_node("Visual") as Node2D).scale.x = 1.0
+	_tank_is_turning = false
 
 ## True when nothing blocks the straight line from `muzzle` along `dir`
 ## (up to `dist`) before reaching `target`.  A raycast that hits terrain

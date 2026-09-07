@@ -87,7 +87,7 @@ func _ready() -> void:
 	linear_damp = 0.0
 
 	# Ensure tank is drawn above buildings/wrecks
-	z_index = 1
+	z_index = 7
 
 	if has_node("Visual"):
 		$Visual.set_script(load("res://scripts/tank_draw.gd"))
@@ -178,27 +178,22 @@ func _on_avatar_crashed(avatar: AvatarData) -> void:
 ## Create a persistent smoking wreck at the tank's position.
 ## Wrecks are purely decorative: no physics collision and rendered behind the
 ## playfield so other tanks can drive past them without being blocked.
+## Uses tank_draw.gd in wreck mode: darkened SVG hull + turret sprites
+## with the legacy vector rhomboid as fallback.
 func _create_tank_wreck() -> void:
 	var wreck := Node2D.new()
 	wreck.position = global_position
-	wreck.z_index = -10
+	wreck.z_index = 4
 	wreck.add_to_group("wreck")
-
-	var hull := get_plane_polygon()
-	var wrecked_points := PackedVector2Array()
-	for pt in hull:
-		wrecked_points.append(pt + Vector2(randf_range(-2, 2), randf_range(-2, 2)))
 
 	var hull_color := Color(0.12, 0.20, 0.10)
 	var av := get_avatar_data(0)
 	if av and av.team == Biplane.Team.ENEMY:
 		hull_color = Color(0.20, 0.13, 0.09)
 	var wreck_draw := Node2D.new()
-	wreck_draw.set_script(preload("res://scripts/wreck_draw.gd"))
+	wreck_draw.set_script(preload("res://scripts/tank_draw.gd"))
 	wreck_draw.set_meta("wreck_color", hull_color)
-	wreck_draw.set_meta("wreck_points", wrecked_points)
-	# Ensure the hull drawing itself is also behind the playfield.
-	wreck_draw.z_index = -10
+	wreck_draw.z_index = 1
 	wreck.add_child(wreck_draw)
 
 	if EffectManager:

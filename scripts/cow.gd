@@ -15,7 +15,7 @@ var _physics_impact_cooldown_ms: int = 250
 var _last_physics_impact_time: int = -_physics_impact_cooldown_ms * 2
 
 func _ready() -> void:
-	z_index = 1
+	z_index = 7
 	mass = 200.0 + randf() * 80.0
 	gravity_scale = 0.0
 	contact_monitor = true
@@ -126,7 +126,7 @@ func _do_destroy(attacker: Node = null) -> void:
 	wreck.name = "CowWreck"
 	wreck.position = global_position
 	wreck.rotation = randf_range(-0.3, 0.3)
-	wreck.z_index = -1
+	wreck.z_index = 3
 	wreck.add_to_group("wreck")
 	var draw_script := load("res://scripts/cow_wreck_draw.gd")
 	var draw_node := Node2D.new()

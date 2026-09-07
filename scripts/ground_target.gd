@@ -40,7 +40,7 @@ const AA_PROJECTILE := preload("res://scenes/bullet.tscn")
 const FLAK_SHELL := preload("res://scenes/flak_shell.tscn")
 
 func _ready() -> void:
-	z_index = 1
+	z_index = 6
 	add_to_group("destructible")
 	add_to_group("ground_target")
 	_svg_sprite_name = target_type
@@ -430,9 +430,12 @@ func _create_wreck() -> void:
 	wreck.add_child(collision_poly)
 
 	var wreck_draw := Node2D.new()
-	wreck_draw.set_script(_get_wreck_draw_script())
+	wreck_draw.set_script(preload("res://scripts/tank_draw.gd"))
 	wreck_draw.set_meta("wreck_color", _get_wreck_color())
+	wreck_draw.set_meta("wreck_svg", _svg_sprite_name)
+	wreck_draw.set_meta("wreck_rect", SvgManager.calc_draw_rect(wrecked_points) if SvgManager else Rect2())
 	wreck_draw.set_meta("wreck_points", wrecked_points)
+	wreck_draw.z_index = 2
 	wreck.add_child(wreck_draw)
 
 	# Lingering wreck burn, scaled to the structure footprint: fire and
@@ -461,9 +464,6 @@ func _get_wreck_color() -> Color:
 	elif target_type == "machine_gun_nest":
 		color = Color(0.15, 0.16, 0.13)
 	return color
-
-func _get_wreck_draw_script() -> GDScript:
-	return load("res://scripts/wreck_draw.gd")
 
 func get_health() -> float:
 	return (1.0 - damage.damage_percent) * max_health
