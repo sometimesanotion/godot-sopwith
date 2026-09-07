@@ -1,7 +1,7 @@
 extends RigidBody2D
 class_name Cow
 
-const COW_KILLER_PENALTY := 25
+const COW_KILLER_PENALTY := 50
 const ANGER_DURATION_MS := 600
 
 var _svg_sprite_name: String = "cow"
@@ -10,10 +10,15 @@ var _health: float = 20.0
 var _max_health: float = 20.0
 var _last_hit_time: int = -ANGER_DURATION_MS * 2
 var _anger_level: int = 0
+var _physics_impact_velocity_threshold: float = 120.0
+var _physics_impact_cooldown_ms: int = 250
+var _last_physics_impact_time: int = -_physics_impact_cooldown_ms * 2
 
 func _ready() -> void:
 	mass = 200.0 + randf() * 80.0
 	gravity_scale = 0.0
+	contact_monitor = true
+	max_contacts_reported = 8
 	add_to_group("obstacle")
 	add_to_group("destructible")
 	add_to_group("cow")
@@ -21,6 +26,7 @@ func _ready() -> void:
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	queue_redraw()
 	set_process(true)
+	body_entered.connect(_on_physics_body_entered)
 
 func _process(_delta: float) -> void:
 	var elapsed = Time.get_ticks_msec() - _last_hit_time
@@ -50,6 +56,46 @@ func _draw() -> void:
 			)
 	elif _anger_level > 0:
 		_anger_level = 0
+
+func _on_physics_body_entered(body: Node) -> void:
+	## Handle physical collisions from bullets and destroyed (crashed) plane
+	## wreck bodies that tumble into us.  The analytical collision check
+	## (_check_obstacle_collision) covers live planes only; this covers
+	## everything else that hits us through the physics engine.
+	## Bullets already apply their own damage via take_damage(), so skip them.
+	if body and body.get_meta("bullet", false):
+		return
+	if body.has_method("get_primary_entity"):
+		var av = body.get_primary_entity()
+		if av:
+			## Live aerodynamic planes are already handled by the analytical
+			## _check_obstacle_collision path, so skip them here to avoid
+			## double damage.  Destroyed/falling planes are NOT handled there
+			## (the CRASHED state skips that check), so let them damage us.
+			if av.is_aerodynamic() and av.flight_state != Biplane.FlightState.CRASHED:
+				return
+			## Non-aerodynamic ground vehicles (tanks) roll through obstacles
+			## by design — they engage buildings with weapons, not mass.
+			if not av.is_aerodynamic():
+				return
+	var now := Time.get_ticks_msec()
+	if now - _last_physics_impact_time < _physics_impact_cooldown_ms:
+		return
+	if body == null or not is_instance_valid(body):
+		return
+	# Don't damage ourselves from passive contact with static terrain/ground.
+	if body is StaticBody2D or body.is_in_group("ground"):
+		return
+	var impact_speed: float = 0.0
+	if body is RigidBody2D:
+		impact_speed = body.linear_velocity.length()
+	elif body is CharacterBody2D:
+		impact_speed = body.velocity.length()
+	if impact_speed < _physics_impact_velocity_threshold:
+		return
+	_last_physics_impact_time = now
+	var dmg := clampf(impact_speed / 428.0, 0.25, 0.5) * 100.0
+	take_damage(dmg * 0.5, body)
 
 func _draw_fallback() -> void:
 	draw_colored_polygon(PackedVector2Array([

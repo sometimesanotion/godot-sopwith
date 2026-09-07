@@ -26,7 +26,7 @@ var music_volume: float = 0.2
 var debug_hud: bool = false
 var player_faction: String = "British"
 
-const ENEMY_PLANE_COOLDOWN_SEC := 5.0
+const ENEMY_PLANE_COOLDOWN_SEC := 3.0
 
 var current_level: int = 1
 
