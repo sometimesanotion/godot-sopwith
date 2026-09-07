@@ -17,9 +17,11 @@ const DESIGN_HEIGHT := 1440.0
 ## Aspect-preserving world scale: how much the current viewport differs from
 ## the 3440x1440 design.  Applied to camera.zoom so sprites, physics visuals,
 ## and camera LERPs stay proportional to the design at any resolution.
+## The lower bound keeps sprites from shrinking too small at low resolutions.
+const MIN_WORLD_SCALE := 0.62
 func _world_scale() -> float:
 	var vp := get_viewport_rect().size
-	return minf(vp.x / DESIGN_WIDTH, vp.y / DESIGN_HEIGHT)
+	return maxf(minf(vp.x / DESIGN_WIDTH, vp.y / DESIGN_HEIGHT), MIN_WORLD_SCALE)
 
 func _design_width() -> float:
 	return get_viewport_rect().size.x
@@ -384,6 +386,7 @@ func _start_playing() -> void:
 	_create_home_base()
 	_create_enemy_bases()
 	_spawn_cows()
+	_spawn_birds()
 	# Built last so the minimap samples terrain only after every runway
 	# (player + all enemy bases via add_runway) has been placed and the
 	# ground points fully regenerated — otherwise it shows a stale snapshot.
@@ -451,16 +454,6 @@ func _process(delta: float) -> void:
 		_spawn_enemy_plane(int(entry["base_i"]), int(entry["p_idx"]),
 			float(entry["base_x"]), bool(entry["faces_left"]),
 			float(entry["runway_left"]), int(entry["faction"]), 0.0)
-
-	if not birds_spawned:
-		birds_spawned = true
-		var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
-		var bird_count_map: Dictionary = {"None": 0, "Few": 3, "Normal": 5, "Many": 8}
-		var num_birds: int = int(bird_count_map.get(GameManager.bird_count if GameManager else "Normal", 6) * lm)
-		for i in range(num_birds):
-			var flock: Node2D = BIRD_FLOCK_SCENE.instantiate()
-			flock.position = Vector2(200 + randf() * 16000, -300 - randf() * 1200)
-			add_child(flock)
 
 func _spawn_enemies_and_targets() -> void:
 	enemies.clear()
@@ -642,6 +635,22 @@ func _spawn_cows() -> void:
 		var cow_y: float = terrain.get_ground_height_at(cow_x) if terrain and terrain.has_method("get_ground_height_at") else 650.0
 		cow.position = Vector2(cow_x, cow_y)
 		add_child(cow)
+
+## Spawn bird flocks across the map.  Called once per game from _start_playing
+## (after _spawn_cows), guarded by birds_spawned so it runs exactly once even
+## though enemy reinforcement spawns run in _process.  The count follows the
+## Bird Flocks setting, scaled by the level multiplier.
+func _spawn_birds() -> void:
+	if birds_spawned:
+		return
+	birds_spawned = true
+	var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
+	var bird_count_map: Dictionary = {"None": 0, "Few": 3, "Normal": 5, "Many": 8}
+	var num_birds: int = int(bird_count_map.get(GameManager.bird_count if GameManager else "Normal", 6) * lm)
+	for i in range(num_birds):
+		var flock: Node2D = BIRD_FLOCK_SCENE.instantiate()
+		flock.position = Vector2(200 + randf() * 16000, -300 - randf() * 1200)
+		add_child(flock)
 
 func _get_target_half_width(target_type: String) -> float:
 	match target_type:

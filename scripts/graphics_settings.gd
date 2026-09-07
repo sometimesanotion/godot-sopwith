@@ -26,6 +26,7 @@ func apply_settings() -> void:
 	_save_settings()
 
 func _apply_window() -> void:
+	_clamp_vertical_resolution()
 	match window_mode:
 		WindowMode.FULLSCREEN:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
@@ -37,6 +38,11 @@ func _apply_window() -> void:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
 			DisplayServer.window_set_size(Vector2i(resolution_x, resolution_y))
+
+## This is a side-scroller: vertical resolution must never exceed horizontal.
+func _clamp_vertical_resolution() -> void:
+	if resolution_y > resolution_x:
+		resolution_y = resolution_x
 
 func _apply_viewport_size() -> void:
 	pass
@@ -69,6 +75,7 @@ func fit_to_screen() -> void:
 	var screen_size := DisplayServer.screen_get_size(screen_id)
 	resolution_x = screen_size.x
 	resolution_y = screen_size.y
+	_clamp_vertical_resolution()
 	window_mode = WindowMode.FULLSCREEN
 	apply_settings()
 
@@ -78,6 +85,7 @@ func _load_settings() -> void:
 		window_mode = cfg.get_value("graphics", "window_mode", WindowMode.FULLSCREEN)
 		resolution_x = cfg.get_value("graphics", "resolution_x", 1920)
 		resolution_y = cfg.get_value("graphics", "resolution_y", 1080)
+		_clamp_vertical_resolution()
 
 func _save_settings() -> void:
 	var cfg := ConfigFile.new()
