@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://fbnskx5s1uer"
-path="res://.godot/imported/fokker_d7.svg-15e472c4ba5ee7cc3fc84b22ba51ef66.ctex"
+uid="uid://cylxvlusq8tqb"
+path="res://.godot/imported/tank.svg-5ee1b2290e0034f748a36ed72f271ccd.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/svg/fokker_d7.svg"
-dest_files=["res://.godot/imported/fokker_d7.svg-15e472c4ba5ee7cc3fc84b22ba51ef66.ctex"]
+source_file="res://assets/svg/tank.svg"
+dest_files=["res://.godot/imported/tank.svg-5ee1b2290e0034f748a36ed72f271ccd.ctex"]
 
 [params]
 

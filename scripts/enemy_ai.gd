@@ -2202,7 +2202,7 @@ func _tank_hostile(child: Node, avatar) -> bool:
 		# If no primary entity, derive hostility from the structure's faction 
 		# versus the tank's faction (not hardcoded ALLIED/ENEMY).
 		var target_team := -1
-		if child.has("team"):
+		if child.has_method("has") and child.has("team"):
 			target_team = child.team
 		if target_team >= 0 and avatar.team >= 0:
 			return avatar.team != target_team

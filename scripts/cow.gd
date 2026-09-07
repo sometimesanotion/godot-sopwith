@@ -15,6 +15,7 @@ var _physics_impact_cooldown_ms: int = 250
 var _last_physics_impact_time: int = -_physics_impact_cooldown_ms * 2
 
 func _ready() -> void:
+	z_index = 1
 	mass = 200.0 + randf() * 80.0
 	gravity_scale = 0.0
 	contact_monitor = true

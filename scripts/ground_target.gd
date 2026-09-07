@@ -40,6 +40,7 @@ const AA_PROJECTILE := preload("res://scenes/bullet.tscn")
 const FLAK_SHELL := preload("res://scenes/flak_shell.tscn")
 
 func _ready() -> void:
+	z_index = 1
 	add_to_group("destructible")
 	add_to_group("ground_target")
 	_svg_sprite_name = target_type

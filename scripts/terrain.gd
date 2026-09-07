@@ -131,6 +131,7 @@ func _create_terrain() -> void:
 	terrain_polygon = Polygon2D.new()
 	# Vertex colors drive the fill (see _update_terrain_geometry), so the flat
 	# color is left white and the gradient is supplied per-vertex.
+	terrain_polygon.z_index = 0
 	terrain_polygon.color = Color(1.0, 1.0, 1.0, 1.0)
 	add_child(terrain_polygon)
 
@@ -138,6 +139,7 @@ func _create_terrain() -> void:
 	terrain_polygons = [terrain_polygon]
 	for offset in [-TERRAIN_LENGTH, TERRAIN_LENGTH]:
 		var copy := Polygon2D.new()
+		copy.z_index = 0
 		copy.color = Color(1.0, 1.0, 1.0, 1.0)
 		copy.position.x = offset
 		add_child(copy)
@@ -222,6 +224,7 @@ func _create_runway_visual(start: float, end: float, height: float = BASE_Y) -> 
 		if runway_tex:
 			var runway_sprite = Sprite2D.new()
 			runway_sprite.texture = runway_tex
+			runway_sprite.z_index = 1
 			runway_sprite.position = Vector2((start + end) * 0.5, height + 15)
 			var tex_width = runway_tex.get_width()
 			var tex_height = runway_tex.get_height()
@@ -237,6 +240,7 @@ func _create_runway_visual(start: float, end: float, height: float = BASE_Y) -> 
 		Vector2(end, height + 30),
 		Vector2(start, height + 30)
 	])
+	runway.z_index = 1
 	runway.color = runway_color
 	add_child(runway)
 
