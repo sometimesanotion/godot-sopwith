@@ -11,14 +11,26 @@ const VIEWPORT_MIN_X := 0.0
 const HOME_BASE := Vector2(5300, 650)
 
 ## Design resolution used for scaling all camera parameters.
-const DESIGN_WIDTH := 3440
-const DESIGN_HEIGHT := 1440
+const DESIGN_WIDTH := 3440.0
+const DESIGN_HEIGHT := 1440.0
+
+## Aspect-preserving world scale: how much the current viewport differs from
+## the 3440x1440 design.  Applied to camera.zoom so sprites, physics visuals,
+## and camera LERPs stay proportional to the design at any resolution.
+func _world_scale() -> float:
+	var vp := get_viewport_rect().size
+	return minf(vp.x / DESIGN_WIDTH, vp.y / DESIGN_HEIGHT)
+
+func _design_width() -> float:
+	return get_viewport_rect().size.x
+func _design_height() -> float:
+	return get_viewport_rect().size.y
 
 func _scale_x(v: float) -> float:
-	return v * get_viewport_rect().size.x / DESIGN_WIDTH
+	return v * get_viewport_rect().size.x / _design_width()
 
 func _scale_y(v: float) -> float:
-	return v * get_viewport_rect().size.y / DESIGN_HEIGHT
+	return v * get_viewport_rect().size.y / _design_height()
 
 # Enemy runways span [base_x + 50, base_x + 50 + LEN] (rightward) or
 # [base_x - 50 - LEN, base_x - 50] (leftward), LEN = Terrain.RUNWAY_LENGTH.
@@ -191,8 +203,8 @@ func _abort_game() -> void:
 		ui.visible = false
 	if camera:
 		var vp := get_viewport_rect().size
-		var title_zoom := 0.3 * vp.x / DESIGN_WIDTH
-		camera.position = Vector2(TERRAIN_LENGTH * 0.5, 400.0 * vp.y / DESIGN_HEIGHT / title_zoom)
+		var title_zoom := 0.3 * vp.x / _design_width()
+		camera.position = Vector2(TERRAIN_LENGTH * 0.5, 400.0 * vp.y / _design_height() / title_zoom)
 		camera.zoom = Vector2(title_zoom, title_zoom)
 		camera.reset_smoothing()
 	_show_title_screen()
@@ -244,9 +256,9 @@ func _show_startup_world() -> void:
 		background.generate(terrain.resolved_seed)
 	if camera:
 		var vp := get_viewport_rect().size
-		var title_zoom := 0.3 * vp.x / DESIGN_WIDTH
+		var title_zoom := 0.3 * vp.x / _design_width()
 		camera.enabled = true
-		camera.position = Vector2(TERRAIN_LENGTH * 0.5, 400.0 * vp.y / DESIGN_HEIGHT / title_zoom)
+		camera.position = Vector2(TERRAIN_LENGTH * 0.5, 400.0 * vp.y / _design_height() / title_zoom)
 		camera.zoom = Vector2(title_zoom, title_zoom)
 		camera.reset_smoothing()
 	if ui:
@@ -273,8 +285,8 @@ func _on_graphics_settings_changed() -> void:
 	if game_state == "TITLE":
 		if camera:
 			var vp := get_viewport_rect().size
-			var title_zoom := 0.3 * vp.x / DESIGN_WIDTH
-			camera.position = Vector2(TERRAIN_LENGTH * 0.5, 400.0 * vp.y / DESIGN_HEIGHT / title_zoom)
+			var title_zoom := 0.3 * vp.x / _design_width()
+			camera.position = Vector2(TERRAIN_LENGTH * 0.5, 400.0 * vp.y / _design_height() / title_zoom)
 			camera.zoom = Vector2(title_zoom, title_zoom)
 			camera.reset_smoothing()
 
@@ -345,7 +357,7 @@ func _start_playing() -> void:
 		SoundManager.set_engine_rpm(0.0)
 	if camera:
 		camera.enabled = true
-		camera.zoom = Vector2(1, 1)
+		camera.zoom = Vector2(_world_scale(), _world_scale())
 		camera.position = Vector2(PLAYER_SPAWN_X, _scale_y(400.0))
 	if ui:
 		ui.visible = true

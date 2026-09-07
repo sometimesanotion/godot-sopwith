@@ -12,13 +12,12 @@ var _sop_sprite: Node2D
 var _last_known_size := Vector2(-1, -1)
 
 func _design_size() -> Vector2:
-	return Vector2(
-		ProjectSettings.get_setting("display/window/size/viewport_width", 1920),
-		ProjectSettings.get_setting("display/window/size/viewport_height", 1080)
-	)
+	return get_viewport().size
 
 func _ready() -> void:
 	get_viewport().size_changed.connect(_rebuild_all)
+	if GraphicsSettings:
+		GraphicsSettings.settings_changed.connect(_rebuild_all)
 
 func _rebuild_all() -> void:
 	var vs := _design_size()

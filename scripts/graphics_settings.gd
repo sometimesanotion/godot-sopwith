@@ -9,13 +9,11 @@ signal settings_changed
 enum WindowMode { WINDOWED, BORDERLESS, FULLSCREEN }
 
 var window_mode: int = WindowMode.FULLSCREEN
-var resolution_x: int = 3440
-var resolution_y: int = 1440
+var resolution_x: int = 1920
+var resolution_y: int = 1080
 
 const COMMON_WIDTHS := [1280, 1366, 1600, 1920, 2560, 3440, 3840]
 const COMMON_HEIGHTS := [720, 768, 900, 1080, 1200, 1440, 2160]
-const DESIGN_WIDTH := 3440
-const DESIGN_HEIGHT := 1440
 
 func _ready() -> void:
 	_load_settings()
@@ -41,9 +39,7 @@ func _apply_window() -> void:
 			DisplayServer.window_set_size(Vector2i(resolution_x, resolution_y))
 
 func _apply_viewport_size() -> void:
-	ProjectSettings.set_setting("display/window/size/viewport_width", resolution_x)
-	ProjectSettings.set_setting("display/window/size/viewport_height", resolution_y)
-	get_viewport().set_size(Vector2i(resolution_x, resolution_y))
+	pass
 
 func get_window_mode_name() -> String:
 	match window_mode:
@@ -80,8 +76,8 @@ func _load_settings() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load("user://graphics.cfg") == OK:
 		window_mode = cfg.get_value("graphics", "window_mode", WindowMode.FULLSCREEN)
-		resolution_x = cfg.get_value("graphics", "resolution_x", 3440)
-		resolution_y = cfg.get_value("graphics", "resolution_y", 1440)
+		resolution_x = cfg.get_value("graphics", "resolution_x", 1920)
+		resolution_y = cfg.get_value("graphics", "resolution_y", 1080)
 
 func _save_settings() -> void:
 	var cfg := ConfigFile.new()
