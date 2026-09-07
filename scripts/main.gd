@@ -401,8 +401,6 @@ func _start_playing() -> void:
 const COW_SCENE := preload("res://scenes/cow.tscn")
 const BIRD_FLOCK_SCENE := preload("res://scenes/bird_flock.tscn")
 
-var birds_spawned: bool = false
-
 var enemy_home_positions: Array[float] = []
 ## Parallel to enemy_home_positions: true if this base launches leftward
 ## (runway sits on the left of base_x, buildings on the right).  Set in
@@ -637,13 +635,9 @@ func _spawn_cows() -> void:
 		add_child(cow)
 
 ## Spawn bird flocks across the map.  Called once per game from _start_playing
-## (after _spawn_cows), guarded by birds_spawned so it runs exactly once even
-## though enemy reinforcement spawns run in _process.  The count follows the
-## Bird Flocks setting, scaled by the level multiplier.
+## (after _spawn_cows), like _spawn_cows.  The count follows the Bird Flocks
+## setting, scaled by the level multiplier.
 func _spawn_birds() -> void:
-	if birds_spawned:
-		return
-	birds_spawned = true
 	var lm: float = GameManager.get_level_multiplier() if GameManager else 1.0
 	var bird_count_map: Dictionary = {"None": 0, "Few": 3, "Normal": 5, "Many": 8}
 	var num_birds: int = int(bird_count_map.get(GameManager.bird_count if GameManager else "Normal", 6) * lm)
@@ -974,6 +968,7 @@ func _physics_process(delta: float) -> void:
 
 	if biplane:
 		_handle_wrap_around()
+		_wrap_enemy_planes()
 		_update_camera(delta)
 		_update_minimap()
 
@@ -1239,6 +1234,25 @@ func _handle_wrap_around() -> void:
 		biplane.position.x = VIEWPORT_MIN_X + 1
 		camera.position.x -= TERRAIN_LENGTH
 		camera.reset_smoothing()
+
+
+## Wrap every non-player plane's actual body position back into
+## [0, TERRAIN_LENGTH) so on-screen rendering matches the wrap-aware
+## minimap.  The enemy AI already steers/aims using wrapf() distances,
+## so its logic is wrap-consistent; only the rendered RigidBody2D
+## position was left unwrapped, which made off-edge enemies invisible
+## on screen even though they appeared at their wrapped spot on the
+## minimap.  Mirror the player wrap exactly (same margin) so all
+## aircraft share one consistent wrap convention.
+func _wrap_enemy_planes() -> void:
+	for e in enemies:
+		if not is_instance_valid(e):
+			continue
+		var ex: float = e.global_position.x
+		if ex < VIEWPORT_MIN_X:
+			e.global_position.x = TERRAIN_LENGTH - 1.0
+		elif ex >= TERRAIN_LENGTH:
+			e.global_position.x = VIEWPORT_MIN_X + 1.0
 
 
 func _create_minimap() -> void:

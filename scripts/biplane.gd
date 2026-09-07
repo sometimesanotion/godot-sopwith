@@ -936,7 +936,7 @@ class CollisionResult:
 ## capsule (r=32.5) first touches at ~65 px center distance and the solver
 ## never lets centers get closer than ~50 px (measured headless), so the old
 ## 40.0 gates could never fire for plane-vs-plane.
-const PLANE_PROXIMITY_RADIUS := 60.0
+const PLANE_PROXIMITY_RADIUS := 45.0
 ## Mid-air closing speed (m/s) that destroys both aircraft outright.  Cruise
 ## is ~40–50 m/s, so any genuine head-on impact is catastrophic while
 ## formation kisses and overtake bumps merely damage.
