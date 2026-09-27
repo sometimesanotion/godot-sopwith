@@ -28,11 +28,15 @@ The features of the original Sopwith, with touches of physics simulation.
 
 ## Features
 
-- Realistic vector aerodynamics with lift and drag
+- Arcade-paces, but realistically inspired vector aerodynamics with lift and drag
 - Stall mechanic based on speed threshold
 - Weapon systems: machine gun and bombs
 - Enemy AI biplanes and ground targets with AA fire
-- Pause menu (press P)
+- Tanks move and fire on targets and each other
+- Land your plane manually at your homebase to reload, repair, and refuel your plane.
+- The flip key works on the ground - to reverse your plane's direction on the X axis.
+- Keeping your buildings standing enhances your repair/reload time.  You gain planes for completing a level with more of them standing.
+- Your fuel silo speeds your plane's refueling.  The ammo depot speeds your rearming.  The hangar speeds all that and repairs, too.  Protect them!
 
 ## Test Run
 
