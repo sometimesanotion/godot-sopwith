@@ -32,14 +32,13 @@ The features of the original Sopwith, with touches of physics simulation.
 - Stall mechanic based on speed threshold
 - Weapon systems: machine gun and bombs
 - Enemy AI biplanes and ground targets with AA fire
-- Screen shake on explosions
 - Pause menu (press P)
 
 ## Test Run
 
 To take it for a spin, get a copy of the Godot 4.6 runtime for your platform:
 
-https://godotengine.org/download/windows
+https://godotengine.org/download/
 
 From a command line:
 ```
