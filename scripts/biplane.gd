@@ -63,7 +63,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_speed": 5.0,            # Baseline: notoriously fast pitch response
 		"negative_rotation_speed": 3.2,   # Rotary engine gyroscope strongly biases against pitch-down
 		"rotation_inertia": 4.0,
-		"bullet_spawn_offset": Vector2(34, -10),
+		"bullet_spawn_offset": Vector2(50, -5),
 		"bomb_spawn_offset": Vector2(0, 32),
 		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
@@ -88,7 +88,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_speed": 3.8,           # Agile but not twitchy; designed for stability over dogfighting
 		"negative_rotation_speed": 2.6,  # No rotary gyroscope bias; conventional inline V8
 		"rotation_inertia": 4.0,
-		"bullet_spawn_offset": Vector2(34, -10),
+		"bullet_spawn_offset": Vector2(50, -5),
 		"bomb_spawn_offset": Vector2(0, 32),
 		"max_bombs": 4,
 		"visual_scale": Vector2.ONE,
@@ -113,7 +113,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_speed": 3.5,            # Heavy two-seater, notably less agile than Camel
 		"negative_rotation_speed": 2.3,   # Heavier tail, slow pitch-down response
 		"rotation_inertia": 8.0,
-		"bullet_spawn_offset": Vector2(34, -10),
+		"bullet_spawn_offset": Vector2(50, -5),
 		"bomb_spawn_offset": Vector2(0, 32),
 		"max_bombs": 3,
 		"visual_scale": Vector2.ONE,
@@ -138,7 +138,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_speed": 3.2,            # Heavy fighter, good but not twitchy; roll-rate limited at speed
 		"negative_rotation_speed": 2.2,   # Conventional design, slower pitch-down vs pitch-up
 		"rotation_inertia": 4.0,
-		"bullet_spawn_offset": Vector2(34, -10),
+		"bullet_spawn_offset": Vector2(50, -5),
 		"bomb_spawn_offset": Vector2(0, 32),
 		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
@@ -163,7 +163,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_speed": 3.8,            # Stiffer controls than Camel; less agile in pitch
 		"negative_rotation_speed": 2.6,   # Standard non-rotary inline engine behavior
 		"rotation_inertia": 4.0,
-		"bullet_spawn_offset": Vector2(34, -10),
+		"bullet_spawn_offset": Vector2(50, -5),
 		"bomb_spawn_offset": Vector2(0, 32),
 		"max_bombs": 6,
 		"visual_scale": Vector2.ONE,
@@ -188,7 +188,7 @@ static var _PLANE_MODELS: Dictionary = {
 		"rotation_speed": 4.2,            # Agile, but not as hair-trigger as the Camel
 		"negative_rotation_speed": 2.8,   # Good but asymmetric pitch authority, as typical
 		"rotation_inertia": 5.0,
-		"bullet_spawn_offset": Vector2(34, -10),
+		"bullet_spawn_offset": Vector2(50, -5),
 		"bomb_spawn_offset": Vector2(0, 32),
 		"max_bombs": 0,
 		"visual_scale": Vector2(1.1, 1.1),
@@ -540,7 +540,7 @@ class AvatarData:
 
 	var last_flight_output: Aerodynamics.FlightOutput = null
 
-	var bullet_spawn_offset: Vector2 = model_params.get("bullet_spawn_offset", Vector2(48, -9))
+	var bullet_spawn_offset: Vector2 = model_params.get("bullet_spawn_offset", Vector2(50, -5))
 	var bomb_spawn_offset: Vector2 = model_params.get("bomb_spawn_offset", Vector2(0, 32))
 
 	func reset() -> void:

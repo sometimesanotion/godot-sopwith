@@ -183,7 +183,7 @@ func _on_avatar_crashed(avatar: AvatarData) -> void:
 func _create_tank_wreck() -> void:
 	var wreck := Node2D.new()
 	wreck.position = global_position
-	wreck.z_index = 4
+	wreck.z_index = 6
 	wreck.add_to_group("wreck")
 
 	var hull_color := Color(0.12, 0.20, 0.10)
@@ -193,7 +193,7 @@ func _create_tank_wreck() -> void:
 	var wreck_draw := Node2D.new()
 	wreck_draw.set_script(preload("res://scripts/tank_draw.gd"))
 	wreck_draw.set_meta("wreck_color", hull_color)
-	wreck_draw.z_index = 1
+	wreck_draw.z_index = 6
 	wreck.add_child(wreck_draw)
 
 	if EffectManager:

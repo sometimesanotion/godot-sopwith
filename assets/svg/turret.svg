@@ -22,7 +22,7 @@
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
      inkscape:zoom="8.6357143"
-     inkscape:cx="99.991729"
+     inkscape:cx="100.04963"
      inkscape:cy="70"
      inkscape:window-width="3372"
      inkscape:window-height="1417"
@@ -50,7 +50,7 @@
      stroke="#000000"
      stroke-width="8.41963"
      id="rect28"
-     style="display:inline" />
+     style="display:inline;stroke-width:9;stroke-dasharray:none" />
   <!-- gun barrel -->
   <rect
      x="129.01945"

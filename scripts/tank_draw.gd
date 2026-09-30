@@ -45,9 +45,9 @@ func _draw_live(tank) -> void:
 			or avatar.flight_state == Biplane.FlightState.FALLING
 			or avatar.damage.damage_state == DamageData.DamageState.DESTROYED)
 
-	var body_color := Color(0.20, 0.44, 0.18)
+	var body_color := Color(0.3, 0.4, 0.2)
 	if avatar.team == Biplane.Team.ENEMY:
-		body_color = Color(0.44, 0.22, 0.16)
+		body_color = Color(0.5, 0.3, 0.2)
 	if destroyed:
 		body_color = body_color.darkened(0.8)
 

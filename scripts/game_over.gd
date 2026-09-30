@@ -146,13 +146,16 @@ func _input(event: InputEvent) -> void:
 	var ke := event as InputEventKey
 	if not ke.pressed or ke.is_echo():
 		return
+	port = get_viewport()
 	match ke.keycode:
 		KEY_ENTER, KEY_SPACE:
 			restart_game.emit()
-			get_viewport().set_input_as_handled()
+			if port:
+				port.set_input_as_handled()
 			queue_free()
 			return
-	get_viewport().set_input_as_handled()
+	if port:
+		port.set_input_as_handled()
 
 func _process(_delta: float) -> void:
 	if _last_known_size == Vector2(-1, -1):

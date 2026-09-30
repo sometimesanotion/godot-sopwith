@@ -435,7 +435,7 @@ func _create_wreck() -> void:
 	wreck_draw.set_meta("wreck_svg", _svg_sprite_name)
 	wreck_draw.set_meta("wreck_rect", SvgManager.calc_draw_rect(wrecked_points) if SvgManager else Rect2())
 	wreck_draw.set_meta("wreck_points", wrecked_points)
-	wreck_draw.z_index = 2
+	wreck_draw.z_index = 6
 	wreck.add_child(wreck_draw)
 
 	# Lingering wreck burn, scaled to the structure footprint: fire and
@@ -452,17 +452,17 @@ func _create_wreck() -> void:
 	get_parent().call_deferred("add_child", wreck)
 
 func _get_wreck_color() -> Color:
-	var color := Color(0.15, 0.15, 0.18)
-	if target_type == "hangar":
-		color = Color(0.2, 0.1, 0.1)
-	elif target_type == "fuel_depot":
-		color = Color(0.1, 0.25, 0.1)
-	elif target_type == "ammo_depot":
-		color = Color(0.12, 0.15, 0.25)
-	elif target_type == "flak_cannon":
-		color = Color(0.18, 0.12, 0.12)
-	elif target_type == "machine_gun_nest":
-		color = Color(0.15, 0.16, 0.13)
+	var color := Color(0.05, 0.05, 0.08)
+	# if target_type == "hangar":
+	# 	color = Color(0.2, 0.1, 0.1)
+	# elif target_type == "fuel_depot":
+	# 	color = Color(0.1, 0.25, 0.1)
+	# elif target_type == "ammo_depot":
+	# 	color = Color(0.12, 0.15, 0.25)
+	# elif target_type == "flak_cannon":
+	# 	color = Color(0.18, 0.12, 0.12)
+	# elif target_type == "machine_gun_nest":
+	# 	color = Color(0.15, 0.16, 0.13)
 	return color
 
 func get_health() -> float:

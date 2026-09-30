@@ -2197,7 +2197,11 @@ func _tank_hostile(child: Node, avatar) -> bool:
 		var target_oa = child.get_primary_entity() if child.has_method("get_primary_entity") else null
 		if target_oa:
 			return avatar.is_hostile_to(target_oa)
-		return false
+		# Structures (StaticBody2D) have no AvatarData.  "enemy_target" group
+		# membership means hostile by definition — skip destroyed ones.
+		if child.get("is_destroyed"):
+			return false
+		return avatar.team != Biplane.Team.ENEMY
 	if child.is_in_group("tank") and child != biplane:
 		var oa = child.get_primary_entity()
 		if not oa or not avatar.is_hostile_to(oa):
@@ -2213,24 +2217,27 @@ func _tank_hostile(child: Node, avatar) -> bool:
 		if not oa or not avatar.is_hostile_to(oa):
 			return false
 		# Live aircraft only — a crashed/FALLING wreck is not a valid target.
-		# This fixes the bug where tanks only fired when the aircraft was
-		# already destroyed (is_airborne == false after crash).
 		if oa.damage.damage_state == DamageData.DamageState.DESTROYED:
 			return false
 		if oa.flight_state == Biplane.FlightState.CRASHED or oa.flight_state == Biplane.FlightState.FALLING:
 			return false
 		return true
 	if child.is_in_group("ground_target"):
-		# Hostile buildings: oppose by faction, not by hardcoded team.
 		var target_oa = child.get_primary_entity() if child.has_method("get_primary_entity") else null
 		if target_oa and avatar.is_hostile_to(target_oa):
 			return true
-		# If no primary entity, derive hostility from the structure's faction 
-		# versus the tank's faction (not hardcoded ALLIED/ENEMY).
-		var target_team := -1
-		if child.has_method("has") and child.has("team"):
-			target_team = child.team
-		if target_team >= 0 and avatar.team >= 0:
+		# Structures carry "is_enemy" (bool), not an AvatarData "team" enum.
+		# Derive hostility: enemy building vs allied tank → hostile, and
+		# vice-versa.  Same side → not a target.
+		var bldg_is_enemy = child.get("is_enemy")
+		if bldg_is_enemy != null:
+			if avatar.team == Biplane.Team.ALLIED:
+				return bldg_is_enemy
+			if avatar.team == Biplane.Team.ENEMY:
+				return not bldg_is_enemy
+			return false
+		var target_team = child.get("team")
+		if target_team != null and avatar.team >= 0:
 			return avatar.team != target_team
 		return false
 	# Generic hostile aircraft fallback: any Biplane-derived node not already

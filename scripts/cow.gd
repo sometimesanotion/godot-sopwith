@@ -126,7 +126,7 @@ func _do_destroy(attacker: Node = null) -> void:
 	wreck.name = "CowWreck"
 	wreck.position = global_position
 	wreck.rotation = randf_range(-0.3, 0.3)
-	wreck.z_index = 3
+	wreck.z_index = 6
 	wreck.add_to_group("wreck")
 	var draw_script := load("res://scripts/cow_wreck_draw.gd")
 	var draw_node := Node2D.new()
